@@ -1,0 +1,262 @@
+class CertificadoExperiencia {
+  final String id;
+  final String descripcion;
+  final DateTime? fechaEmision;
+  final String? url;
+
+  CertificadoExperiencia({
+    required this.id,
+    required this.descripcion,
+    this.fechaEmision,
+    this.url,
+  });
+
+  factory CertificadoExperiencia.fromJson(Map<String, dynamic> d) =>
+      CertificadoExperiencia(
+        id: d['id']?.toString() ?? '',
+        descripcion: d['descripcion']?.toString() ?? '',
+        fechaEmision: d['fechaEmision'] != null
+            ? DateTime.tryParse(d['fechaEmision'])
+            : null,
+        url: d['url']?.toString(),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'descripcion': descripcion,
+        'fechaEmision': fechaEmision?.toIso8601String(),
+        'url': url,
+      };
+}
+
+class Reclamo {
+  final String id;
+  final String descripcion;
+  final DateTime? fechaReclamo;
+  final List<DocumentoProyecto> documentos;
+  final String estado; // 'Pendiente', 'Respondido'
+  final DateTime? fechaRespuesta;
+  final String? descripcionRespuesta;
+  final List<DocumentoProyecto> documentosRespuesta;
+
+  Reclamo({
+    required this.id,
+    required this.descripcion,
+    this.fechaReclamo,
+    this.documentos = const [],
+    this.estado = 'Pendiente',
+    this.fechaRespuesta,
+    this.descripcionRespuesta,
+    this.documentosRespuesta = const [],
+  });
+
+  factory Reclamo.fromJson(Map<String, dynamic> d) {
+    // documentos: nueva lista, o backward-compat con campo url
+    List<DocumentoProyecto> docs;
+    if (d['documentos'] is List) {
+      docs = (d['documentos'] as List)
+          .map((e) => DocumentoProyecto.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+    } else if (d['url'] is String && (d['url'] as String).isNotEmpty) {
+      docs = [DocumentoProyecto(tipo: 'Documento', url: d['url'] as String)];
+    } else {
+      docs = [];
+    }
+    // documentosRespuesta: nueva lista, o backward-compat con urlRespuesta
+    List<DocumentoProyecto> docsResp;
+    if (d['documentosRespuesta'] is List) {
+      docsResp = (d['documentosRespuesta'] as List)
+          .map((e) => DocumentoProyecto.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+    } else if (d['urlRespuesta'] is String && (d['urlRespuesta'] as String).isNotEmpty) {
+      docsResp = [DocumentoProyecto(tipo: 'Documento', url: d['urlRespuesta'] as String)];
+    } else {
+      docsResp = [];
+    }
+    return Reclamo(
+      id: d['id']?.toString() ?? '',
+      descripcion: d['descripcion']?.toString() ?? '',
+      fechaReclamo: d['fechaReclamo'] != null ? DateTime.tryParse(d['fechaReclamo']) : null,
+      documentos: docs,
+      estado: d['estado']?.toString() ?? 'Pendiente',
+      fechaRespuesta: d['fechaRespuesta'] != null ? DateTime.tryParse(d['fechaRespuesta']) : null,
+      descripcionRespuesta: d['descripcionRespuesta']?.toString(),
+      documentosRespuesta: docsResp,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'descripcion': descripcion,
+        'fechaReclamo': fechaReclamo?.toIso8601String(),
+        'documentos': documentos.map((d) => d.toJson()).toList(),
+        'estado': estado,
+        'fechaRespuesta': fechaRespuesta?.toIso8601String(),
+        'descripcionRespuesta': descripcionRespuesta,
+        'documentosRespuesta': documentosRespuesta.map((d) => d.toJson()).toList(),
+      };
+}
+
+class DocumentoProyecto {
+  final String tipo;
+  final String url;
+  final String? nombre;
+
+  DocumentoProyecto({required this.tipo, required this.url, this.nombre});
+
+  factory DocumentoProyecto.fromJson(Map<String, dynamic> d) => DocumentoProyecto(
+        tipo: d['tipo'] as String? ?? '',
+        url: d['url'] as String? ?? '',
+        nombre: d['nombre'] as String?,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'tipo': tipo,
+        'url': url,
+        if (nombre != null) 'nombre': nombre,
+      };
+}
+
+/// Constantes de estado de proyecto — usar estas en lugar de strings literales
+/// para evitar errores de tipeo y facilitar refactoring.
+class EstadoProyecto {
+  static const postulacion = 'Postulación';
+  static const vigente    = 'Vigente';
+  static const xVencer    = 'X Vencer';
+  static const finalizado = 'Finalizado';
+  static const sinFecha   = 'Sin fecha';
+}
+
+class Proyecto {
+  final String id;
+  final String institucion;
+  final String productos;
+  final String modalidadCompra;
+  final double? valorMensual;
+  final DateTime? fechaInicio;
+  final DateTime? fechaTermino;
+  final String? idLicitacion;
+  final String? idCotizacion;
+  final String? urlConvenioMarco;
+  final List<String> idsOrdenesCompra;
+  final List<DocumentoProyecto> documentos;
+  final List<CertificadoExperiencia> certificados;
+  final List<Reclamo> reclamos;
+  final String? notas;
+  final DateTime? fechaCreacion;
+  final bool completado;
+  final String? estadoManual;
+  final DateTime? fechaInicioRuta;
+  final DateTime? fechaTerminoRuta;
+  // Postulación / licitación timeline
+  final DateTime? fechaPublicacion;
+  final DateTime? fechaCierre;
+  final DateTime? fechaConsultasInicio;
+  final DateTime? fechaConsultas;       // enquiryPeriod.endDate
+  final DateTime? fechaAdjudicacion;    // awardPeriod.startDate
+  final DateTime? fechaAdjudicacionFin;
+
+  Proyecto({
+    required this.id,
+    required this.institucion,
+    required this.productos,
+    required this.modalidadCompra,
+    this.valorMensual,
+    this.fechaInicio,
+    this.fechaTermino,
+    this.idLicitacion,
+    this.idCotizacion,
+    this.urlConvenioMarco,
+    this.idsOrdenesCompra = const [],
+    this.documentos = const [],
+    this.certificados = const [],
+    this.reclamos = const [],
+    this.notas,
+    this.fechaCreacion,
+    this.completado = false,
+    this.estadoManual,
+    this.fechaInicioRuta,
+    this.fechaTerminoRuta,
+    this.fechaPublicacion,
+    this.fechaCierre,
+    this.fechaConsultasInicio,
+    this.fechaConsultas,
+    this.fechaAdjudicacion,
+    this.fechaAdjudicacionFin,
+  });
+
+  // Backward compat: first OC in list
+  String? get idOrdenCompra =>
+      idsOrdenesCompra.isNotEmpty ? idsOrdenesCompra.first : null;
+
+  String get estado {
+    if (estadoManual != null && estadoManual!.isNotEmpty) return estadoManual!;
+    if (fechaTermino == null) return EstadoProyecto.sinFecha;
+    final now = DateTime.now();
+    if (fechaTermino!.isBefore(now)) return EstadoProyecto.finalizado;
+    if (fechaTermino!.isBefore(now.add(const Duration(days: 30)))) return EstadoProyecto.xVencer;
+    return EstadoProyecto.vigente;
+  }
+
+  factory Proyecto.fromJson(Map<String, dynamic> d) {
+    // Support both new list field and legacy single field for OCs
+    List<String> ids;
+    if (d['idsOrdenesCompra'] is List) {
+      ids = List<String>.from(d['idsOrdenesCompra']);
+    } else if (d['idOrdenCompra'] is String &&
+        (d['idOrdenCompra'] as String).isNotEmpty) {
+      ids = [d['idOrdenCompra'] as String];
+    } else {
+      ids = [];
+    }
+
+    // Support new documentos list and backward compat with legacy documentoUrl
+    List<DocumentoProyecto> docs;
+    if (d['documentos'] is List) {
+      docs = (d['documentos'] as List)
+          .map((e) => DocumentoProyecto.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+    } else if (d['documentoUrl'] is String && (d['documentoUrl'] as String).isNotEmpty) {
+      docs = [DocumentoProyecto(tipo: 'Documento', url: d['documentoUrl'] as String)];
+    } else {
+      docs = [];
+    }
+
+    return Proyecto(
+      id: d['id']?.toString() ?? '',
+      institucion: d['institucion'] ?? '',
+      productos: d['productos'] ?? '',
+      modalidadCompra: d['modalidadCompra'] ?? '',
+      valorMensual: (d['valorMensual'] as num?)?.toDouble(),
+      fechaInicio: d['fechaInicio'] != null ? DateTime.tryParse(d['fechaInicio']) : null,
+      fechaTermino: d['fechaTermino'] != null ? DateTime.tryParse(d['fechaTermino']) : null,
+      idLicitacion: d['idLicitacion'],
+      idCotizacion: d['idCotizacion'],
+      urlConvenioMarco: d['urlConvenioMarco'],
+      idsOrdenesCompra: ids,
+      documentos: docs,
+      certificados: d['certificados'] is List
+          ? (d['certificados'] as List)
+              .map((e) => CertificadoExperiencia.fromJson(Map<String, dynamic>.from(e)))
+              .toList()
+          : [],
+      reclamos: d['reclamos'] is List
+          ? (d['reclamos'] as List)
+              .map((e) => Reclamo.fromJson(Map<String, dynamic>.from(e)))
+              .toList()
+          : [],
+      notas: d['notas'],
+      fechaCreacion: d['fechaCreacion'] != null ? DateTime.tryParse(d['fechaCreacion']) : null,
+      completado: d['completado'] ?? false,
+      estadoManual: d['estadoManual'],
+      fechaInicioRuta: d['fechaInicioRuta'] != null ? DateTime.tryParse(d['fechaInicioRuta']) : null,
+      fechaTerminoRuta: d['fechaTerminoRuta'] != null ? DateTime.tryParse(d['fechaTerminoRuta']) : null,
+      fechaPublicacion: d['fechaPublicacion'] != null ? DateTime.tryParse(d['fechaPublicacion']) : null,
+      fechaCierre: d['fechaCierre'] != null ? DateTime.tryParse(d['fechaCierre']) : null,
+      fechaConsultasInicio: d['fechaConsultasInicio'] != null ? DateTime.tryParse(d['fechaConsultasInicio']) : null,
+      fechaConsultas: d['fechaConsultas'] != null ? DateTime.tryParse(d['fechaConsultas']) : null,
+      fechaAdjudicacion: d['fechaAdjudicacion'] != null ? DateTime.tryParse(d['fechaAdjudicacion']) : null,
+      fechaAdjudicacionFin: d['fechaAdjudicacionFin'] != null ? DateTime.tryParse(d['fechaAdjudicacionFin']) : null,
+    );
+  }
+}

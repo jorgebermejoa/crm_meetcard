@@ -1,0 +1,44 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: authenticated @meetcard.cl user
+    function isMeetcard() {
+      return request.auth != null
+          && request.auth.token.email.matches('.*@meetcard\\.cl');
+    }
+
+    // Helper: caller is admin (reads their Firestore profile)
+    function isAdmin() {
+      return isMeetcard()
+          && get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol == 'admin';
+    }
+
+    // ── usuarios collection ────────────────────────────────────────────────
+    match /usuarios/{uid} {
+      // Any authenticated @meetcard.cl user can read all profiles
+      allow read: if isMeetcard();
+      // User can update only their own nombre field
+      allow update: if request.auth.uid == uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nombre']);
+      // Any @meetcard.cl user can create their own profile on first login
+      // Admin can create any profile (including other users)
+      allow create: if (isMeetcard() && request.auth.uid == uid) || isAdmin();
+      allow delete: if isAdmin();
+      allow update: if isAdmin();
+    }
+
+    // ── proyectos and subcollections ───────────────────────────────────────
+    match /proyectos/{docId} {
+      allow read, write: if isMeetcard();
+    }
+    match /proyectos/{docId}/{sub=**} {
+      allow read, write: if isMeetcard();
+    }
+
+    // ── other app collections ──────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if isMeetcard();
+    }
+  }
+}

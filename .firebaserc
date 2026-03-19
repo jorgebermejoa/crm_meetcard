@@ -1,5 +1,7 @@
 {
   "projects": {
     "default": "licitaciones-prod"
-  }
+  },
+  "targets": {},
+  "etags": {}
 }
