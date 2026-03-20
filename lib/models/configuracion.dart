@@ -85,7 +85,7 @@ const kColorPaleta = [
   'F97316', // orange
   '6366F1', // indigo
   '64748B', // slate
-  '1E1B6B', // primary
+  '5B21B6', // primary
   'EC4899', // pink
 ];
 

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-const _primaryColor = Color(0xFF1E1B6B);
+const _primaryColor = Color(0xFF5B21B6);
 const _bgColor = Color(0xFFF2F2F7);
 
 class BreadcrumbItem {

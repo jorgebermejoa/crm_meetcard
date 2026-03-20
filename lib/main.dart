@@ -135,7 +135,7 @@ class MiBuscadorApp extends StatelessWidget {
       routerConfig: _router,
       theme: ThemeData(
         useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1E1B6B)),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF5B21B6)),
         scaffoldBackgroundColor: const Color(0xFFF2F2F7),
         textTheme: GoogleFonts.interTextTheme(ThemeData.light().textTheme),
       ),
@@ -281,14 +281,14 @@ class _AppDrawer extends StatelessWidget {
                 leading: CircleAvatar(
                   radius: 16,
                   backgroundColor:
-                      const Color(0xFF1E1B6B).withValues(alpha: 0.1),
+                      const Color(0xFF5B21B6).withValues(alpha: 0.1),
                   child: Text(
                     (perfil.nombre.isNotEmpty ? perfil.nombre[0] : '?')
                         .toUpperCase(),
                     style: GoogleFonts.inter(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
-                        color: const Color(0xFF1E1B6B)),
+                        color: const Color(0xFF5B21B6)),
                   ),
                 ),
                 title: Text(
@@ -359,7 +359,7 @@ class _DrawerItem extends StatelessWidget {
     required this.onTap,
   });
 
-  static const _primaryColor = Color(0xFF1E1B6B);
+  static const _primaryColor = Color(0xFF5B21B6);
 
   @override
   Widget build(BuildContext context) {

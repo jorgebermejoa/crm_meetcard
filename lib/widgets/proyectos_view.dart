@@ -24,7 +24,7 @@ class ProyectosView extends StatefulWidget {
 
 class _ProyectosViewState extends State<ProyectosView>
     with TickerProviderStateMixin {
-  static const _primaryColor = Color(0xFF1E1B6B);
+  static const _primaryColor = Color(0xFF5B21B6);
   static const _pageSize = 10;
 
   late final TabController _tabController;
@@ -211,7 +211,7 @@ class _ProyectosViewState extends State<ProyectosView>
                   width: 18,
                   height: 18,
                   child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Color(0xFF1E1B6B)))
+                      strokeWidth: 2, color: Color(0xFF5B21B6)))
               : const Icon(Icons.refresh, color: Color(0xFF64748B), size: 20),
           onPressed: _cargando ? null : () => _cargar(forceRefresh: true),
           tooltip: 'Actualizar',
@@ -1081,7 +1081,7 @@ class _ProyectosViewState extends State<ProyectosView>
     DateTime? autoEnd,
     int stepMonths = 3,
   }) {
-    const activeColor = Color(0xFF1E1B6B);
+    const activeColor = Color(0xFF5B21B6);
     const inactiveColor = Color(0xFF94A3B8);
     final tabs = [
       ('contrato', 'Contrato'),
@@ -2243,6 +2243,7 @@ class _ReclamosCardState extends State<_ReclamosCard> {
         if (v < -150 || v > 150) setState(() => _idx = _idx == 0 ? 1 : 0);
       },
       child: Container(
+        constraints: const BoxConstraints(minHeight: 115),
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -2283,7 +2284,7 @@ class _ReclamosCardState extends State<_ReclamosCard> {
                   fontWeight: FontWeight.bold,
                   letterSpacing: -0.5,
                   color: const Color(0xFF1E293B))),
-          const SizedBox(height: 10),
+          const Spacer(),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: List.generate(2, (i) => AnimatedContainer(
@@ -2317,7 +2318,7 @@ class _ProyectosKpiCardState extends State<_ProyectosKpiCard> {
   int _idx = 3; // default: Postulación
 
   static const _pages = [
-    (label: 'Proyectos\nActivos',     estado: null as String?,            color: Color(0xFF1E1B6B), activos: true),
+    (label: 'Proyectos\nActivos',     estado: null as String?,            color: Color(0xFF5B21B6), activos: true),
     (label: 'Proyectos\nVigentes',    estado: EstadoProyecto.vigente,     color: Color(0xFF10B981), activos: false),
     (label: 'Proyectos\nX Vencer',    estado: EstadoProyecto.xVencer,     color: Color(0xFFF59E0B), activos: false),
     (label: 'Proyectos\nPostulación', estado: EstadoProyecto.postulacion, color: Color(0xFF6366F1), activos: false),
@@ -2353,6 +2354,7 @@ class _ProyectosKpiCardState extends State<_ProyectosKpiCard> {
         });
       },
       child: Container(
+        constraints: const BoxConstraints(minHeight: 115),
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -2392,7 +2394,7 @@ class _ProyectosKpiCardState extends State<_ProyectosKpiCard> {
                   fontWeight: FontWeight.bold,
                   letterSpacing: -0.5,
                   color: const Color(0xFF1E293B))),
-          const SizedBox(height: 8),
+          const Spacer(),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: List.generate(_pages.length, (i) => AnimatedContainer(
@@ -2459,6 +2461,7 @@ class _XVencerKpiCardState extends State<_XVencerKpiCard> {
         });
       },
       child: Container(
+        constraints: const BoxConstraints(minHeight: 115),
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -2501,7 +2504,7 @@ class _XVencerKpiCardState extends State<_XVencerKpiCard> {
                   fontWeight: FontWeight.bold,
                   letterSpacing: -0.5,
                   color: const Color(0xFF1E293B))),
-          const SizedBox(height: 8),
+          const Spacer(),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: List.generate(_periodos.length, (i) => AnimatedContainer(
@@ -2538,7 +2541,7 @@ class _ValorMensualCardState extends State<_ValorMensualCard> {
     (label: 'Valor Mensual\nVigente',     short: 'Vigente',     estado: EstadoProyecto.vigente,    color: Color(0xFF10B981)),
     (label: 'Valor Mensual\nX Vencer',    short: 'X Vencer',    estado: EstadoProyecto.xVencer,    color: Color(0xFFF59E0B)),
     (label: 'Valor Mensual\nPostulación', short: 'Postulación', estado: EstadoProyecto.postulacion, color: Color(0xFF0EA5E9)),
-    (label: 'Valor Mensual\nTotal',       short: 'Total',       estado: null as String?,            color: Color(0xFF1E1B6B)),
+    (label: 'Valor Mensual\nTotal',       short: 'Total',       estado: null as String?,            color: Color(0xFF5B21B6)),
   ];
 
   static String _fmt(double n) {
@@ -2569,6 +2572,7 @@ class _ValorMensualCardState extends State<_ValorMensualCard> {
         if (v > 150) setState(() => _idx = (_idx - 1 + _pages.length) % _pages.length);
       },
       child: Container(
+        constraints: const BoxConstraints(minHeight: 115),
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -2613,7 +2617,7 @@ class _ValorMensualCardState extends State<_ValorMensualCard> {
                 letterSpacing: -0.5,
                 color: const Color(0xFF1E293B)),
           ),
-          const SizedBox(height: 10),
+          const Spacer(),
           // Dot indicators
           Row(
             mainAxisAlignment: MainAxisAlignment.center,

@@ -22,7 +22,7 @@ class HomeView extends StatefulWidget {
 
 class _HomeViewState extends State<HomeView>
     with SingleTickerProviderStateMixin {
-  static const _primaryColor = Color(0xFF1E1B6B);
+  static const _primaryColor = Color(0xFF5B21B6);
   static const _bgColor = Color(0xFFF2F2F7);
 
   late TabController _tabController;
@@ -530,7 +530,7 @@ class _HomeViewState extends State<HomeView>
         padding: const EdgeInsets.all(22),
         decoration: BoxDecoration(
           gradient: const LinearGradient(
-            colors: [Color(0xFF1E1B6B), Color(0xFF4F46E5)],
+            colors: [Color(0xFF5B21B6), Color(0xFF4F46E5)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),

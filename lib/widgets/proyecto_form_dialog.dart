@@ -40,7 +40,7 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
 
   List<String> _modalidades = ['Licitación Pública', 'Convenio Marco', 'Trato Directo', 'Otro'];
 
-  static const _primaryColor = Color(0xFF1E1B6B);
+  static const _primaryColor = Color(0xFF5B21B6);
 
   @override
   void initState() {

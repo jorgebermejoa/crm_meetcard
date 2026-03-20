@@ -23,7 +23,7 @@ class CategoriaResultadosView extends StatefulWidget {
 }
 
 class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
-  static const _primaryColor = Color(0xFF1E1B6B);
+  static const _primaryColor = Color(0xFF5B21B6);
 
   List<LicitacionUI> _licitaciones = [];
   bool _cargando = false;

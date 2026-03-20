@@ -11,7 +11,7 @@ class LoginView extends StatefulWidget {
 }
 
 class _LoginViewState extends State<LoginView> {
-  static const _primaryColor = Color(0xFF1E1B6B);
+  static const _primaryColor = Color(0xFF5B21B6);
 
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();

@@ -36,7 +36,7 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
     with TickerProviderStateMixin {
   static const _baseUrl =
       'https://us-central1-licitaciones-prod.cloudfunctions.net';
-  static const _primaryColor = Color(0xFF1E1B6B);
+  static const _primaryColor = Color(0xFF5B21B6);
   static const _bgColor = Color(0xFFF2F2F7);
 
   late Proyecto _proyecto;
@@ -3799,11 +3799,11 @@ void abrirDocumento(BuildContext ctx, String url, String nombre) {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E1B6B).withValues(alpha: 0.08),
+              color: const Color(0xFF5B21B6).withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(10),
             ),
             child: const Icon(Icons.insert_drive_file_outlined,
-                color: Color(0xFF1E1B6B), size: 20),
+                color: Color(0xFF5B21B6), size: 20),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -3829,7 +3829,7 @@ void abrirDocumento(BuildContext ctx, String url, String nombre) {
                 style: GoogleFonts.inter(
                     fontSize: 14, fontWeight: FontWeight.w600)),
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1E1B6B),
+              backgroundColor: const Color(0xFF5B21B6),
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(vertical: 14),
               shape: RoundedRectangleBorder(
@@ -3886,7 +3886,7 @@ class _ReclamoCard extends StatefulWidget {
 }
 
 class _ReclamoCardState extends State<_ReclamoCard> {
-  static const _primaryColor = Color(0xFF1E1B6B);
+  static const _primaryColor = Color(0xFF5B21B6);
   bool _expanded = false;
   static const _maxLines = 3;
 

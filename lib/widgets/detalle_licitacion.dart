@@ -64,7 +64,7 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
     with SingleTickerProviderStateMixin {
   static const _cf =
       'https://us-central1-licitaciones-prod.cloudfunctions.net';
-  static const _primary = Color(0xFF1E1B6B);
+  static const _primary = Color(0xFF5B21B6);
   static const _bg = Color(0xFFF2F2F7);
 
   Map<String, dynamic>? _intel;

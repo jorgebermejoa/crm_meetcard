@@ -12,7 +12,7 @@ class PerfilView extends StatefulWidget {
 }
 
 class _PerfilViewState extends State<PerfilView> {
-  static const _primaryColor = Color(0xFF1E1B6B);
+  static const _primaryColor = Color(0xFF5B21B6);
   static const _bgColor = Color(0xFFF2F2F7);
 
   final _nombreCtrl = TextEditingController();

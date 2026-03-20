@@ -10,7 +10,7 @@ import 'app_breadcrumbs.dart';
 // re-export para usar en este archivo sin prefix
 typedef _Hex = String;
 
-const _primaryColor = Color(0xFF1E1B6B);
+const _primaryColor = Color(0xFF5B21B6);
 const _bgColor = Color(0xFFF2F2F7);
 const _cfBase = 'https://us-central1-licitaciones-prod.cloudfunctions.net';
 

@@ -71,7 +71,7 @@ class _LicitacionesTableState extends State<LicitacionesTable> {
   static const _pageSize = 10;
   int _currentPage = 0;
 
-  static const _primary = Color(0xFF1E1B6B);
+  static const _primary = Color(0xFF5B21B6);
 
   @override
   void didUpdateWidget(covariant LicitacionesTable old) {
@@ -146,7 +146,7 @@ class _LicitacionCard extends StatelessWidget {
   final bool isSelected;
   final VoidCallback? onTap;
 
-  static const _primary = Color(0xFF1E1B6B);
+  static const _primary = Color(0xFF5B21B6);
 
   const _LicitacionCard({
     required this.lic,
