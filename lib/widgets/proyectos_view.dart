@@ -1363,22 +1363,6 @@ class _ProyectosViewState extends State<ProyectosView>
                                   crossAxisAlignment:
                                       CrossAxisAlignment.start,
                                   children: [
-                                    Text(
-                                      'Proyectos',
-                                      style: GoogleFonts.inter(
-                                          fontSize: isMobile ? 24 : 30,
-                                          fontWeight: FontWeight.w800,
-                                          letterSpacing: -0.7,
-                                          color: const Color(0xFF1E293B)),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      'Gestión de contratos adjudicados',
-                                      style: GoogleFonts.inter(
-                                          fontSize: isMobile ? 13 : 14,
-                                          color: Colors.grey.shade500),
-                                    ),
-                                    const SizedBox(height: 20),
                                     // Tab bar — Apple style matching HomeView
                                     Container(
                                       decoration: BoxDecoration(
@@ -2243,7 +2227,7 @@ class _ReclamosCardState extends State<_ReclamosCard> {
         if (v < -150 || v > 150) setState(() => _idx = _idx == 0 ? 1 : 0);
       },
       child: Container(
-        constraints: const BoxConstraints(minHeight: 115),
+        height: 130,
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -2354,7 +2338,7 @@ class _ProyectosKpiCardState extends State<_ProyectosKpiCard> {
         });
       },
       child: Container(
-        constraints: const BoxConstraints(minHeight: 115),
+        height: 130,
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -2461,7 +2445,7 @@ class _XVencerKpiCardState extends State<_XVencerKpiCard> {
         });
       },
       child: Container(
-        constraints: const BoxConstraints(minHeight: 115),
+        height: 130,
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -2572,7 +2556,7 @@ class _ValorMensualCardState extends State<_ValorMensualCard> {
         if (v > 150) setState(() => _idx = (_idx - 1 + _pages.length) % _pages.length);
       },
       child: Container(
-        constraints: const BoxConstraints(minHeight: 115),
+        height: 130,
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
           color: Colors.white,

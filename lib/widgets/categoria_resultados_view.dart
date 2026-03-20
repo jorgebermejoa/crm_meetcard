@@ -33,7 +33,7 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
   Map<String, dynamic>? _seleccionada;
 
   // Filters
-  bool _soloAbiertas = true;
+  bool _soloAbiertas = false;
   DateTimeRange? _rangoPublicacion;
   DateTimeRange? _rangoCierre;
 

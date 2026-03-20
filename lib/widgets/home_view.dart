@@ -168,25 +168,6 @@ class _HomeViewState extends State<HomeView>
             child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
-          Text(
-            'Inteligencia de Licitaciones',
-            style: GoogleFonts.inter(
-              fontSize: isMobile ? 24 : 30,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -0.7,
-              color: const Color(0xFF1E293B),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Búsqueda semántica impulsada por Vertex AI',
-            style: GoogleFonts.inter(
-                fontSize: isMobile ? 13 : 14,
-                color: Colors.grey.shade500),
-          ),
-          const SizedBox(height: 20),
-
           // Tabs Apple style
           Container(
             decoration: BoxDecoration(
