@@ -265,7 +265,7 @@ class _ProyectosViewState extends State<ProyectosView>
       _ProyectosKpiCard(proyectos: proyectos),
       _ValorMensualCard(proyectos: proyectos),
       _ReclamosCard(pendientes: reclamosPend, finalizados: reclamosFinalizados),
-      _xVencerCard(proyectos: proyectos),
+      _XVencerKpiCard(proyectos: proyectos),
     ];
 
     if (isMobile) {
@@ -296,12 +296,6 @@ class _ProyectosViewState extends State<ProyectosView>
       }).toList(),
     );
   }
-
-  // ── X VENCER CAROUSEL CARD ────────────────────────────────────────────────
-
-  Widget _xVencerCard(
-      {required List<Proyecto> proyectos}) =>
-      _XVencerKpiCard(proyectos: proyectos);
 
   // ── RECLAMOS PENDIENTES ────────────────────────────────────────────────────
 
@@ -1539,7 +1533,7 @@ class _ProyectosViewState extends State<ProyectosView>
             setState(() { _filterProductos = v; _currentPage = 0; }),
       ),
       _filterDropdown(
-        hint: 'Tipo Contratación',
+        hint: 'Contratación',
         value: _filterModalidad,
         items: modalidades,
         onChanged: (v) =>
@@ -1981,10 +1975,10 @@ class _ProyectosViewState extends State<ProyectosView>
                                 fontSize: 12, color: Colors.grey.shade500)),
                       ],
                       const Spacer(),
-                      Text(p.modalidadCompra,
+                      Flexible(child: Text(p.modalidadCompra,
                           style: GoogleFonts.inter(
                               fontSize: 10, color: Colors.grey.shade400),
-                          overflow: TextOverflow.ellipsis),
+                          overflow: TextOverflow.ellipsis)),
                     ],
                   ),
                 ],
@@ -2199,32 +2193,33 @@ class _ProductosChipsCellState extends State<_ProductosChipsCell> {
 
 // ── Reclamos Carousel Card ─────────────────────────────────────────────────────
 
-class _ReclamosCard extends StatefulWidget {
-  final int pendientes;
-  final int finalizados;
-  const _ReclamosCard({required this.pendientes, required this.finalizados});
+// ── Shared KPI card shell ──────────────────────────────────────────────────────
 
-  @override
-  State<_ReclamosCard> createState() => _ReclamosCardState();
-}
+class _KpiCardShell extends StatelessWidget {
+  final String label;
+  final Color color;
+  final Widget icon;
+  final Widget value;
+  final int pageCount;
+  final int currentIndex;
+  final void Function(bool forward) onSwipe;
 
-class _ReclamosCardState extends State<_ReclamosCard> {
-  int _idx = 0;
+  const _KpiCardShell({
+    required this.label,
+    required this.color,
+    required this.icon,
+    required this.value,
+    required this.pageCount,
+    required this.currentIndex,
+    required this.onSwipe,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final isPendientes = _idx == 0;
-    final count = isPendientes ? widget.pendientes : widget.finalizados;
-    final label = isPendientes ? 'Reclamos\nPendientes' : 'Reclamos\nFinalizados';
-    final color = isPendientes
-        ? (widget.pendientes > 0 ? const Color(0xFFDC2626) : Colors.grey.shade400)
-        : (widget.finalizados > 0 ? const Color(0xFF10B981) : Colors.grey.shade400);
-    final icon = isPendientes ? Icons.gavel_outlined : Icons.check_circle_outline;
-
     return GestureDetector(
       onHorizontalDragEnd: (d) {
-        final v = d.primaryVelocity ?? 0;
-        if (v < -150 || v > 150) setState(() => _idx = _idx == 0 ? 1 : 0);
+        if (d.primaryVelocity == null) return;
+        onSwipe(d.primaryVelocity! < 0);
       },
       child: Container(
         height: 130,
@@ -2251,39 +2246,73 @@ class _ReclamosCardState extends State<_ReclamosCard> {
                         fontWeight: FontWeight.w500),
                     maxLines: 2),
               ),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(8)),
-                child: Icon(icon, size: 15, color: color),
-              ),
+              icon,
             ],
           ),
           const SizedBox(height: 10),
-          Text(count.toString(),
-              style: GoogleFonts.inter(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: -0.5,
-                  color: const Color(0xFF1E293B))),
+          value,
           const Spacer(),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(2, (i) => AnimatedContainer(
+            children: List.generate(pageCount, (i) => AnimatedContainer(
               duration: const Duration(milliseconds: 200),
-              width: i == _idx ? 12 : 5,
+              width: i == currentIndex ? 12 : 5,
               height: 4,
               margin: const EdgeInsets.symmetric(horizontal: 2),
               decoration: BoxDecoration(
-                color: i == _idx ? color : Colors.grey.shade200,
+                color: i == currentIndex ? color : Colors.grey.shade200,
                 borderRadius: BorderRadius.circular(2),
               ),
             )),
           ),
         ]),
       ),
+    );
+  }
+}
+
+class _ReclamosCard extends StatefulWidget {
+  final int pendientes;
+  final int finalizados;
+  const _ReclamosCard({required this.pendientes, required this.finalizados});
+
+  @override
+  State<_ReclamosCard> createState() => _ReclamosCardState();
+}
+
+class _ReclamosCardState extends State<_ReclamosCard> {
+  int _idx = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final isPendientes = _idx == 0;
+    final count = isPendientes ? widget.pendientes : widget.finalizados;
+    final label = isPendientes ? 'Reclamos\nPendientes' : 'Reclamos\nFinalizados';
+    final color = isPendientes
+        ? (widget.pendientes > 0 ? const Color(0xFFDC2626) : Colors.grey.shade400)
+        : (widget.finalizados > 0 ? const Color(0xFF10B981) : Colors.grey.shade400);
+    final iconData = isPendientes ? Icons.gavel_outlined : Icons.check_circle_outline;
+
+    return _KpiCardShell(
+      label: label,
+      color: color,
+      icon: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(8)),
+        child: Icon(iconData, size: 15, color: color),
+      ),
+      value: Text(count.toString(),
+          style: GoogleFonts.inter(
+              fontSize: 28,
+              fontWeight: FontWeight.bold,
+              letterSpacing: -0.5,
+              color: const Color(0xFF1E293B))),
+      pageCount: 2,
+      currentIndex: _idx,
+      onSwipe: (_) => setState(() => _idx = _idx == 0 ? 1 : 0),
     );
   }
 }
@@ -2326,74 +2355,26 @@ class _ProyectosKpiCardState extends State<_ProyectosKpiCard> {
     final count = _count();
     final color = page.color;
 
-    return GestureDetector(
-      onHorizontalDragEnd: (d) {
-        if (d.primaryVelocity == null) return;
-        setState(() {
-          if (d.primaryVelocity! < 0) {
-            _idx = (_idx + 1) % _pages.length;
-          } else {
-            _idx = (_idx - 1 + _pages.length) % _pages.length;
-          }
-        });
-      },
-      child: Container(
-        height: 130,
-        padding: const EdgeInsets.all(18),
+    return _KpiCardShell(
+      label: page.label,
+      color: color,
+      icon: Container(
+        padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 6,
-                offset: const Offset(0, 2))
-          ],
-        ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Flexible(
-                child: Text(page.label,
-                    style: GoogleFonts.inter(
-                        fontSize: 11,
-                        color: Colors.grey.shade500,
-                        fontWeight: FontWeight.w500),
-                    maxLines: 2),
-              ),
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8)),
-                child: Icon(Icons.folder_open_outlined, size: 15, color: color),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(count.toString(),
-              style: GoogleFonts.inter(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: -0.5,
-                  color: const Color(0xFF1E293B))),
-          const Spacer(),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(_pages.length, (i) => AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: i == _idx ? 12 : 5,
-              height: 4,
-              margin: const EdgeInsets.symmetric(horizontal: 2),
-              decoration: BoxDecoration(
-                color: i == _idx ? color : Colors.grey.shade200,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            )),
-          ),
-        ]),
+            color: color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8)),
+        child: Icon(Icons.folder_open_outlined, size: 15, color: color),
       ),
+      value: Text(count.toString(),
+          style: GoogleFonts.inter(
+              fontSize: 28,
+              fontWeight: FontWeight.bold,
+              letterSpacing: -0.5,
+              color: const Color(0xFF1E293B))),
+      pageCount: _pages.length,
+      currentIndex: _idx,
+      onSwipe: (forward) => setState(() =>
+          _idx = forward ? (_idx + 1) % _pages.length : (_idx - 1 + _pages.length) % _pages.length),
     );
   }
 }
@@ -2419,11 +2400,12 @@ class _XVencerKpiCardState extends State<_XVencerKpiCard> {
   ];
 
   int _count(int dias) {
-    final limite = DateTime.now().add(Duration(days: dias));
+    final now = DateTime.now();
+    final limite = now.add(Duration(days: dias));
     return widget.proyectos.where((p) {
       final ft = p.fechaTermino;
       if (ft == null) return false;
-      return ft.isAfter(DateTime.now()) && ft.isBefore(limite);
+      return ft.isAfter(now) && ft.isBefore(limite);
     }).length;
   }
 
@@ -2433,77 +2415,27 @@ class _XVencerKpiCardState extends State<_XVencerKpiCard> {
     final count = _count(page.dias);
     const color = Color(0xFFF59E0B);
 
-    return GestureDetector(
-      onHorizontalDragEnd: (d) {
-        if (d.primaryVelocity == null) return;
-        setState(() {
-          if (d.primaryVelocity! < 0) {
-            _idx = (_idx + 1) % _periodos.length;
-          } else {
-            _idx = (_idx - 1 + _periodos.length) % _periodos.length;
-          }
-        });
-      },
-      child: Container(
-        height: 130,
-        padding: const EdgeInsets.all(18),
+    final activeColor = count > 0 ? color : Colors.grey.shade400;
+    return _KpiCardShell(
+      label: page.label,
+      color: color,
+      icon: Container(
+        padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 6,
-                offset: const Offset(0, 2))
-          ],
-        ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Flexible(
-                child: Text(page.label,
-                    style: GoogleFonts.inter(
-                        fontSize: 11,
-                        color: Colors.grey.shade500,
-                        fontWeight: FontWeight.w500),
-                    maxLines: 2),
-              ),
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                    color: (count > 0 ? color : Colors.grey.shade400)
-                        .withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8)),
-                child: Icon(Icons.schedule_outlined,
-                    size: 15,
-                    color: count > 0 ? color : Colors.grey.shade400),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(count.toString(),
-              style: GoogleFonts.inter(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: -0.5,
-                  color: const Color(0xFF1E293B))),
-          const Spacer(),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(_periodos.length, (i) => AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: i == _idx ? 12 : 5,
-              height: 4,
-              margin: const EdgeInsets.symmetric(horizontal: 2),
-              decoration: BoxDecoration(
-                color: i == _idx ? color : Colors.grey.shade200,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            )),
-          ),
-        ]),
+            color: activeColor.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8)),
+        child: Icon(Icons.schedule_outlined, size: 15, color: activeColor),
       ),
+      value: Text(count.toString(),
+          style: GoogleFonts.inter(
+              fontSize: 28,
+              fontWeight: FontWeight.bold,
+              letterSpacing: -0.5,
+              color: const Color(0xFF1E293B))),
+      pageCount: _periodos.length,
+      currentIndex: _idx,
+      onSwipe: (forward) => setState(() =>
+          _idx = forward ? (_idx + 1) % _periodos.length : (_idx - 1 + _periodos.length) % _periodos.length),
     );
   }
 }
@@ -2529,15 +2461,13 @@ class _ValorMensualCardState extends State<_ValorMensualCard> {
   ];
 
   static String _fmt(double n) {
-    final str = n.toInt().toString();
+    final digits = n.toInt().toString();
     final buf = StringBuffer();
-    int count = 0;
-    for (int i = str.length - 1; i >= 0; i--) {
-      if (count > 0 && count % 3 == 0) buf.write('.');
-      buf.write(str[i]);
-      count++;
+    for (int i = 0; i < digits.length; i++) {
+      if (i > 0 && (digits.length - i) % 3 == 0) buf.write('.');
+      buf.write(digits[i]);
     }
-    return buf.toString().split('').reversed.join('');
+    return buf.toString();
   }
 
   @override
@@ -2549,75 +2479,29 @@ class _ValorMensualCardState extends State<_ValorMensualCard> {
     final total = filtered.fold<double>(0, (s, p) => s + (p.valorMensual ?? 0));
     final color = page.color;
 
-    return GestureDetector(
-      onHorizontalDragEnd: (d) {
-        final v = d.primaryVelocity ?? 0;
-        if (v < -150) setState(() => _idx = (_idx + 1) % _pages.length);
-        if (v > 150) setState(() => _idx = (_idx - 1 + _pages.length) % _pages.length);
-      },
-      child: Container(
-        height: 130,
-        padding: const EdgeInsets.all(18),
+    return _KpiCardShell(
+      label: page.label,
+      color: color,
+      icon: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 6,
-                offset: const Offset(0, 2))
-          ],
-        ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Flexible(
-                child: Text(
-                  page.label,
-                  style: GoogleFonts.inter(
-                      fontSize: 11,
-                      color: Colors.grey.shade500,
-                      fontWeight: FontWeight.w500),
-                  maxLines: 2,
-                ),
-              ),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(8)),
-                child: Icon(Icons.attach_money, size: 15, color: color),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            total > 0 ? '\$ ${_fmt(total)}' : '—',
-            style: GoogleFonts.inter(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                letterSpacing: -0.5,
-                color: const Color(0xFF1E293B)),
-          ),
-          const Spacer(),
-          // Dot indicators
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(_pages.length, (i) => AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: i == _idx ? 12 : 5,
-              height: 4,
-              margin: const EdgeInsets.symmetric(horizontal: 2),
-              decoration: BoxDecoration(
-                color: i == _idx ? color : Colors.grey.shade200,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            )),
-          ),
-        ]),
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(8)),
+        child: Icon(Icons.attach_money, size: 15, color: color),
       ),
+      value: Text(
+        total > 0 ? '\$ ${_fmt(total)}' : '—',
+        style: GoogleFonts.inter(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            letterSpacing: -0.5,
+            color: const Color(0xFF1E293B)),
+      ),
+      pageCount: _pages.length,
+      currentIndex: _idx,
+      onSwipe: (forward) => setState(() =>
+          _idx = forward ? (_idx + 1) % _pages.length : (_idx - 1 + _pages.length) % _pages.length),
     );
   }
 }
