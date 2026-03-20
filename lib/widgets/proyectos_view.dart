@@ -262,22 +262,10 @@ class _ProyectosViewState extends State<ProyectosView>
   Widget _buildKpiRow(int activos, List<Proyecto> proyectos, int reclamosPend,
       int reclamosFinalizados, int xVencer, bool isMobile) {
     final cards = [
-      _kpiCard(
-        label: 'Contratos Activos',
-        value: activos.toString(),
-        icon: Icons.folder_open_outlined,
-        color: _primaryColor,
-      ),
+      _ProyectosKpiCard(proyectos: proyectos),
       _ValorMensualCard(proyectos: proyectos),
       _ReclamosCard(pendientes: reclamosPend, finalizados: reclamosFinalizados),
-      _kpiCard(
-        label: 'Por Vencer\n(30 días)',
-        value: xVencer.toString(),
-        icon: Icons.schedule_outlined,
-        color: xVencer > 0
-            ? const Color(0xFFF59E0B)
-            : Colors.grey.shade400,
-      ),
+      _xVencerCard(proyectos: proyectos),
     ];
 
     if (isMobile) {
@@ -309,56 +297,11 @@ class _ProyectosViewState extends State<ProyectosView>
     );
   }
 
-  Widget _kpiCard({
-    required String label,
-    required String value,
-    required IconData icon,
-    required Color color,
-    double valueSize = 28,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 6,
-              offset: const Offset(0, 2))
-        ],
-      ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Flexible(
-              child: Text(label,
-                  style: GoogleFonts.inter(
-                      fontSize: 11,
-                      color: Colors.grey.shade500,
-                      fontWeight: FontWeight.w500),
-                  maxLines: 2),
-            ),
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8)),
-              child: Icon(icon, size: 15, color: color),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Text(value,
-            style: GoogleFonts.inter(
-                fontSize: valueSize,
-                fontWeight: FontWeight.bold,
-                letterSpacing: -0.5,
-                color: const Color(0xFF1E293B))),
-      ]),
-    );
-  }
+  // ── X VENCER CAROUSEL CARD ────────────────────────────────────────────────
+
+  Widget _xVencerCard(
+      {required List<Proyecto> proyectos}) =>
+      _XVencerKpiCard(proyectos: proyectos);
 
   // ── RECLAMOS PENDIENTES ────────────────────────────────────────────────────
 
@@ -1991,9 +1934,8 @@ class _ProyectosViewState extends State<ProyectosView>
             // Header strip with estado color
             Container(
               padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-              decoration: BoxDecoration(
-                color: estadoItem.colorValue.withValues(alpha: 0.08),
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+              decoration: const BoxDecoration(
+                borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
               ),
               child: Row(
                 children: [
@@ -2043,7 +1985,7 @@ class _ProyectosViewState extends State<ProyectosView>
                             style: GoogleFonts.inter(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w500,
-                                color: const Color(0xFF0EA5E9))),
+                                color: Colors.grey.shade500)),
                         const SizedBox(width: 10),
                       ],
                       if (p.fechaTermino != null) ...[
@@ -2361,6 +2303,224 @@ class _ReclamosCardState extends State<_ReclamosCard> {
   }
 }
 
+// ── Proyectos Carousel Card ────────────────────────────────────────────────────
+
+class _ProyectosKpiCard extends StatefulWidget {
+  final List<Proyecto> proyectos;
+  const _ProyectosKpiCard({required this.proyectos});
+
+  @override
+  State<_ProyectosKpiCard> createState() => _ProyectosKpiCardState();
+}
+
+class _ProyectosKpiCardState extends State<_ProyectosKpiCard> {
+  int _idx = 3; // default: Postulación
+
+  static const _pages = [
+    (label: 'Proyectos\nActivos',     estado: null as String?,            color: Color(0xFF1E1B6B), activos: true),
+    (label: 'Proyectos\nVigentes',    estado: EstadoProyecto.vigente,     color: Color(0xFF10B981), activos: false),
+    (label: 'Proyectos\nX Vencer',    estado: EstadoProyecto.xVencer,     color: Color(0xFFF59E0B), activos: false),
+    (label: 'Proyectos\nPostulación', estado: EstadoProyecto.postulacion, color: Color(0xFF6366F1), activos: false),
+    (label: 'Proyectos\nFinalizados', estado: EstadoProyecto.finalizado,  color: Color(0xFF64748B), activos: false),
+    (label: 'Proyectos\nTotal',       estado: null as String?,            color: Color(0xFF0EA5E9), activos: false),
+  ];
+
+  int _count() {
+    final page = _pages[_idx];
+    if (page.activos) {
+      return widget.proyectos.where((p) =>
+        p.estado == EstadoProyecto.vigente || p.estado == EstadoProyecto.xVencer).length;
+    }
+    if (page.estado == null) return widget.proyectos.length;
+    return widget.proyectos.where((p) => p.estado == page.estado).length;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final page = _pages[_idx];
+    final count = _count();
+    final color = page.color;
+
+    return GestureDetector(
+      onHorizontalDragEnd: (d) {
+        if (d.primaryVelocity == null) return;
+        setState(() {
+          if (d.primaryVelocity! < 0) {
+            _idx = (_idx + 1) % _pages.length;
+          } else {
+            _idx = (_idx - 1 + _pages.length) % _pages.length;
+          }
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 6,
+                offset: const Offset(0, 2))
+          ],
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Flexible(
+                child: Text(page.label,
+                    style: GoogleFonts.inter(
+                        fontSize: 11,
+                        color: Colors.grey.shade500,
+                        fontWeight: FontWeight.w500),
+                    maxLines: 2),
+              ),
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8)),
+                child: Icon(Icons.folder_open_outlined, size: 15, color: color),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(count.toString(),
+              style: GoogleFonts.inter(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: -0.5,
+                  color: const Color(0xFF1E293B))),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(_pages.length, (i) => AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: i == _idx ? 12 : 5,
+              height: 4,
+              margin: const EdgeInsets.symmetric(horizontal: 2),
+              decoration: BoxDecoration(
+                color: i == _idx ? color : Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            )),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+// ── X Vencer Carousel Card ─────────────────────────────────────────────────────
+
+class _XVencerKpiCard extends StatefulWidget {
+  final List<Proyecto> proyectos;
+  const _XVencerKpiCard({required this.proyectos});
+
+  @override
+  State<_XVencerKpiCard> createState() => _XVencerKpiCardState();
+}
+
+class _XVencerKpiCardState extends State<_XVencerKpiCard> {
+  int _idx = 1; // default: 3 meses
+
+  static const _periodos = [
+    (label: 'Por Vencer\n(30 días)',  dias: 30),
+    (label: 'Por Vencer\n(3 meses)',  dias: 90),
+    (label: 'Por Vencer\n(6 meses)',  dias: 180),
+    (label: 'Por Vencer\n(12 meses)', dias: 365),
+  ];
+
+  int _count(int dias) {
+    final limite = DateTime.now().add(Duration(days: dias));
+    return widget.proyectos.where((p) {
+      final ft = p.fechaTermino;
+      if (ft == null) return false;
+      return ft.isAfter(DateTime.now()) && ft.isBefore(limite);
+    }).length;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final page = _periodos[_idx];
+    final count = _count(page.dias);
+    const color = Color(0xFFF59E0B);
+
+    return GestureDetector(
+      onHorizontalDragEnd: (d) {
+        if (d.primaryVelocity == null) return;
+        setState(() {
+          if (d.primaryVelocity! < 0) {
+            _idx = (_idx + 1) % _periodos.length;
+          } else {
+            _idx = (_idx - 1 + _periodos.length) % _periodos.length;
+          }
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 6,
+                offset: const Offset(0, 2))
+          ],
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Flexible(
+                child: Text(page.label,
+                    style: GoogleFonts.inter(
+                        fontSize: 11,
+                        color: Colors.grey.shade500,
+                        fontWeight: FontWeight.w500),
+                    maxLines: 2),
+              ),
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                    color: (count > 0 ? color : Colors.grey.shade400)
+                        .withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8)),
+                child: Icon(Icons.schedule_outlined,
+                    size: 15,
+                    color: count > 0 ? color : Colors.grey.shade400),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(count.toString(),
+              style: GoogleFonts.inter(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: -0.5,
+                  color: const Color(0xFF1E293B))),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(_periodos.length, (i) => AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: i == _idx ? 12 : 5,
+              height: 4,
+              margin: const EdgeInsets.symmetric(horizontal: 2),
+              decoration: BoxDecoration(
+                color: i == _idx ? color : Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            )),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
 // ── Valor Mensual Carousel Card ────────────────────────────────────────────────
 
 class _ValorMensualCard extends StatefulWidget {
@@ -2372,13 +2532,13 @@ class _ValorMensualCard extends StatefulWidget {
 }
 
 class _ValorMensualCardState extends State<_ValorMensualCard> {
-  int _idx = 0;
+  int _idx = 2; // default: Postulación
 
   static const _pages = [
-    (label: 'Valor Mensual Vigente', short: 'Vigente',    estado: EstadoProyecto.vigente,    color: Color(0xFF10B981)),
-    (label: 'Valor Mensual X Vencer', short: 'X Vencer',  estado: EstadoProyecto.xVencer,    color: Color(0xFFF59E0B)),
-    (label: 'Valor Mensual Postulación', short: 'Postulación', estado: EstadoProyecto.postulacion, color: Color(0xFF0EA5E9)),
-    (label: 'Valor Mensual Total', short: 'Total',        estado: null as String?,            color: Color(0xFF1E1B6B)),
+    (label: 'Valor Mensual\nVigente',     short: 'Vigente',     estado: EstadoProyecto.vigente,    color: Color(0xFF10B981)),
+    (label: 'Valor Mensual\nX Vencer',    short: 'X Vencer',    estado: EstadoProyecto.xVencer,    color: Color(0xFFF59E0B)),
+    (label: 'Valor Mensual\nPostulación', short: 'Postulación', estado: EstadoProyecto.postulacion, color: Color(0xFF0EA5E9)),
+    (label: 'Valor Mensual\nTotal',       short: 'Total',       estado: null as String?,            color: Color(0xFF1E1B6B)),
   ];
 
   static String _fmt(double n) {

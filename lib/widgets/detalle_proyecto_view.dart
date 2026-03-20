@@ -75,7 +75,8 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
   List<Tab> get _tabs {
     return [
       const Tab(text: 'Proyecto'),
-      if (_proyecto.idLicitacion?.isNotEmpty == true)
+      if (_proyecto.idLicitacion?.isNotEmpty == true ||
+          _proyecto.modalidadCompra == 'Licitación Pública')
         const Tab(text: 'Detalle'),
       if (_proyecto.urlConvenioMarco?.isNotEmpty == true)
         const Tab(text: 'Detalle'),
@@ -386,6 +387,16 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
         if (idx < _ocDataList.length) _ocDataList[idx] = data;
         _cargandoOc = false;
       });
+    }
+  }
+
+  String _fileNameFromUrl(String url) {
+    try {
+      final decoded = Uri.decodeFull(url);
+      final name = decoded.split('/').last.split('?').first;
+      return name.isNotEmpty ? name : url;
+    } catch (_) {
+      return url;
     }
   }
 
@@ -884,7 +895,9 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
     // Build tab content list matching the same order as _tabs
     final tabContents = [
       _buildTabProyecto(isMobile),
-      if (_proyecto.idLicitacion?.isNotEmpty == true) _buildTabOcds(isMobile),
+      if (_proyecto.idLicitacion?.isNotEmpty == true ||
+          _proyecto.modalidadCompra == 'Licitación Pública')
+        _buildTabOcds(isMobile),
       if (_proyecto.urlConvenioMarco?.isNotEmpty == true) _buildTabDetalle(isMobile),
       if (_proyecto.idsOrdenesCompra.isNotEmpty) _buildTabOc(isMobile),
       _buildTabCertificados(isMobile),
@@ -1232,34 +1245,48 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
           const SizedBox(height: 6),
           if (docs.isEmpty)
             Text('Sin documentos adjuntos', style: GoogleFonts.inter(fontSize: 14, color: Colors.grey.shade300)),
-          ...docs.asMap().entries.map((e) => Padding(
-            padding: const EdgeInsets.only(bottom: 6),
-            child: Row(children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF1F5F9),
-                  borderRadius: BorderRadius.circular(4),
+          ...docs.asMap().entries.map((e) {
+            final doc = e.value;
+            final label = doc.nombre ?? _fileNameFromUrl(doc.url);
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(doc.tipo,
+                      style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w500, color: Colors.grey.shade600)),
                 ),
-                child: Text(e.value.tipo,
-                    style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w500, color: Colors.grey.shade600)),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(e.value.url,
-                    style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF1E293B), fontWeight: FontWeight.w500),
-                    overflow: TextOverflow.ellipsis),
-              ),
-              InkWell(
-                onTap: () => _eliminarDocumento(e.key),
-                borderRadius: BorderRadius.circular(6),
-                child: Padding(
-                  padding: const EdgeInsets.all(4),
-                  child: Icon(Icons.close, size: 14, color: Colors.grey.shade400),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: InkWell(
+                    onTap: () => _abrirDocumento(doc.url, label),
+                    borderRadius: BorderRadius.circular(4),
+                    child: Row(children: [
+                      Icon(Icons.attach_file, size: 12, color: _primaryColor.withValues(alpha: 0.6)),
+                      const SizedBox(width: 3),
+                      Expanded(
+                        child: Text(label,
+                            style: GoogleFonts.inter(fontSize: 13, color: _primaryColor, fontWeight: FontWeight.w500),
+                            overflow: TextOverflow.ellipsis),
+                      ),
+                    ]),
+                  ),
                 ),
-              ),
-            ]),
-          )),
+                InkWell(
+                  onTap: () => _eliminarDocumento(e.key),
+                  borderRadius: BorderRadius.circular(6),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(Icons.close, size: 14, color: Colors.grey.shade400),
+                  ),
+                ),
+              ]),
+            );
+          }),
           const SizedBox(height: 4),
           InkWell(
             onTap: () => _mostrarPopupAgregarDocumento(context),
@@ -1691,7 +1718,45 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
 
   // ─── TAB OCDS ─────────────────────────────────────────────────────────────
 
+  Future<void> _reintentarOcds() async {
+    ProyectosService.instance.invalidate();
+    final proyectos = await ProyectosService.instance.load(forceRefresh: true);
+    final updated = proyectos.where((p) => p.id == _proyecto.id).firstOrNull;
+    if (updated != null && mounted) {
+      setState(() => _proyecto = updated);
+      if (updated.idLicitacion?.isNotEmpty == true) {
+        _rebuildTabController();
+        _cargarOcds();
+      }
+    }
+  }
+
   Widget _buildTabOcds(bool isMobile) {
+    if (_proyecto.idLicitacion?.isNotEmpty != true) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 48),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.sync_outlined, size: 40, color: Colors.grey.shade300),
+            const SizedBox(height: 8),
+            Text('Sin ID de licitación registrado',
+                style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400)),
+            const SizedBox(height: 4),
+            Text(
+              'Edita el proyecto y agrega el ID\npara cargar los datos OCDS.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade400),
+            ),
+            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: _reintentarOcds,
+              icon: const Icon(Icons.refresh, size: 16),
+              label: Text('Actualizar', style: GoogleFonts.inter()),
+            ),
+          ]),
+        ),
+      );
+    }
     if (_cargandoOcds) {
       return const Center(
           child: Padding(
