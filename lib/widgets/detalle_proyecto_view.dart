@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:js_interop';
 import 'package:flutter/material.dart';
 import 'package:web/web.dart' as web;
 import 'package:go_router/go_router.dart';
@@ -445,6 +446,21 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
     );
   }
 
+  Widget _exportBadge() {
+    return InkWell(
+      onTap: () => _showExportMenu(context),
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: const Color(0xFF64748B).withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: const Icon(Icons.file_download_outlined, size: 14, color: Color(0xFF64748B)),
+      ),
+    );
+  }
+
   Widget _refreshBar(String? lastFetch, VoidCallback onRefresh) {
     String label = 'Datos externos';
     if (lastFetch != null) {
@@ -524,7 +540,7 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
                                   Container(width: 10, height: 10,
                                     decoration: BoxDecoration(color: item.colorValue, shape: BoxShape.circle)),
                                   const SizedBox(width: 10),
-                                  Expanded(child: Text(item.nombre, style: GoogleFonts.inter(fontSize: 14, color: isSelected ? item.fgColor : const Color(0xFF1E293B), fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400))),
+                                  Expanded(child: Text(item.nombre.replaceFirst(RegExp(r'^\d+-'), ''), style: GoogleFonts.inter(fontSize: 14, color: isSelected ? item.fgColor : const Color(0xFF1E293B), fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400))),
                                   if (isSelected) Icon(Icons.check, size: 16, color: item.fgColor),
                                 ]),
                               ),
@@ -715,6 +731,207 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
     );
   }
 
+  // ─── EXPORT ───────────────────────────────────────────────────────────────
+
+  void _showExportMenu(BuildContext context) {
+    final hasReclamos = _proyecto.reclamos.isNotEmpty;
+    final hasOcds = _ocdsData != null;
+    final hasConvenio = _convenioData != null;
+    final hasOc = _ocDataList.any((d) => d != null);
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2))),
+          const SizedBox(height: 16),
+          Text('Exportar proyecto',
+              style: GoogleFonts.inter(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFF1E293B))),
+          const SizedBox(height: 4),
+          Text(
+            _cleanName(_proyecto.institucion).split('|').first.trim(),
+            style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 16),
+          _exportOpt(Icons.folder_outlined, 'Datos del proyecto (CSV)',
+              'Información general, fechas y valores', () {
+            Navigator.pop(context);
+            _exportProyectoCSV();
+          }),
+          if (hasReclamos) ...[
+            const SizedBox(height: 8),
+            _exportOpt(Icons.gavel_outlined, 'Reclamos (CSV)',
+                '${_proyecto.reclamos.length} reclamo${_proyecto.reclamos.length != 1 ? 's' : ''}', () {
+              Navigator.pop(context);
+              _exportReclamosCSV();
+            }),
+          ],
+          if (hasOcds || hasConvenio) ...[
+            const SizedBox(height: 8),
+            _exportOpt(Icons.code_outlined, 'Detalle licitación (JSON)',
+                'Datos OCDS del Mercado Público', () {
+              Navigator.pop(context);
+              _exportDetalleJSON();
+            }),
+          ],
+          if (hasOc) ...[
+            const SizedBox(height: 8),
+            _exportOpt(Icons.shopping_cart_outlined, 'Órdenes de compra (CSV)',
+                '${_proyecto.idsOrdenesCompra.length} orden${_proyecto.idsOrdenesCompra.length != 1 ? 'es' : ''}', () {
+              Navigator.pop(context);
+              _exportOcCSV();
+            }),
+          ],
+          const SizedBox(height: 8),
+          _exportOpt(Icons.print_outlined, 'Imprimir / PDF',
+              'Usa el diálogo de impresión del navegador', () async {
+            Navigator.pop(context);
+            await Future.delayed(const Duration(milliseconds: 400));
+            web.window.print();
+          }),
+        ]),
+      ),
+    );
+  }
+
+  Widget _exportOpt(IconData icon, String title, String subtitle, VoidCallback onTap) {
+    return ListTile(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      tileColor: const Color(0xFFF8FAFC),
+      leading: Icon(icon, color: _primaryColor, size: 22),
+      title: Text(title,
+          style: GoogleFonts.inter(
+              fontSize: 14, fontWeight: FontWeight.w500, color: const Color(0xFF1E293B))),
+      subtitle: Text(subtitle,
+          style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500)),
+      onTap: onTap,
+    );
+  }
+
+  void _downloadFile(String content, String filename, String mime) {
+    final bytes = utf8.encode('\uFEFF$content');
+    final blob = web.Blob([bytes.toJS].toJS, web.BlobPropertyBag(type: mime));
+    final url = web.URL.createObjectURL(blob);
+    final anchor = web.document.createElement('a') as web.HTMLAnchorElement
+      ..href = url
+      ..download = filename;
+    web.document.body!.appendChild(anchor);
+    anchor.click();
+    web.document.body!.removeChild(anchor);
+    web.URL.revokeObjectURL(url);
+  }
+
+  void _exportProyectoCSV() {
+    String esc(String s) => '"${s.replaceAll('"', '""')}"';
+    String fmtDate(DateTime? d) => d == null ? '' : '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+
+    final buf = StringBuffer();
+    buf.writeln('Campo,Valor');
+    buf.writeln('Institución,${esc(_cleanName(_proyecto.institucion))}');
+    buf.writeln('Modalidad,${esc(_proyecto.modalidadCompra)}');
+    buf.writeln('Productos,${esc(_proyecto.productos)}');
+    buf.writeln('Estado,${esc(_proyecto.estado)}');
+    buf.writeln('ID Licitación,${esc(_proyecto.idLicitacion ?? '')}');
+    buf.writeln('Valor Mensual,${_proyecto.valorMensual?.toStringAsFixed(0) ?? ''}');
+    buf.writeln('Fecha Inicio,${fmtDate(_proyecto.fechaInicio)}');
+    buf.writeln('Fecha Término,${fmtDate(_proyecto.fechaTermino)}');
+    buf.writeln('Fecha Inicio Ruta,${fmtDate(_proyecto.fechaInicioRuta)}');
+    buf.writeln('Fecha Término Ruta,${fmtDate(_proyecto.fechaTerminoRuta)}');
+    buf.writeln('Reclamos Pendientes,${_proyecto.reclamos.where((r) => r.estado == 'Pendiente').length}');
+    buf.writeln('Total Reclamos,${_proyecto.reclamos.length}');
+
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    _downloadFile(buf.toString(), 'proyecto_$ts.csv', 'text/csv;charset=utf-8;');
+  }
+
+  void _exportReclamosCSV() {
+    String esc(String s) => '"${s.replaceAll('"', '""')}"';
+    String fmtDate(DateTime? d) => d == null ? '' : '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+
+    final buf = StringBuffer();
+    buf.writeln('N°,Descripción,Estado,Fecha Ingreso,Fecha Respuesta,Descripción Respuesta');
+    for (int i = 0; i < _proyecto.reclamos.length; i++) {
+      final r = _proyecto.reclamos[i];
+      buf.writeln([
+        i + 1,
+        esc(r.descripcion),
+        esc(r.estado),
+        fmtDate(r.fechaReclamo),
+        fmtDate(r.fechaRespuesta),
+        esc(r.descripcionRespuesta ?? ''),
+      ].join(','));
+    }
+
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    _downloadFile(buf.toString(), 'reclamos_$ts.csv', 'text/csv;charset=utf-8;');
+  }
+
+  void _exportDetalleJSON() {
+    final data = _ocdsData ?? _convenioData ?? {};
+    final content = const JsonEncoder.withIndent('  ').convert(data);
+    final bytes = utf8.encode(content);
+    final blob = web.Blob([bytes.toJS].toJS,
+        web.BlobPropertyBag(type: 'application/json'));
+    final url = web.URL.createObjectURL(blob);
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    final anchor = web.document.createElement('a') as web.HTMLAnchorElement
+      ..href = url
+      ..download = 'detalle_$ts.json';
+    web.document.body!.appendChild(anchor);
+    anchor.click();
+    web.document.body!.removeChild(anchor);
+    web.URL.revokeObjectURL(url);
+  }
+
+  void _exportOcCSV() {
+    String esc(String s) => '"${s.replaceAll('"', '""')}"';
+
+    final buf = StringBuffer();
+    buf.writeln('OC ID,Proveedor,RUT Proveedor,N° Item,Descripción,Cantidad,Unidad,Precio Unit.,Total');
+    for (int oi = 0; oi < _ocDataList.length; oi++) {
+      final oc = _ocDataList[oi];
+      if (oc == null) continue;
+      final ocId = _proyecto.idsOrdenesCompra.length > oi ? _proyecto.idsOrdenesCompra[oi] : '';
+      final proveedor = oc['Proveedor'] as Map<String, dynamic>? ?? {};
+      final nombreProv = proveedor['Nombre']?.toString() ?? '';
+      final rutProv = proveedor['Rut']?.toString() ?? '';
+      final items = (oc['Items']?['Listado'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      if (items.isEmpty) {
+        buf.writeln([esc(ocId), esc(nombreProv), esc(rutProv), '', '', '', '', '', ''].join(','));
+      } else {
+        for (final item in items) {
+          buf.writeln([
+            esc(ocId),
+            esc(nombreProv),
+            esc(rutProv),
+            item['Correlativo']?.toString() ?? '',
+            esc(item['Nombre']?.toString() ?? ''),
+            item['Cantidad']?.toString() ?? '',
+            esc(item['UnidadMedida']?.toString() ?? ''),
+            item['PrecioUnitario']?.toString() ?? '',
+            item['Total']?.toString() ?? '',
+          ].join(','));
+        }
+      }
+    }
+
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    _downloadFile(buf.toString(), 'ordenes_compra_$ts.csv', 'text/csv;charset=utf-8;');
+  }
+
   // ─── HEADER ───────────────────────────────────────────────────────────────
 
   Widget _buildHeader(bool isMobile) {
@@ -741,6 +958,8 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
 
     final badgesRow = Row(
       children: [
+        _exportBadge(),
+        const SizedBox(width: 8),
         if (hasFicha) ...[
           _fichaButton(),
           const SizedBox(width: 8),
@@ -915,6 +1134,7 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
             child: TabBar(
               controller: _tabController,
               isScrollable: false,
+              overlayColor: WidgetStateProperty.all(Colors.transparent),
               labelStyle: GoogleFonts.inter(
                   fontSize: 13, fontWeight: FontWeight.w600),
               unselectedLabelStyle:
@@ -1784,15 +2004,47 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
         ),
       );
     }
-    if (_ocdsData == null) return const SizedBox();
+    if (_ocdsData == null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 48),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.cloud_off_outlined, size: 40, color: Colors.grey.shade300),
+            const SizedBox(height: 8),
+            Text('No se pudieron cargar los datos',
+                style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade500)),
+            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: () => _cargarOcds(forceRefresh: true),
+              icon: const Icon(Icons.refresh, size: 16),
+              label: Text('Reintentar', style: GoogleFonts.inter()),
+            ),
+          ]),
+        ),
+      );
+    }
 
     final releases =
         (_ocdsData!['releases'] as List?)?.cast<Map<String, dynamic>>() ??
             [];
     if (releases.isEmpty) {
       return Center(
-          child: Text('Sin datos OCDS',
-              style: GoogleFonts.inter(color: Colors.grey.shade500)));
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 48),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.inbox_outlined, size: 40, color: Colors.grey.shade300),
+            const SizedBox(height: 8),
+            Text('Sin datos OCDS',
+                style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade500)),
+            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: () => _cargarOcds(forceRefresh: true),
+              icon: const Icon(Icons.refresh, size: 16),
+              label: Text('Reintentar', style: GoogleFonts.inter()),
+            ),
+          ]),
+        ),
+      );
     }
 
     final last = releases.last;
@@ -3759,10 +4011,11 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
   Widget _estadoBadge(String estado) {
     final item = _estados.firstWhere((e) => e.nombre == estado,
         orElse: () => EstadoItem(nombre: estado, color: '64748B'));
+    final label = estado.replaceFirst(RegExp(r'^\d+-'), '');
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       decoration: BoxDecoration(color: item.bgColor, borderRadius: BorderRadius.circular(20)),
-      child: Text(estado,
+      child: Text(label,
           style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: item.fgColor)),
     );
   }

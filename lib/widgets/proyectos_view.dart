@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:js_interop';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
+import 'package:web/web.dart' as web;
 
 import '../app_shell.dart';
 import '../models/configuracion.dart';
@@ -11,6 +13,15 @@ import '../services/config_service.dart';
 import '../services/proyectos_service.dart';
 import 'app_breadcrumbs.dart';
 import 'proyecto_form_dialog.dart';
+
+// Top-level helper: strips "|" suffix and "Unidad de compra:" prefix from institution name
+String _cleanInst(String raw) {
+  var s = raw.split('|').first.trim();
+  if (s.toLowerCase().startsWith('unidad de compra:')) {
+    s = s.substring('unidad de compra:'.length).trim();
+  }
+  return s;
+}
 
 class ProyectosView extends StatefulWidget {
   final VoidCallback? onOpenMenu;
@@ -44,9 +55,11 @@ class _ProyectosViewState extends State<ProyectosView>
 
   // Filters
   String? _filterInstitucion;
-  String? _filterProductos;
+  Set<String> _filterProductos = {};
   String? _filterModalidad;
   String? _filterEstado;
+  String? _filterReclamo;   // 'Pendiente' | 'Respondido'
+  String? _filterVencer;    // '30 días' | '3 meses' | '6 meses' | '12 meses'
 
   // Pagination
   int _currentPage = 0;
@@ -108,9 +121,11 @@ class _ProyectosViewState extends State<ProyectosView>
   void _clearFilters() {
     setState(() {
       _filterInstitucion = null;
-      _filterProductos = null;
+      _filterProductos = {};
       _filterModalidad = null;
       _filterEstado = null;
+      _filterReclamo = null;
+      _filterVencer = null;
       _currentPage = 0;
     });
   }
@@ -182,10 +197,9 @@ class _ProyectosViewState extends State<ProyectosView>
             .toLowerCase()
             .contains(_filterInstitucion!.toLowerCase())) { return false; }
       }
-      if (_filterProductos != null && _filterProductos!.isNotEmpty) {
-        if (!p.productos
-            .toLowerCase()
-            .contains(_filterProductos!.toLowerCase())) { return false; }
+      if (_filterProductos.isNotEmpty) {
+        final pp = p.productos.split(',').map((s) => s.trim()).toSet();
+        if (!_filterProductos.any((prod) => pp.contains(prod))) return false;
       }
       if (_filterModalidad != null && _filterModalidad!.isNotEmpty) {
         if (p.modalidadCompra != _filterModalidad) return false;
@@ -193,8 +207,35 @@ class _ProyectosViewState extends State<ProyectosView>
       if (_filterEstado != null && _filterEstado!.isNotEmpty) {
         if (p.estado != _filterEstado) return false;
       }
+      if (_filterReclamo != null) {
+        if (_filterReclamo == 'Pendiente') {
+          if (!p.reclamos.any((r) => r.estado == 'Pendiente')) return false;
+        } else {
+          if (!p.reclamos.any((r) => r.estado != 'Pendiente' &&
+              (r.fechaRespuesta != null || (r.descripcionRespuesta?.isNotEmpty == true)))) {
+            return false;
+          }
+        }
+      }
+      if (_filterVencer != null) {
+        final dias = _vencerDias(_filterVencer!);
+        final ft = p.fechaTermino;
+        if (ft == null) return false;
+        final now = DateTime.now();
+        final limite = now.add(Duration(days: dias));
+        if (!ft.isAfter(now) || !ft.isBefore(limite)) return false;
+      }
       return true;
     }).toList();
+  }
+
+  static int _vencerDias(String periodo) {
+    switch (periodo) {
+      case '30 días': return 30;
+      case '3 meses': return 90;
+      case '6 meses': return 180;
+      default: return 365;
+    }
   }
 
   Widget _buildAppBar(bool isMobile) {
@@ -204,22 +245,97 @@ class _ProyectosViewState extends State<ProyectosView>
       hPad: hPad,
       onOpenMenu: openAppDrawer,
       crumbs: [BreadcrumbItem('Proyectos')],
-      actions: [
-        IconButton(
-          icon: _cargando
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Color(0xFF5B21B6)))
-              : const Icon(Icons.refresh, color: Color(0xFF64748B), size: 20),
-          onPressed: _cargando ? null : () => _cargar(forceRefresh: true),
-          tooltip: 'Actualizar',
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints(),
-        ),
-      ],
     );
+  }
+
+  void _showExportMenu(BuildContext context) {
+    final filtered = _applySorting(_applyFilters(_proyectos));
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(width: 36, height: 4,
+              decoration: BoxDecoration(color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2))),
+          const SizedBox(height: 16),
+          Text('Exportar proyectos',
+              style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w700,
+                  color: const Color(0xFF1E293B))),
+          const SizedBox(height: 4),
+          Text('${filtered.length} proyecto${filtered.length != 1 ? 's' : ''}${_hasActiveFilters ? ' (con filtros aplicados)' : ''}',
+              style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500)),
+          const SizedBox(height: 16),
+          _exportOption(Icons.table_chart_outlined, 'Exportar a Excel (CSV)',
+              'Abrir en Excel o Google Sheets', () {
+            Navigator.pop(context);
+            _exportCSV(filtered);
+          }),
+          const SizedBox(height: 8),
+          _exportOption(Icons.print_outlined, 'Imprimir / PDF',
+              'Usa el diálogo de impresión del navegador', () async {
+            Navigator.pop(context);
+            await Future.delayed(const Duration(milliseconds: 400));
+            web.window.print();
+          }),
+        ]),
+      ),
+    );
+  }
+
+  bool get _hasActiveFilters =>
+      _filterInstitucion != null || _filterProductos.isNotEmpty ||
+      _filterModalidad != null || _filterEstado != null ||
+      _filterReclamo != null || _filterVencer != null;
+
+  Widget _exportOption(IconData icon, String title, String subtitle, VoidCallback onTap) {
+    return ListTile(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      tileColor: const Color(0xFFF8FAFC),
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+            color: const Color(0xFF5B21B6).withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(8)),
+        child: Icon(icon, size: 18, color: const Color(0xFF5B21B6)),
+      ),
+      title: Text(title, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600,
+          color: const Color(0xFF1E293B))),
+      subtitle: Text(subtitle, style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500)),
+      onTap: onTap,
+    );
+  }
+
+  void _exportCSV(List<Proyecto> proyectos) {
+    final buf = StringBuffer();
+    buf.writeln('ID,Institución,Productos,Modalidad,Estado,Valor Mensual,Fecha Inicio,Fecha Término');
+    for (final p in proyectos) {
+      String esc(String s) => '"${s.replaceAll('"', '""')}"';
+      buf.writeln([
+        esc(p.id),
+        esc(_cleanInst(p.institucion)),
+        esc(p.productos),
+        esc(p.modalidadCompra),
+        esc(p.estado),
+        p.valorMensual?.toStringAsFixed(0) ?? '',
+        p.fechaInicio != null ? '${p.fechaInicio!.day}/${p.fechaInicio!.month}/${p.fechaInicio!.year}' : '',
+        p.fechaTermino != null ? '${p.fechaTermino!.day}/${p.fechaTermino!.month}/${p.fechaTermino!.year}' : '',
+      ].join(','));
+    }
+    // Prepend UTF-8 BOM so Excel auto-detects encoding and renders accents correctly
+    final bytes = utf8.encode('\uFEFF${buf.toString()}');
+    final blob = web.Blob([bytes.toJS].toJS,
+        web.BlobPropertyBag(type: 'text/csv;charset=utf-8;'));
+    final url = web.URL.createObjectURL(blob);
+    final anchor = web.document.createElement('a') as web.HTMLAnchorElement
+      ..href = url
+      ..download = 'proyectos_${DateTime.now().millisecondsSinceEpoch}.csv';
+    web.document.body!.appendChild(anchor);
+    anchor.click();
+    web.document.body!.removeChild(anchor);
+    web.URL.revokeObjectURL(url);
   }
 
   // ── RESUMEN TAB content ────────────────────────────────────────────────────
@@ -259,14 +375,48 @@ class _ProyectosViewState extends State<ProyectosView>
 
   // ── KPI ROW ────────────────────────────────────────────────────────────────
 
+  void _goToProyectosFiltered(String? estado) {
+    setState(() { _filterEstado = estado; _currentPage = 0; });
+    _tabController.animateTo(1);
+  }
+
+  void _goToReclamosFiltered(String reclamo) {
+    setState(() { _filterReclamo = reclamo; _currentPage = 0; });
+    _tabController.animateTo(1);
+  }
+
+  void _goToVencerFiltered(int dias) {
+    final label = dias == 30 ? '30 días' : dias == 90 ? '3 meses' : dias == 180 ? '6 meses' : '12 meses';
+    setState(() { _filterVencer = label; _currentPage = 0; });
+    _tabController.animateTo(1);
+  }
+
   Widget _buildKpiRow(int activos, List<Proyecto> proyectos, int reclamosPend,
       int reclamosFinalizados, int xVencer, bool isMobile) {
     final cards = [
-      _ProyectosKpiCard(proyectos: proyectos),
-      _ValorMensualCard(proyectos: proyectos),
-      _ReclamosCard(pendientes: reclamosPend, finalizados: reclamosFinalizados),
-      _XVencerKpiCard(proyectos: proyectos),
+      _ProyectosKpiCard(proyectos: proyectos, onNavigate: _goToProyectosFiltered),
+      _ValorMensualCard(proyectos: proyectos, onNavigate: _goToProyectosFiltered),
+      _ReclamosCard(pendientes: reclamosPend, finalizados: reclamosFinalizados, onNavigate: _goToReclamosFiltered),
+      _XVencerKpiCard(proyectos: proyectos, onNavigate: _goToVencerFiltered),
     ];
+
+    Widget actionBadges() => Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            _actionBadge(
+              icon: Icons.file_download_outlined,
+              tooltip: 'Exportar',
+              onTap: () => _showExportMenu(context),
+            ),
+            const SizedBox(width: 6),
+            _actionBadge(
+              icon: Icons.refresh,
+              tooltip: 'Actualizar',
+              loading: _cargando,
+              onTap: _cargando ? null : () => _cargar(forceRefresh: true),
+            ),
+          ],
+        );
 
     if (isMobile) {
       return Column(children: [
@@ -281,19 +431,58 @@ class _ProyectosViewState extends State<ProyectosView>
           const SizedBox(width: 12),
           Expanded(child: cards[3]),
         ]),
+        const SizedBox(height: 8),
+        actionBadges(),
       ]);
     }
 
-    return Row(
-      children: cards.asMap().entries.map((e) {
-        return Expanded(
-          child: Padding(
-            padding:
-                EdgeInsets.only(right: e.key < cards.length - 1 ? 14 : 0),
-            child: e.value,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: cards.asMap().entries.map((e) {
+            return Expanded(
+              child: Padding(
+                padding:
+                    EdgeInsets.only(right: e.key < cards.length - 1 ? 14 : 0),
+                child: e.value,
+              ),
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 8),
+        actionBadges(),
+      ],
+    );
+  }
+
+  Widget _actionBadge({
+    required IconData icon,
+    required String tooltip,
+    VoidCallback? onTap,
+    bool loading = false,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: const Color(0xFF64748B).withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(20),
           ),
-        );
-      }).toList(),
+          child: loading
+              ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Color(0xFF5B21B6)),
+                )
+              : Icon(icon, size: 14, color: const Color(0xFF64748B)),
+        ),
+      ),
     );
   }
 
@@ -301,11 +490,26 @@ class _ProyectosViewState extends State<ProyectosView>
 
   Widget _buildReclamosPendientes(
       List<({Proyecto proyecto, Reclamo reclamo})> items, bool isMobile) {
+    // Group by project, keeping earliest pending fechaReclamo
+    final Map<String, ({Proyecto proyecto, int count, DateTime? fecha})> byProject = {};
+    for (final item in items) {
+      final id = item.proyecto.id;
+      final fecha = item.reclamo.fechaReclamo;
+      if (byProject.containsKey(id)) {
+        final prev = byProject[id]!;
+        final earliest = (prev.fecha == null || (fecha != null && fecha.isBefore(prev.fecha!)))
+            ? fecha : prev.fecha;
+        byProject[id] = (proyecto: item.proyecto, count: prev.count + 1, fecha: earliest);
+      } else {
+        byProject[id] = (proyecto: item.proyecto, count: 1, fecha: fecha);
+      }
+    }
+    final proyectosConReclamos = byProject.values.toList();
+
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
         Container(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
             color: const Color(0xFFFEF2F2),
             borderRadius: BorderRadius.circular(8),
@@ -326,13 +530,19 @@ class _ProyectosViewState extends State<ProyectosView>
         ),
       ]),
       const SizedBox(height: 10),
-      ...items.map((item) => _buildReclamoPendienteCard(
-          item.proyecto, item.reclamo, isMobile)),
+      ...proyectosConReclamos.map((entry) =>
+          _buildReclamoPendienteCard(entry.proyecto, entry.count, entry.fecha, isMobile)),
     ]);
   }
 
   Widget _buildReclamoPendienteCard(
-      Proyecto proyecto, Reclamo reclamo, bool isMobile) {
+      Proyecto proyecto, int count, DateTime? fechaIngreso, bool isMobile) {
+    String? fechaStr;
+    if (fechaIngreso != null) {
+      fechaStr = 'Ingresado el ${fechaIngreso.day.toString().padLeft(2, '0')}/'
+          '${fechaIngreso.month.toString().padLeft(2, '0')}/'
+          '${fechaIngreso.year}';
+    }
     return GestureDetector(
       onTap: () => _openEditDialog(proyecto, tab: 'reclamos'),
       child: Container(
@@ -341,50 +551,51 @@ class _ProyectosViewState extends State<ProyectosView>
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(10),
-          border:
-              Border.all(color: const Color(0xFFFECACA), width: 1),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withValues(alpha: 0.03),
-                blurRadius: 4,
-                offset: const Offset(0, 1))
-          ],
+          border: Border.all(color: const Color(0xFFFECACA), width: 1),
+          boxShadow: [BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 4, offset: const Offset(0, 1))],
         ),
         child: Row(children: [
-          const Icon(Icons.gavel_outlined,
-              size: 15, color: Color(0xFFDC2626)),
+          const Icon(Icons.gavel_outlined, size: 15, color: Color(0xFFDC2626)),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    proyecto.institucion.split('|').first.trim(),
-                    style: GoogleFonts.inter(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFF1E293B)),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    reclamo.descripcion,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.inter(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
-                        height: 1.4),
-                  ),
-                ]),
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _cleanInst(proyecto.institucion),
+                  style: GoogleFonts.inter(
+                      fontSize: 13, fontWeight: FontWeight.w600,
+                      color: const Color(0xFF1E293B)),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (fechaStr != null) ...[
+                  const SizedBox(height: 2),
+                  Text(fechaStr,
+                      style: GoogleFonts.inter(
+                          fontSize: 11, color: Colors.grey.shade500)),
+                ],
+              ],
+            ),
           ),
-          const SizedBox(width: 10),
-          if (reclamo.fechaReclamo != null)
-            Text(_formatDate(reclamo.fechaReclamo),
-                style: GoogleFonts.inter(
-                    fontSize: 11, color: Colors.grey.shade400)),
-          const Icon(Icons.chevron_right,
-              size: 16, color: Color(0xFFDC2626)),
+          if (count > 1) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF2F2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text('$count',
+                  style: GoogleFonts.inter(
+                      fontSize: 11, fontWeight: FontWeight.w700,
+                      color: const Color(0xFFDC2626))),
+            ),
+          ],
+          const SizedBox(width: 8),
+          Icon(Icons.chevron_right, size: 16, color: Colors.grey.shade300),
         ]),
       ),
     );
@@ -1273,15 +1484,14 @@ class _ProyectosViewState extends State<ProyectosView>
         filtered.isEmpty ? <Proyecto>[] : filtered.sublist(pageStart, pageEnd);
 
     final total = _proyectos.length;
+    final postulacion = _proyectos.where((p) => p.estado == EstadoProyecto.postulacion).length;
+    final enEvaluacion = _proyectos.where((p) => p.estado == 'En Evaluación').length;
     final vigentes = _proyectos.where((p) => p.estado == EstadoProyecto.vigente).length;
-    final xVencer = _proyectos.where((p) => p.estado == EstadoProyecto.xVencer).length;
-    final finalizado =
-        _proyectos.where((p) => p.estado == EstadoProyecto.finalizado).length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildSummaryRow(total, vigentes, xVencer, finalizado, isMobile),
+        _buildSummaryRow(total, postulacion, enEvaluacion, vigentes, isMobile),
         const SizedBox(height: 16),
         _buildFilterRow(_proyectos, isMobile),
         const SizedBox(height: 16),
@@ -1366,6 +1576,7 @@ class _ProyectosViewState extends State<ProyectosView>
                                       ),
                                       child: TabBar(
                                         controller: _tabController,
+                                        overlayColor: WidgetStateProperty.all(Colors.transparent),
                                         labelStyle: GoogleFonts.inter(
                                             fontSize: 13,
                                             fontWeight: FontWeight.w600),
@@ -1411,7 +1622,7 @@ class _ProyectosViewState extends State<ProyectosView>
   }
 
   Widget _buildSummaryRow(
-      int total, int vigentes, int xVencer, int finalizado, bool isMobile) {
+      int total, int postulacion, int enEvaluacion, int vigentes, bool isMobile) {
     final summaryCard = Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
@@ -1426,16 +1637,16 @@ class _ProyectosViewState extends State<ProyectosView>
       ),
       child: Row(
         children: [
-          _summaryChip('Total $total', null, const Color(0xFF1E293B)),
+          Flexible(child: _summaryChip('Total $total', null, const Color(0xFF1E293B))),
           _divider(),
-          _summaryChip(
-              'Vigentes $vigentes', const Color(0xFF10B981), const Color(0xFF10B981)),
+          Flexible(child: _summaryChip(
+              'Postulación $postulacion', const Color(0xFF6366F1), const Color(0xFF6366F1))),
           _divider(),
-          _summaryChip(
-              'X Vencer $xVencer', const Color(0xFFF59E0B), const Color(0xFFF59E0B)),
+          Flexible(child: _summaryChip(
+              'En Evaluación $enEvaluacion', const Color(0xFF0EA5E9), const Color(0xFF0EA5E9))),
           _divider(),
-          _summaryChip(
-              'Finalizado $finalizado', Colors.grey.shade400, Colors.grey.shade500),
+          Flexible(child: _summaryChip(
+              'Vigentes $vigentes', const Color(0xFF10B981), const Color(0xFF10B981))),
         ],
       ),
     );
@@ -1492,7 +1703,8 @@ class _ProyectosViewState extends State<ProyectosView>
             style: GoogleFonts.inter(
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
-                color: textColor)),
+                color: textColor),
+            overflow: TextOverflow.ellipsis),
       ],
     );
   }
@@ -1507,51 +1719,47 @@ class _ProyectosViewState extends State<ProyectosView>
     final modalidades = _cfgModalidades;
     final estados = _cfgEstados.map((e) => e.nombre).toList();
 
-    final filters = [
-      _filterDropdown(
+    final filters = <Widget>[
+      _filterButton(
         hint: 'Institución',
         value: _filterInstitucion,
-        items: all
-            .map((p) => p.institucion)
-            .toSet()
-            .where((s) => s.isNotEmpty)
-            .toList()
-          ..sort(),
-        onChanged: (v) =>
-            setState(() { _filterInstitucion = v; _currentPage = 0; }),
+        items: all.map((p) => p.institucion).toSet().where((s) => s.isNotEmpty).toList()..sort(),
+        displayLabel: (s) => s.split('|').first.trim(),
+        onChanged: (v) => setState(() { _filterInstitucion = v; _currentPage = 0; }),
       ),
-      _filterDropdown(
-        hint: 'Productos',
-        value: _filterProductos,
-        items: all
-            .map((p) => p.productos)
-            .toSet()
-            .where((s) => s.isNotEmpty)
-            .toList()
-          ..sort(),
-        onChanged: (v) =>
-            setState(() { _filterProductos = v; _currentPage = 0; }),
-      ),
-      _filterDropdown(
+      _productsButton(),
+      _filterButton(
         hint: 'Contratación',
         value: _filterModalidad,
         items: modalidades,
-        onChanged: (v) =>
-            setState(() { _filterModalidad = v; _currentPage = 0; }),
+        onChanged: (v) => setState(() { _filterModalidad = v; _currentPage = 0; }),
       ),
-      _filterDropdown(
+      _filterButton(
         hint: 'Estado',
         value: _filterEstado,
         items: estados,
-        onChanged: (v) =>
-            setState(() { _filterEstado = v; _currentPage = 0; }),
+        onChanged: (v) => setState(() { _filterEstado = v; _currentPage = 0; }),
+      ),
+      _filterButton(
+        hint: 'Reclamos',
+        value: _filterReclamo,
+        items: const ['Pendiente', 'Respondido'],
+        onChanged: (v) => setState(() { _filterReclamo = v; _currentPage = 0; }),
+      ),
+      _filterButton(
+        hint: 'Por Vencer',
+        value: _filterVencer,
+        items: const ['30 días', '3 meses', '6 meses', '12 meses'],
+        onChanged: (v) => setState(() { _filterVencer = v; _currentPage = 0; }),
       ),
     ];
 
     final hasFilters = _filterInstitucion != null ||
-        _filterProductos != null ||
+        _filterProductos.isNotEmpty ||
         _filterModalidad != null ||
-        _filterEstado != null;
+        _filterEstado != null ||
+        _filterReclamo != null ||
+        _filterVencer != null;
 
     final clearBtn = IconButton(
       icon: Icon(Icons.clear,
@@ -1645,50 +1853,117 @@ class _ProyectosViewState extends State<ProyectosView>
     );
   }
 
-  Widget _filterDropdown({
+  Widget _filterButton({
     required String hint,
     required String? value,
     required List<String> items,
     required ValueChanged<String?> onChanged,
+    String Function(String)? displayLabel,
   }) {
-    return DropdownButtonFormField<String>(
-      initialValue: value,
-      decoration: InputDecoration(
-        hintText: hint,
-        hintStyle:
-            GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400),
-        filled: true,
-        fillColor: Colors.white,
-        border: OutlineInputBorder(
+    final display = value != null ? (displayLabel?.call(value) ?? value) : null;
+    final isActive = value != null;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () => _showFilterDialog(
+          hint: hint, value: value, items: items,
+          onChanged: onChanged, displayLabel: displayLabel ?? (s) => s,
+        ),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(
+              color: isActive ? _primaryColor : Colors.grey.shade200,
+              width: isActive ? 1.5 : 1.0,
+            ),
             borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(color: Colors.grey.shade200)),
-        enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(color: Colors.grey.shade200)),
-        focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: _primaryColor, width: 1.5)),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        isDense: true,
-      ),
-      style:
-          GoogleFonts.inter(fontSize: 13, color: const Color(0xFF1E293B)),
-      isExpanded: true,
-      items: [
-        DropdownMenuItem<String>(
-            value: null,
-            child: Text(hint,
+          ),
+          child: Row(children: [
+            Expanded(
+              child: Text(
+                display ?? hint,
                 style: GoogleFonts.inter(
-                    fontSize: 13, color: Colors.grey.shade400))),
-        ...items.map((item) => DropdownMenuItem<String>(
-            value: item,
-            child: Text(item,
-                style: GoogleFonts.inter(fontSize: 13),
-                overflow: TextOverflow.ellipsis))),
-      ],
-      onChanged: onChanged,
+                  fontSize: 13,
+                  color: isActive ? const Color(0xFF1E293B) : Colors.grey.shade400,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Icon(Icons.arrow_drop_down, size: 20, color: Colors.grey.shade400),
+          ]),
+        ),
+      ),
     );
+  }
+
+  Future<void> _showFilterDialog({
+    required String hint,
+    required String? value,
+    required List<String> items,
+    required ValueChanged<String?> onChanged,
+    required String Function(String) displayLabel,
+  }) async {
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _FilterSearchDialog(
+        hint: hint, value: value, items: items, displayLabel: displayLabel,
+      ),
+    );
+    if (selected == '\x00') {
+      onChanged(null);
+    } else if (selected != null) {
+      onChanged(selected);
+    }
+  }
+
+  Widget _productsButton() {
+    final allProducts = _cfgProductos.map((p) => p.abreviatura).toList()..sort();
+    final isActive = _filterProductos.isNotEmpty;
+    final display = isActive ? _filterProductos.join(', ') : null;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () => _showMultiFilterDialog(allProducts),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(
+              color: isActive ? _primaryColor : Colors.grey.shade200,
+              width: isActive ? 1.5 : 1.0,
+            ),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(children: [
+            Expanded(
+              child: Text(
+                display ?? 'Productos',
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  color: isActive ? const Color(0xFF1E293B) : Colors.grey.shade400,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Icon(Icons.arrow_drop_down, size: 20, color: Colors.grey.shade400),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showMultiFilterDialog(List<String> allProducts) async {
+    final result = await showDialog<Set<String>>(
+      context: context,
+      builder: (ctx) => _MultiFilterDialog(
+        allItems: allProducts,
+        selected: Set.from(_filterProductos),
+      ),
+    );
+    if (result != null) {
+      setState(() { _filterProductos = result; _currentPage = 0; });
+    }
   }
 
   Widget _buildEmptyState() {
@@ -1821,7 +2096,7 @@ class _ProyectosViewState extends State<ProyectosView>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(p.institucion.split('|').first.trim(),
+                  Text(_cleanInst(p.institucion),
                       style: GoogleFonts.inter(
                           fontSize: 13,
                           color: const Color(0xFF1E293B)),
@@ -1837,6 +2112,10 @@ class _ProyectosViewState extends State<ProyectosView>
                         fontSize: 11, color: Colors.grey.shade400),
                     overflow: TextOverflow.ellipsis,
                   ),
+                  if (p.reclamos.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    _reclamoBadge(p),
+                  ],
                 ],
               ),
             ),
@@ -1941,7 +2220,7 @@ class _ProyectosViewState extends State<ProyectosView>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(p.institucion.split('|').first.trim(),
+                  Text(_cleanInst(p.institucion),
                       style: GoogleFonts.inter(
                           fontSize: 14, fontWeight: FontWeight.w600,
                           color: const Color(0xFF1E293B)),
@@ -2015,6 +2294,19 @@ class _ProyectosViewState extends State<ProyectosView>
           color: _primaryColor,
         ),
       ],
+    );
+  }
+
+  Widget _reclamoBadge(Proyecto p) {
+    final hasPendiente = p.reclamos.any((r) => r.estado == 'Pendiente');
+    final color = hasPendiente ? const Color(0xFFDC2626) : const Color(0xFF10B981);
+    final bg = hasPendiente ? const Color(0xFFFEF2F2) : const Color(0xFFF0FDF4);
+    final label = hasPendiente ? 'Reclamo pendiente' : 'Reclamo respondido';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(4)),
+      child: Text(label,
+          style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w600, color: color)),
     );
   }
 
@@ -2203,6 +2495,7 @@ class _KpiCardShell extends StatelessWidget {
   final int pageCount;
   final int currentIndex;
   final void Function(bool forward) onSwipe;
+  final VoidCallback? onTap;
 
   const _KpiCardShell({
     required this.label,
@@ -2212,60 +2505,73 @@ class _KpiCardShell extends StatelessWidget {
     required this.pageCount,
     required this.currentIndex,
     required this.onSwipe,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onHorizontalDragEnd: (d) {
-        if (d.primaryVelocity == null) return;
-        onSwipe(d.primaryVelocity! < 0);
-      },
-      child: Container(
-        height: 130,
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 6,
-                offset: const Offset(0, 2))
-          ],
-        ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Flexible(
-                child: Text(label,
-                    style: GoogleFonts.inter(
-                        fontSize: 11,
-                        color: Colors.grey.shade500,
-                        fontWeight: FontWeight.w500),
-                    maxLines: 2),
-              ),
-              icon,
+    return MouseRegion(
+      cursor: onTap != null ? SystemMouseCursors.click : MouseCursor.defer,
+      child: GestureDetector(
+        onTap: onTap,
+        onHorizontalDragEnd: (d) {
+          if (d.primaryVelocity == null) return;
+          onSwipe(d.primaryVelocity! < 0);
+        },
+        child: Container(
+          height: 130,
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2))
             ],
           ),
-          const SizedBox(height: 10),
-          value,
-          const Spacer(),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(pageCount, (i) => AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: i == currentIndex ? 12 : 5,
-              height: 4,
-              margin: const EdgeInsets.symmetric(horizontal: 2),
-              decoration: BoxDecoration(
-                color: i == currentIndex ? color : Colors.grey.shade200,
-                borderRadius: BorderRadius.circular(2),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Flexible(
+                  child: Text(label,
+                      style: GoogleFonts.inter(
+                          fontSize: 11,
+                          color: Colors.grey.shade500,
+                          fontWeight: FontWeight.w500),
+                      maxLines: 2),
+                ),
+                icon,
+              ],
+            ),
+            const SizedBox(height: 10),
+            value,
+            const Spacer(),
+            // Dots — tappable on web to advance carousel
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => onSwipe(true),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(pageCount, (i) => AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: i == currentIndex ? 12 : 5,
+                    height: 4,
+                    margin: const EdgeInsets.symmetric(horizontal: 2),
+                    decoration: BoxDecoration(
+                      color: i == currentIndex ? color : Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  )),
+                ),
               ),
-            )),
-          ),
-        ]),
+            ),
+          ]),
+        ),
       ),
     );
   }
@@ -2274,7 +2580,8 @@ class _KpiCardShell extends StatelessWidget {
 class _ReclamosCard extends StatefulWidget {
   final int pendientes;
   final int finalizados;
-  const _ReclamosCard({required this.pendientes, required this.finalizados});
+  final void Function(String)? onNavigate;
+  const _ReclamosCard({required this.pendientes, required this.finalizados, this.onNavigate});
 
   @override
   State<_ReclamosCard> createState() => _ReclamosCardState();
@@ -2313,6 +2620,9 @@ class _ReclamosCardState extends State<_ReclamosCard> {
       pageCount: 2,
       currentIndex: _idx,
       onSwipe: (_) => setState(() => _idx = _idx == 0 ? 1 : 0),
+      onTap: widget.onNavigate != null
+          ? () => widget.onNavigate!(isPendientes ? 'Pendiente' : 'Respondido')
+          : null,
     );
   }
 }
@@ -2321,7 +2631,8 @@ class _ReclamosCardState extends State<_ReclamosCard> {
 
 class _ProyectosKpiCard extends StatefulWidget {
   final List<Proyecto> proyectos;
-  const _ProyectosKpiCard({required this.proyectos});
+  final void Function(String? estado)? onNavigate;
+  const _ProyectosKpiCard({required this.proyectos, this.onNavigate});
 
   @override
   State<_ProyectosKpiCard> createState() => _ProyectosKpiCardState();
@@ -2375,6 +2686,10 @@ class _ProyectosKpiCardState extends State<_ProyectosKpiCard> {
       currentIndex: _idx,
       onSwipe: (forward) => setState(() =>
           _idx = forward ? (_idx + 1) % _pages.length : (_idx - 1 + _pages.length) % _pages.length),
+      onTap: widget.onNavigate == null ? null : () {
+        final page = _pages[_idx];
+        widget.onNavigate!(page.activos ? null : page.estado);
+      },
     );
   }
 }
@@ -2383,7 +2698,8 @@ class _ProyectosKpiCardState extends State<_ProyectosKpiCard> {
 
 class _XVencerKpiCard extends StatefulWidget {
   final List<Proyecto> proyectos;
-  const _XVencerKpiCard({required this.proyectos});
+  final void Function(int dias)? onNavigate;
+  const _XVencerKpiCard({required this.proyectos, this.onNavigate});
 
   @override
   State<_XVencerKpiCard> createState() => _XVencerKpiCardState();
@@ -2436,6 +2752,7 @@ class _XVencerKpiCardState extends State<_XVencerKpiCard> {
       currentIndex: _idx,
       onSwipe: (forward) => setState(() =>
           _idx = forward ? (_idx + 1) % _periodos.length : (_idx - 1 + _periodos.length) % _periodos.length),
+      onTap: widget.onNavigate != null ? () => widget.onNavigate!(page.dias) : null,
     );
   }
 }
@@ -2444,7 +2761,8 @@ class _XVencerKpiCardState extends State<_XVencerKpiCard> {
 
 class _ValorMensualCard extends StatefulWidget {
   final List<Proyecto> proyectos;
-  const _ValorMensualCard({required this.proyectos});
+  final void Function(String? estado)? onNavigate;
+  const _ValorMensualCard({required this.proyectos, this.onNavigate});
 
   @override
   State<_ValorMensualCard> createState() => _ValorMensualCardState();
@@ -2502,6 +2820,284 @@ class _ValorMensualCardState extends State<_ValorMensualCard> {
       currentIndex: _idx,
       onSwipe: (forward) => setState(() =>
           _idx = forward ? (_idx + 1) % _pages.length : (_idx - 1 + _pages.length) % _pages.length),
+      onTap: widget.onNavigate == null ? null : () {
+        widget.onNavigate!(_pages[_idx].estado);
+      },
+    );
+  }
+}
+
+// ── Single-select searchable filter dialog ─────────────────────────────────────
+
+class _FilterSearchDialog extends StatefulWidget {
+  final String hint;
+  final String? value;
+  final List<String> items;
+  final String Function(String) displayLabel;
+  const _FilterSearchDialog({
+    required this.hint,
+    required this.value,
+    required this.items,
+    required this.displayLabel,
+  });
+  @override
+  State<_FilterSearchDialog> createState() => _FilterSearchDialogState();
+}
+
+class _FilterSearchDialogState extends State<_FilterSearchDialog> {
+  final _ctrl = TextEditingController();
+  late List<String> _filtered;
+
+  @override
+  void initState() {
+    super.initState();
+    _filtered = widget.items;
+    _ctrl.addListener(() {
+      final q = _ctrl.text.toLowerCase();
+      setState(() => _filtered = widget.items
+          .where((s) => widget.displayLabel(s).toLowerCase().contains(q))
+          .toList());
+    });
+  }
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420, maxHeight: 520),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: TextField(
+                controller: _ctrl,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: 'Buscar ${widget.hint.toLowerCase()}...',
+                  hintStyle: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400),
+                  prefixIcon: const Icon(Icons.search, size: 18),
+                  filled: true,
+                  fillColor: const Color(0xFFF8FAFC),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: Colors.grey.shade200),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: Colors.grey.shade200),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Color(0xFF5B21B6), width: 1.5),
+                  ),
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                ),
+                style: GoogleFonts.inter(fontSize: 13),
+              ),
+            ),
+            if (widget.value != null)
+              InkWell(
+                onTap: () => Navigator.pop(context, '\x00'),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(children: [
+                    Icon(Icons.clear, size: 14, color: Colors.red.shade400),
+                    const SizedBox(width: 8),
+                    Text('Limpiar filtro',
+                        style: GoogleFonts.inter(fontSize: 13, color: Colors.red.shade400)),
+                  ]),
+                ),
+              ),
+            Divider(height: 1, color: Colors.grey.shade100),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: _filtered.length,
+                itemBuilder: (ctx, i) {
+                  final item = _filtered[i];
+                  final display = widget.displayLabel(item);
+                  final isSelected = item == widget.value;
+                  return InkWell(
+                    onTap: () => Navigator.pop(context, item),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      color: isSelected
+                          ? const Color(0xFF5B21B6).withValues(alpha: 0.05)
+                          : null,
+                      child: Row(children: [
+                        Expanded(
+                          child: Text(display,
+                              style: GoogleFonts.inter(
+                                fontSize: 13,
+                                color: isSelected
+                                    ? const Color(0xFF5B21B6)
+                                    : const Color(0xFF1E293B),
+                                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                              )),
+                        ),
+                        if (isSelected)
+                          const Icon(Icons.check, size: 16, color: Color(0xFF5B21B6)),
+                      ]),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Multi-select filter dialog (Productos) ─────────────────────────────────────
+
+class _MultiFilterDialog extends StatefulWidget {
+  final List<String> allItems;
+  final Set<String> selected;
+  const _MultiFilterDialog({required this.allItems, required this.selected});
+  @override
+  State<_MultiFilterDialog> createState() => _MultiFilterDialogState();
+}
+
+class _MultiFilterDialogState extends State<_MultiFilterDialog> {
+  late Set<String> _selected;
+  final _ctrl = TextEditingController();
+  late List<String> _filtered;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = Set.from(widget.selected);
+    _filtered = widget.allItems;
+    _ctrl.addListener(() {
+      final q = _ctrl.text.toLowerCase();
+      setState(() => _filtered = widget.allItems
+          .where((s) => s.toLowerCase().contains(q))
+          .toList());
+    });
+  }
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 360, maxHeight: 520),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: TextField(
+                controller: _ctrl,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: 'Buscar producto...',
+                  hintStyle: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400),
+                  prefixIcon: const Icon(Icons.search, size: 18),
+                  filled: true,
+                  fillColor: const Color(0xFFF8FAFC),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: Colors.grey.shade200),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: Colors.grey.shade200),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Color(0xFF5B21B6), width: 1.5),
+                  ),
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                ),
+                style: GoogleFonts.inter(fontSize: 13),
+              ),
+            ),
+            Divider(height: 1, color: Colors.grey.shade100),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: _filtered.length,
+                itemBuilder: (ctx, i) {
+                  final item = _filtered[i];
+                  final isChecked = _selected.contains(item);
+                  return InkWell(
+                    onTap: () => setState(() {
+                      if (isChecked) { _selected.remove(item); } else { _selected.add(item); }
+                    }),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      child: Row(children: [
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          width: 18,
+                          height: 18,
+                          decoration: BoxDecoration(
+                            color: isChecked ? const Color(0xFF5B21B6) : Colors.transparent,
+                            border: Border.all(
+                              color: isChecked ? const Color(0xFF5B21B6) : Colors.grey.shade300,
+                              width: 1.5,
+                            ),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: isChecked
+                              ? const Icon(Icons.check, size: 12, color: Colors.white)
+                              : null,
+                        ),
+                        const SizedBox(width: 12),
+                        Text(item,
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              color: isChecked
+                                  ? const Color(0xFF5B21B6)
+                                  : const Color(0xFF1E293B),
+                              fontWeight: isChecked ? FontWeight.w600 : FontWeight.normal,
+                            )),
+                      ]),
+                    ),
+                  );
+                },
+              ),
+            ),
+            Divider(height: 1, color: Colors.grey.shade100),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+              child: Row(children: [
+                if (_selected.isNotEmpty)
+                  TextButton(
+                    onPressed: () => setState(() => _selected.clear()),
+                    child: Text('Limpiar',
+                        style: GoogleFonts.inter(fontSize: 13, color: Colors.red.shade400)),
+                  ),
+                const Spacer(),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context, _selected),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF5B21B6),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    elevation: 0,
+                  ),
+                  child: Text('Aplicar', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                ),
+              ]),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
