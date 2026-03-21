@@ -1716,140 +1716,414 @@ class _ProyectosViewState extends State<ProyectosView>
       );
 
   Widget _buildFilterRow(List<Proyecto> all, bool isMobile) {
-    final modalidades = _cfgModalidades;
-    final estados = _cfgEstados.map((e) => e.nombre).toList();
+    final activeCount = [
+      _filterInstitucion,
+      _filterModalidad,
+      _filterEstado,
+      _filterReclamo,
+      _filterVencer,
+    ].where((v) => v != null).length + (_filterProductos.isNotEmpty ? 1 : 0);
 
-    final filters = <Widget>[
-      _filterButton(
-        hint: 'Institución',
-        value: _filterInstitucion,
-        items: all.map((p) => p.institucion).toSet().where((s) => s.isNotEmpty).toList()..sort(),
-        displayLabel: (s) => s.split('|').first.trim(),
-        onChanged: (v) => setState(() { _filterInstitucion = v; _currentPage = 0; }),
-      ),
-      _productsButton(),
-      _filterButton(
-        hint: 'Contratación',
-        value: _filterModalidad,
-        items: modalidades,
-        onChanged: (v) => setState(() { _filterModalidad = v; _currentPage = 0; }),
-      ),
-      _filterButton(
-        hint: 'Estado',
-        value: _filterEstado,
-        items: estados,
-        onChanged: (v) => setState(() { _filterEstado = v; _currentPage = 0; }),
-      ),
-      _filterButton(
-        hint: 'Reclamos',
-        value: _filterReclamo,
-        items: const ['Pendiente', 'Respondido'],
-        onChanged: (v) => setState(() { _filterReclamo = v; _currentPage = 0; }),
-      ),
-      _filterButton(
-        hint: 'Por Vencer',
-        value: _filterVencer,
-        items: const ['30 días', '3 meses', '6 meses', '12 meses'],
-        onChanged: (v) => setState(() { _filterVencer = v; _currentPage = 0; }),
-      ),
+    final hasFilters = activeCount > 0;
+
+    // Active filter chips shown inline
+    final activeChips = <Widget>[
+      if (_filterInstitucion != null)
+        _activeChip(_filterInstitucion!.split('|').first.trim(),
+            () => setState(() { _filterInstitucion = null; _currentPage = 0; })),
+      if (_filterProductos.isNotEmpty)
+        _activeChip(_filterProductos.join(', '),
+            () => setState(() { _filterProductos = {}; _currentPage = 0; })),
+      if (_filterModalidad != null)
+        _activeChip(_filterModalidad!,
+            () => setState(() { _filterModalidad = null; _currentPage = 0; })),
+      if (_filterEstado != null)
+        _activeChip(_filterEstado!,
+            () => setState(() { _filterEstado = null; _currentPage = 0; })),
+      if (_filterReclamo != null)
+        _activeChip('Reclamo: $_filterReclamo',
+            () => setState(() { _filterReclamo = null; _currentPage = 0; })),
+      if (_filterVencer != null)
+        _activeChip('Vencer: $_filterVencer',
+            () => setState(() { _filterVencer = null; _currentPage = 0; })),
     ];
-
-    final hasFilters = _filterInstitucion != null ||
-        _filterProductos.isNotEmpty ||
-        _filterModalidad != null ||
-        _filterEstado != null ||
-        _filterReclamo != null ||
-        _filterVencer != null;
-
-    final clearBtn = IconButton(
-      icon: Icon(Icons.clear,
-          size: 18,
-          color: hasFilters ? Colors.red.shade400 : Colors.grey.shade300),
-      onPressed: hasFilters ? _clearFilters : null,
-      tooltip: 'Limpiar filtros',
-    );
-
-    if (isMobile) {
-      return Row(
-        children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: () => showModalBottomSheet(
-                context: context,
-                isScrollControlled: true,
-                shape: const RoundedRectangleBorder(
-                  borderRadius:
-                      BorderRadius.vertical(top: Radius.circular(20)),
-                ),
-                builder: (_) => Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text('Filtros',
-                              style: GoogleFonts.inter(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                  color: const Color(0xFF1E293B))),
-                          const Spacer(),
-                          if (hasFilters)
-                            TextButton(
-                              onPressed: () {
-                                _clearFilters();
-                                Navigator.pop(context);
-                              },
-                              child: Text('Limpiar',
-                                  style: GoogleFonts.inter(
-                                      fontSize: 13,
-                                      color: Colors.red.shade400)),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      ...filters.map((f) => Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: f)),
-                    ],
-                  ),
-                ),
-              ),
-              icon: Icon(Icons.tune,
-                  size: 16,
-                  color: hasFilters ? _primaryColor : Colors.grey.shade500),
-              label: Text(
-                hasFilters ? 'Filtros activos' : 'Filtros',
-                style: GoogleFonts.inter(
-                    fontSize: 13,
-                    color: hasFilters ? _primaryColor : Colors.grey.shade600),
-              ),
-              style: OutlinedButton.styleFrom(
-                side: BorderSide(
-                    color: hasFilters ? _primaryColor : Colors.grey.shade200),
-                backgroundColor: hasFilters
-                    ? _primaryColor.withValues(alpha: 0.05)
-                    : Colors.white,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8)),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              ),
-            ),
-          ),
-          if (hasFilters) ...[const SizedBox(width: 8), clearBtn],
-        ],
-      );
-    }
 
     return Row(
       children: [
-        ...filters.map((f) => Expanded(
-            child: Padding(
-                padding: const EdgeInsets.only(right: 8), child: f))),
-        clearBtn,
+        // Filter icon button
+        GestureDetector(
+          onTap: () => _showFiltersSheet(all),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            decoration: BoxDecoration(
+              color: hasFilters
+                  ? _primaryColor.withValues(alpha: 0.08)
+                  : Colors.white,
+              border: Border.all(
+                color: hasFilters ? _primaryColor : Colors.grey.shade200,
+                width: hasFilters ? 1.5 : 1.0,
+              ),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.tune_rounded, size: 15,
+                    color: hasFilters ? _primaryColor : Colors.grey.shade500),
+                if (activeCount > 0) ...[
+                  const SizedBox(width: 5),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: _primaryColor,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text('$activeCount',
+                        style: GoogleFonts.inter(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white)),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        // Active filter chips
+        if (activeChips.isNotEmpty) ...[
+          const SizedBox(width: 8),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: activeChips
+                    .expand((c) => [c, const SizedBox(width: 6)])
+                    .toList()
+                  ..removeLast(),
+              ),
+            ),
+          ),
+        ],
+        if (hasFilters) ...[
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap: _clearFilters,
+            child: Icon(Icons.close, size: 15, color: Colors.grey.shade400),
+          ),
+        ],
       ],
+    );
+  }
+
+  Widget _activeChip(String label, VoidCallback onRemove) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: _primaryColor.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _primaryColor.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label,
+              style: GoogleFonts.inter(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: _primaryColor),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis),
+          const SizedBox(width: 4),
+          GestureDetector(
+            onTap: onRemove,
+            child: Icon(Icons.close, size: 11, color: _primaryColor),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showFiltersSheet(List<Proyecto> all) {
+    final modalidades = _cfgModalidades;
+    final estados = _cfgEstados.map((e) => e.nombre).toList();
+    final allProducts = _cfgProductos.map((p) => p.abreviatura).toList()..sort();
+    final instituciones = all
+        .map((p) => p.institucion)
+        .toSet()
+        .where((s) => s.isNotEmpty)
+        .toList()
+      ..sort();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          // local copies to update sheet live
+          void applyAndRefresh(VoidCallback fn) {
+            fn();
+            setSheet(() {});
+          }
+
+          Widget sectionTitle(String t) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(t,
+                    style: GoogleFonts.inter(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade500,
+                        letterSpacing: 0.5)),
+              );
+
+          Widget chipGroup(
+              List<String> items, String? selected,
+              void Function(String?) onTap,
+              {String Function(String)? label}) {
+            return Wrap(spacing: 6, runSpacing: 6, children: [
+              for (final item in items)
+                GestureDetector(
+                  onTap: () {
+                    applyAndRefresh(() => setState(() {
+                          if (selected == item) {
+                            onTap(null);
+                          } else {
+                            onTap(item);
+                          }
+                          _currentPage = 0;
+                        }));
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: selected == item
+                          ? _primaryColor
+                          : Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(label?.call(item) ?? item,
+                        style: GoogleFonts.inter(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: selected == item
+                                ? Colors.white
+                                : Colors.grey.shade700)),
+                  ),
+                ),
+            ]);
+          }
+
+          Widget multiChipGroup(List<String> items, Set<String> selected) {
+            return Wrap(spacing: 6, runSpacing: 6, children: [
+              for (final item in items)
+                GestureDetector(
+                  onTap: () {
+                    applyAndRefresh(() => setState(() {
+                          if (selected.contains(item)) {
+                            _filterProductos = Set.from(selected)..remove(item);
+                          } else {
+                            _filterProductos = Set.from(selected)..add(item);
+                          }
+                          _currentPage = 0;
+                        }));
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: selected.contains(item)
+                          ? _primaryColor
+                          : Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(item,
+                        style: GoogleFonts.inter(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: selected.contains(item)
+                                ? Colors.white
+                                : Colors.grey.shade700)),
+                  ),
+                ),
+            ]);
+          }
+
+          final activeCount = [
+            _filterInstitucion,
+            _filterModalidad,
+            _filterEstado,
+            _filterReclamo,
+            _filterVencer,
+          ].where((v) => v != null).length +
+              (_filterProductos.isNotEmpty ? 1 : 0);
+
+          return DraggableScrollableSheet(
+            initialChildSize: 0.7,
+            minChildSize: 0.4,
+            maxChildSize: 0.92,
+            expand: false,
+            builder: (_, scrollCtrl) => Column(
+              children: [
+                // Handle + header
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                  child: Column(children: [
+                    Center(
+                      child: Container(
+                          width: 36, height: 4,
+                          decoration: BoxDecoration(
+                              color: Colors.grey.shade300,
+                              borderRadius: BorderRadius.circular(2))),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(children: [
+                      Text('Filtros',
+                          style: GoogleFonts.inter(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF1E293B))),
+                      if (activeCount > 0) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 7, vertical: 2),
+                          decoration: BoxDecoration(
+                              color: _primaryColor,
+                              borderRadius: BorderRadius.circular(10)),
+                          child: Text('$activeCount',
+                              style: GoogleFonts.inter(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white)),
+                        ),
+                      ],
+                      const Spacer(),
+                      if (activeCount > 0)
+                        TextButton(
+                          onPressed: () {
+                            applyAndRefresh(() => _clearFilters());
+                          },
+                          child: Text('Limpiar todo',
+                              style: GoogleFonts.inter(
+                                  fontSize: 13, color: Colors.red.shade400)),
+                        ),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 18),
+                        onPressed: () => Navigator.pop(ctx),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        color: Colors.grey.shade400,
+                      ),
+                    ]),
+                    const Divider(height: 20),
+                  ]),
+                ),
+                // Scrollable content
+                Expanded(
+                  child: ListView(
+                    controller: scrollCtrl,
+                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
+                    children: [
+                      // Institución
+                      sectionTitle('INSTITUCIÓN'),
+                      GestureDetector(
+                        onTap: () async {
+                          final sel = await showDialog<String>(
+                            context: ctx,
+                            builder: (_) => _FilterSearchDialog(
+                              hint: 'Institución',
+                              value: _filterInstitucion,
+                              items: instituciones,
+                              displayLabel: (s) => s.split('|').first.trim(),
+                            ),
+                          );
+                          if (sel == '\x00') {
+                            applyAndRefresh(() => setState(
+                                () { _filterInstitucion = null; _currentPage = 0; }));
+                          } else if (sel != null) {
+                            applyAndRefresh(() => setState(
+                                () { _filterInstitucion = sel; _currentPage = 0; }));
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: _filterInstitucion != null
+                                ? _primaryColor.withValues(alpha: 0.06)
+                                : Colors.grey.shade50,
+                            border: Border.all(
+                                color: _filterInstitucion != null
+                                    ? _primaryColor.withValues(alpha: 0.3)
+                                    : Colors.grey.shade200),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(children: [
+                            Expanded(
+                              child: Text(
+                                _filterInstitucion != null
+                                    ? _filterInstitucion!.split('|').first.trim()
+                                    : 'Seleccionar institución…',
+                                style: GoogleFonts.inter(
+                                    fontSize: 13,
+                                    color: _filterInstitucion != null
+                                        ? const Color(0xFF1E293B)
+                                        : Colors.grey.shade400),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Icon(
+                              _filterInstitucion != null
+                                  ? Icons.close
+                                  : Icons.search,
+                              size: 16,
+                              color: _filterInstitucion != null
+                                  ? _primaryColor
+                                  : Colors.grey.shade400,
+                            ),
+                          ]),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Productos
+                      sectionTitle('PRODUCTOS'),
+                      multiChipGroup(allProducts, _filterProductos),
+                      const SizedBox(height: 20),
+
+                      // Contratación
+                      sectionTitle('CONTRATACIÓN'),
+                      chipGroup(modalidades, _filterModalidad,
+                          (v) => _filterModalidad = v),
+                      const SizedBox(height: 20),
+
+                      // Estado
+                      sectionTitle('ESTADO'),
+                      chipGroup(estados, _filterEstado,
+                          (v) => _filterEstado = v),
+                      const SizedBox(height: 20),
+
+                      // Reclamos
+                      sectionTitle('RECLAMOS'),
+                      chipGroup(const ['Pendiente', 'Respondido'],
+                          _filterReclamo, (v) => _filterReclamo = v),
+                      const SizedBox(height: 20),
+
+                      // Por Vencer
+                      sectionTitle('POR VENCER'),
+                      chipGroup(
+                          const ['30 días', '3 meses', '6 meses', '12 meses'],
+                          _filterVencer, (v) => _filterVencer = v),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 
