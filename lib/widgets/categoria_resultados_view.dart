@@ -24,12 +24,11 @@ class CategoriaResultadosView extends StatefulWidget {
 
 class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
   static const _primaryColor = Color(0xFF5B21B6);
+  static const _pageSize = 20;
 
-  List<LicitacionUI> _licitaciones = [];
+  List<LicitacionUI> _todas = [];
   bool _cargando = false;
-  int _paginaActual = 0;
-  final Map<int, String?> _cursores = {0: null};
-  bool _hayMas = true;
+  int _clientPagina = 0;
   Map<String, dynamic>? _seleccionada;
 
   // Filters
@@ -40,44 +39,39 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
   @override
   void initState() {
     super.initState();
-    _cargarPagina(0);
+    _cargarTodo();
   }
 
-  Future<void> _cargarPagina(int pagina) async {
+  Future<void> _cargarTodo() async {
     if (_cargando) return;
-    final cursor = _cursores[pagina];
-    setState(() => _cargando = true);
+    setState(() { _cargando = true; _todas = []; });
+    String? cursor;
     try {
-      final uri = Uri.parse(
-        'https://us-central1-licitaciones-prod.cloudfunctions.net/obtenerLicitacionesPorCategoria'
-        '?prefix=${Uri.encodeComponent(widget.prefix)}&limit=20'
-        '${cursor != null ? '&cursor=${Uri.encodeComponent(cursor)}' : ''}',
-      );
-      final response = await http.get(uri);
-      if (response.statusCode == 200) {
+      while (true) {
+        final uri = Uri.parse(
+          'https://us-central1-licitaciones-prod.cloudfunctions.net/obtenerLicitacionesPorCategoria'
+          '?prefix=${Uri.encodeComponent(widget.prefix)}&limit=50'
+          '${cursor != null ? '&cursor=${Uri.encodeComponent(cursor)}' : ''}',
+        );
+        final response = await http.get(uri);
+        if (response.statusCode != 200) break;
         final body = json.decode(response.body);
         final List<dynamic> items = body['resultados'] ?? [];
         final String? next = body['nextCursor'];
-        setState(() {
-          _paginaActual = pagina;
-          _licitaciones = items.map((item) {
-            final m = item as Map<String, dynamic>;
-            return LicitacionUI(
-              m['id']?.toString() ?? 'S/I',
-              m['titulo']?.toString() ?? 'Sin título',
-              m['descripcion']?.toString() ?? 'Sin descripción',
-              m['fechaPublicacion']?.toString() ?? 'S/F',
-              m['fechaCierre']?.toString() ?? 'S/F',
-              rawData: m,
-            );
-          }).toList();
-          if (next != null) {
-            _cursores[pagina + 1] = next;
-            _hayMas = true;
-          } else {
-            _hayMas = false;
-          }
-        });
+        final nuevas = items.map((item) {
+          final m = item as Map<String, dynamic>;
+          return LicitacionUI(
+            m['id']?.toString() ?? 'S/I',
+            m['titulo']?.toString() ?? 'Sin título',
+            m['descripcion']?.toString() ?? 'Sin descripción',
+            m['fechaPublicacion']?.toString() ?? 'S/F',
+            m['fechaCierre']?.toString() ?? 'S/F',
+            rawData: m,
+          );
+        }).toList();
+        if (mounted) setState(() => _todas.addAll(nuevas));
+        if (next == null || next.isEmpty) break;
+        cursor = next;
       }
     } catch (e) {
       debugPrint('Error cargando categoría: $e');
@@ -87,7 +81,7 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
   }
 
   List<LicitacionUI> get _filtradas {
-    return _licitaciones.where((l) {
+    return _todas.where((l) {
       if (_soloAbiertas && !l.esVigente) return false;
       if (_rangoPublicacion != null) {
         final d = l.fechaPublicacionDate;
@@ -104,6 +98,7 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
       return true;
     }).toList();
   }
+
 
   Future<void> _seleccionarRango(bool esPublicacion) async {
     final initial = esPublicacion
@@ -154,8 +149,12 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
     final isMobile = screenWidth < 700;
 
     final filtradas = _filtradas;
-    final abiertas = _licitaciones.where((l) => l.esVigente).length;
-    final cerradas = _licitaciones.length - abiertas;
+    final abiertas = _todas.where((l) => l.esVigente).length;
+    final cerradas = _todas.length - abiertas;
+    final totalPages = filtradas.isEmpty ? 1 : (filtradas.length / _pageSize).ceil();
+    final pageStart = _clientPagina * _pageSize;
+    final pageEnd = (pageStart + _pageSize).clamp(0, filtradas.length);
+    final pageItems = filtradas.isEmpty ? <LicitacionUI>[] : filtradas.sublist(pageStart, pageEnd);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -196,18 +195,18 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
                       _buildFilterRow(abiertas, cerradas, isMobile),
                       const SizedBox(height: 16),
                       // ── Results ───────────────────────────────────────────
-                      if (_cargando && _licitaciones.isEmpty)
+                      if (_cargando && _todas.isEmpty)
                         const Center(
                             child: Padding(
                                 padding: EdgeInsets.only(top: 60),
                                 child: CircularProgressIndicator()))
-                      else if (!_cargando && _licitaciones.isEmpty)
+                      else if (!_cargando && _todas.isEmpty)
                         _buildEmptyState()
                       else if (filtradas.isEmpty)
                         _buildNoMatchState()
                       else
                         LicitacionesTable(
-                          licitaciones: filtradas,
+                          licitaciones: pageItems,
                           selected: isMobile ? null : _seleccionada,
                           onSelected: (data) {
                             if (isMobile) {
@@ -218,36 +217,37 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
                           },
                         ),
                       // ── Pagination ────────────────────────────────────────
-                      if (_licitaciones.isNotEmpty && !_cargando)
+                      if (filtradas.isNotEmpty && totalPages > 1)
                         Padding(
                           padding: const EdgeInsets.only(top: 20),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              _pageBtn(Icons.chevron_left, _paginaActual > 0,
-                                  () => _cargarPagina(_paginaActual - 1)),
+                              _pageBtn(Icons.chevron_left, _clientPagina > 0,
+                                  () => setState(() => _clientPagina--)),
                               Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 16),
-                                child: Text('Página ${_paginaActual + 1}',
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                                child: Text('Página ${_clientPagina + 1} de $totalPages',
                                     style: GoogleFonts.inter(
-                                        fontSize: 13,
-                                        color: Colors.grey.shade600)),
+                                        fontSize: 13, color: Colors.grey.shade600)),
                               ),
-                              _pageBtn(Icons.chevron_right, _hayMas,
-                                  () => _cargarPagina(_paginaActual + 1)),
+                              _pageBtn(Icons.chevron_right,
+                                  _clientPagina < totalPages - 1,
+                                  () => setState(() => _clientPagina++)),
                             ],
                           ),
-                        )
-                      else if (_cargando && _licitaciones.isNotEmpty)
-                        const Padding(
-                          padding: EdgeInsets.only(top: 20),
+                        ),
+                      if (_cargando && _todas.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
                           child: Center(
-                              child: SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2))),
+                            child: Row(mainAxisSize: MainAxisSize.min, children: [
+                              SizedBox(width: 14, height: 14,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.grey.shade400)),
+                              const SizedBox(width: 8),
+                              Text('Cargando más...', style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade400)),
+                            ]),
+                          ),
                         ),
                     ],
                   ),
@@ -269,7 +269,7 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
     final hasDateFilter = _rangoPublicacion != null || _rangoCierre != null;
 
     final toggleAbiertas = GestureDetector(
-      onTap: () => setState(() => _soloAbiertas = !_soloAbiertas),
+      onTap: () => setState(() { _soloAbiertas = !_soloAbiertas; _clientPagina = 0; }),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
@@ -299,7 +299,7 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
           Text(
             _soloAbiertas
                 ? 'Solo abiertas ($abiertas)'
-                : 'Todas (${_licitaciones.length})',
+                : 'Todas (${_todas.length})',
             style: GoogleFonts.inter(
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
@@ -341,11 +341,8 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
               const SizedBox(width: 4),
               GestureDetector(
                 onTap: () => setState(() {
-                  if (esPublicacion) {
-                    _rangoPublicacion = null;
-                  } else {
-                    _rangoCierre = null;
-                  }
+                  if (esPublicacion) { _rangoPublicacion = null; } else { _rangoCierre = null; }
+                  _clientPagina = 0;
                 }),
                 child:
                     Icon(Icons.close, size: 12, color: _primaryColor),
@@ -368,6 +365,7 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
           onTap: () => setState(() {
             _rangoPublicacion = null;
             _rangoCierre = null;
+            _clientPagina = 0;
           }),
           child: Container(
             padding:
@@ -419,6 +417,7 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
                 _soloAbiertas = false;
                 _rangoPublicacion = null;
                 _rangoCierre = null;
+                _clientPagina = 0;
               }),
               child: Text('Limpiar filtros',
                   style: GoogleFonts.inter(

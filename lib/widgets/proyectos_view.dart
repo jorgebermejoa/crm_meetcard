@@ -443,8 +443,7 @@ class _ProyectosViewState extends State<ProyectosView>
           children: cards.asMap().entries.map((e) {
             return Expanded(
               child: Padding(
-                padding:
-                    EdgeInsets.only(right: e.key < cards.length - 1 ? 14 : 0),
+                padding: EdgeInsets.only(right: e.key < cards.length - 1 ? 14 : 0),
                 child: e.value,
               ),
             );
@@ -486,6 +485,7 @@ class _ProyectosViewState extends State<ProyectosView>
     );
   }
 
+  // ── KPI CAROUSEL ──────────────────────────────────────────────────────────
   // ── RECLAMOS PENDIENTES ────────────────────────────────────────────────────
 
   Widget _buildReclamosPendientes(
@@ -2127,119 +2127,6 @@ class _ProyectosViewState extends State<ProyectosView>
     );
   }
 
-  Widget _filterButton({
-    required String hint,
-    required String? value,
-    required List<String> items,
-    required ValueChanged<String?> onChanged,
-    String Function(String)? displayLabel,
-  }) {
-    final display = value != null ? (displayLabel?.call(value) ?? value) : null;
-    final isActive = value != null;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: () => _showFilterDialog(
-          hint: hint, value: value, items: items,
-          onChanged: onChanged, displayLabel: displayLabel ?? (s) => s,
-        ),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border.all(
-              color: isActive ? _primaryColor : Colors.grey.shade200,
-              width: isActive ? 1.5 : 1.0,
-            ),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(children: [
-            Expanded(
-              child: Text(
-                display ?? hint,
-                style: GoogleFonts.inter(
-                  fontSize: 13,
-                  color: isActive ? const Color(0xFF1E293B) : Colors.grey.shade400,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            Icon(Icons.arrow_drop_down, size: 20, color: Colors.grey.shade400),
-          ]),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showFilterDialog({
-    required String hint,
-    required String? value,
-    required List<String> items,
-    required ValueChanged<String?> onChanged,
-    required String Function(String) displayLabel,
-  }) async {
-    final selected = await showDialog<String>(
-      context: context,
-      builder: (ctx) => _FilterSearchDialog(
-        hint: hint, value: value, items: items, displayLabel: displayLabel,
-      ),
-    );
-    if (selected == '\x00') {
-      onChanged(null);
-    } else if (selected != null) {
-      onChanged(selected);
-    }
-  }
-
-  Widget _productsButton() {
-    final allProducts = _cfgProductos.map((p) => p.abreviatura).toList()..sort();
-    final isActive = _filterProductos.isNotEmpty;
-    final display = isActive ? _filterProductos.join(', ') : null;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: () => _showMultiFilterDialog(allProducts),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border.all(
-              color: isActive ? _primaryColor : Colors.grey.shade200,
-              width: isActive ? 1.5 : 1.0,
-            ),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(children: [
-            Expanded(
-              child: Text(
-                display ?? 'Productos',
-                style: GoogleFonts.inter(
-                  fontSize: 13,
-                  color: isActive ? const Color(0xFF1E293B) : Colors.grey.shade400,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            Icon(Icons.arrow_drop_down, size: 20, color: Colors.grey.shade400),
-          ]),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showMultiFilterDialog(List<String> allProducts) async {
-    final result = await showDialog<Set<String>>(
-      context: context,
-      builder: (ctx) => _MultiFilterDialog(
-        allItems: allProducts,
-        selected: Set.from(_filterProductos),
-      ),
-    );
-    if (result != null) {
-      setState(() { _filterProductos = result; _currentPage = 0; });
-    }
-  }
-
   Widget _buildEmptyState() {
     return Center(
       child: Padding(
@@ -2761,7 +2648,7 @@ class _ProductosChipsCellState extends State<_ProductosChipsCell> {
 
 // ── Shared KPI card shell ──────────────────────────────────────────────────────
 
-class _KpiCardShell extends StatelessWidget {
+class _KpiCardShell extends StatefulWidget {
   final String label;
   final Color color;
   final Widget icon;
@@ -2783,16 +2670,27 @@ class _KpiCardShell extends StatelessWidget {
   });
 
   @override
+  State<_KpiCardShell> createState() => _KpiCardShellState();
+}
+
+class _KpiCardShellState extends State<_KpiCardShell> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
+    final canTap = widget.onTap != null;
     return MouseRegion(
-      cursor: onTap != null ? SystemMouseCursors.click : MouseCursor.defer,
+      cursor: canTap ? SystemMouseCursors.click : MouseCursor.defer,
+      onEnter: (_) { if (canTap) setState(() => _hovered = true); },
+      onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
-        onTap: onTap,
+        onTap: widget.onTap,
         onHorizontalDragEnd: (d) {
           if (d.primaryVelocity == null) return;
-          onSwipe(d.primaryVelocity! < 0);
+          widget.onSwipe(d.primaryVelocity! < 0);
         },
-        child: Container(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
           height: 130,
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
@@ -2800,8 +2698,8 @@ class _KpiCardShell extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
             boxShadow: [
               BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.05),
-                  blurRadius: 6,
+                  color: Colors.black.withValues(alpha: _hovered ? 0.09 : 0.05),
+                  blurRadius: _hovered ? 12 : 6,
                   offset: const Offset(0, 2))
             ],
           ),
@@ -2810,37 +2708,68 @@ class _KpiCardShell extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Flexible(
-                  child: Text(label,
+                  child: Text(widget.label,
                       style: GoogleFonts.inter(
                           fontSize: 11,
                           color: Colors.grey.shade500,
                           fontWeight: FontWeight.w500),
                       maxLines: 2),
                 ),
-                icon,
+                widget.icon,
               ],
             ),
             const SizedBox(height: 10),
-            value,
+            widget.value,
             const Spacer(),
-            // Dots — tappable on web to advance carousel
+            // Bottom row: dots (left) + Apple-style arrow (right, hover only)
             GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: () => onSwipe(true),
+              onTap: () => widget.onSwipe(true),
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(pageCount, (i) => AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    width: i == currentIndex ? 12 : 5,
-                    height: 4,
-                    margin: const EdgeInsets.symmetric(horizontal: 2),
-                    decoration: BoxDecoration(
-                      color: i == currentIndex ? color : Colors.grey.shade200,
-                      borderRadius: BorderRadius.circular(2),
+                  children: [
+                    Expanded(
+                      child: Row(
+                        children: List.generate(widget.pageCount, (i) => AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          width: i == widget.currentIndex ? 12 : 5,
+                          height: 4,
+                          margin: const EdgeInsets.only(right: 4),
+                          decoration: BoxDecoration(
+                            color: i == widget.currentIndex
+                                ? widget.color
+                                : Colors.grey.shade200,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        )),
+                      ),
                     ),
-                  )),
+                    // Apple-style chevron — only when tappable and hovered
+                    if (canTap)
+                      AnimatedOpacity(
+                        opacity: _hovered ? 1.0 : 0.0,
+                        duration: const Duration(milliseconds: 180),
+                        child: AnimatedSlide(
+                          offset: _hovered ? Offset.zero : const Offset(0.3, 0),
+                          duration: const Duration(milliseconds: 180),
+                          curve: Curves.easeOut,
+                          child: Container(
+                            width: 20,
+                            height: 20,
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.chevron_right_rounded,
+                              size: 14,
+                              color: Colors.grey.shade500,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ),
@@ -3230,148 +3159,3 @@ class _FilterSearchDialogState extends State<_FilterSearchDialog> {
   }
 }
 
-// ── Multi-select filter dialog (Productos) ─────────────────────────────────────
-
-class _MultiFilterDialog extends StatefulWidget {
-  final List<String> allItems;
-  final Set<String> selected;
-  const _MultiFilterDialog({required this.allItems, required this.selected});
-  @override
-  State<_MultiFilterDialog> createState() => _MultiFilterDialogState();
-}
-
-class _MultiFilterDialogState extends State<_MultiFilterDialog> {
-  late Set<String> _selected;
-  final _ctrl = TextEditingController();
-  late List<String> _filtered;
-
-  @override
-  void initState() {
-    super.initState();
-    _selected = Set.from(widget.selected);
-    _filtered = widget.allItems;
-    _ctrl.addListener(() {
-      final q = _ctrl.text.toLowerCase();
-      setState(() => _filtered = widget.allItems
-          .where((s) => s.toLowerCase().contains(q))
-          .toList());
-    });
-  }
-
-  @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 360, maxHeight: 520),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: TextField(
-                controller: _ctrl,
-                autofocus: true,
-                decoration: InputDecoration(
-                  hintText: 'Buscar producto...',
-                  hintStyle: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400),
-                  prefixIcon: const Icon(Icons.search, size: 18),
-                  filled: true,
-                  fillColor: const Color(0xFFF8FAFC),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.grey.shade200),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.grey.shade200),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Color(0xFF5B21B6), width: 1.5),
-                  ),
-                  isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                ),
-                style: GoogleFonts.inter(fontSize: 13),
-              ),
-            ),
-            Divider(height: 1, color: Colors.grey.shade100),
-            Flexible(
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: _filtered.length,
-                itemBuilder: (ctx, i) {
-                  final item = _filtered[i];
-                  final isChecked = _selected.contains(item);
-                  return InkWell(
-                    onTap: () => setState(() {
-                      if (isChecked) { _selected.remove(item); } else { _selected.add(item); }
-                    }),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      child: Row(children: [
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 150),
-                          width: 18,
-                          height: 18,
-                          decoration: BoxDecoration(
-                            color: isChecked ? const Color(0xFF5B21B6) : Colors.transparent,
-                            border: Border.all(
-                              color: isChecked ? const Color(0xFF5B21B6) : Colors.grey.shade300,
-                              width: 1.5,
-                            ),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: isChecked
-                              ? const Icon(Icons.check, size: 12, color: Colors.white)
-                              : null,
-                        ),
-                        const SizedBox(width: 12),
-                        Text(item,
-                            style: GoogleFonts.inter(
-                              fontSize: 13,
-                              color: isChecked
-                                  ? const Color(0xFF5B21B6)
-                                  : const Color(0xFF1E293B),
-                              fontWeight: isChecked ? FontWeight.w600 : FontWeight.normal,
-                            )),
-                      ]),
-                    ),
-                  );
-                },
-              ),
-            ),
-            Divider(height: 1, color: Colors.grey.shade100),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
-              child: Row(children: [
-                if (_selected.isNotEmpty)
-                  TextButton(
-                    onPressed: () => setState(() => _selected.clear()),
-                    child: Text('Limpiar',
-                        style: GoogleFonts.inter(fontSize: 13, color: Colors.red.shade400)),
-                  ),
-                const Spacer(),
-                ElevatedButton(
-                  onPressed: () => Navigator.pop(context, _selected),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF5B21B6),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                    elevation: 0,
-                  ),
-                  child: Text('Aplicar', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
-                ),
-              ]),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

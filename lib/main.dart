@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -19,6 +20,7 @@ import 'widgets/configuracion_view.dart';
 import 'widgets/detalle_proyecto_view.dart';
 
 void main() {
+  usePathUrlStrategy();
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
     await Firebase.initializeApp(
@@ -33,6 +35,15 @@ void main() {
     debugPrint('Zone error (non-fatal): $error');
   });
 }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+CustomTransitionPage<void> _fadePage(Widget child) => CustomTransitionPage<void>(
+      child: child,
+      transitionDuration: const Duration(milliseconds: 200),
+      transitionsBuilder: (_, animation, __, child) =>
+          FadeTransition(opacity: animation, child: child),
+    );
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
@@ -53,7 +64,7 @@ final _router = GoRouter(
   routes: [
     GoRoute(
       path: '/login',
-      pageBuilder: (_, __) => const NoTransitionPage(child: LoginView()),
+      pageBuilder: (_, __) => _fadePage(const LoginView()),
     ),
     ShellRoute(
       navigatorKey: _shellNavigatorKey,
@@ -64,13 +75,11 @@ final _router = GoRouter(
       routes: [
         GoRoute(
           path: '/',
-          pageBuilder: (_, __) =>
-              const NoTransitionPage(child: HomeView()),
+          pageBuilder: (_, __) => _fadePage(const HomeView()),
         ),
         GoRoute(
           path: '/proyectos',
-          pageBuilder: (_, __) =>
-              const NoTransitionPage(child: ProyectosView()),
+          pageBuilder: (_, __) => _fadePage(const ProyectosView()),
           routes: [
             GoRoute(
               path: ':id',
@@ -86,29 +95,25 @@ final _router = GoRouter(
                 } else {
                   proyecto = extra as Proyecto;
                 }
-                return NoTransitionPage(
-                  child: DetalleProyectoView(
-                    proyecto: proyecto,
-                    initialTabName: initialTabName,
-                  ),
-                );
+                return _fadePage(DetalleProyectoView(
+                  proyecto: proyecto,
+                  initialTabName: initialTabName,
+                ));
               },
             ),
           ],
         ),
         GoRoute(
           path: '/configuracion',
-          pageBuilder: (_, __) =>
-              const NoTransitionPage(child: ConfiguracionView()),
+          pageBuilder: (_, __) => _fadePage(const ConfiguracionView()),
         ),
         GoRoute(
           path: '/perfil',
-          pageBuilder: (_, __) => const NoTransitionPage(child: PerfilView()),
+          pageBuilder: (_, __) => _fadePage(const PerfilView()),
         ),
         GoRoute(
           path: '/admin/usuarios',
-          pageBuilder: (_, __) =>
-              const NoTransitionPage(child: AdminUsuariosView()),
+          pageBuilder: (_, __) => _fadePage(const AdminUsuariosView()),
         ),
       ],
     ),

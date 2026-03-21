@@ -251,47 +251,68 @@ class _ConfiguracionViewState extends State<ConfiguracionView> {
                   style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400)),
             )
           else
-            ...items.asMap().entries.map((e) {
-              final item = e.value;
-              final isLast = e.key == items.length - 1;
-              return Column(children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
-                  child: Row(children: [
-                    // Color circle — tap to pick
-                    GestureDetector(
-                      onTap: () => _mostrarColorPicker(item.color, (hex) {
-                        setState(() => _data!.estados[e.key].color = hex);
-                        _markDirty();
-                      }),
-                      child: Container(
-                        width: 24, height: 24,
-                        decoration: BoxDecoration(
-                          color: item.colorValue,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
-                          boxShadow: [BoxShadow(color: item.colorValue.withValues(alpha: 0.4), blurRadius: 4, offset: const Offset(0, 1))],
+            ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: items.length,
+              onReorder: (oldIdx, newIdx) {
+                setState(() {
+                  if (newIdx > oldIdx) newIdx--;
+                  final item = _data!.estados.removeAt(oldIdx);
+                  _data!.estados.insert(newIdx, item);
+                });
+                _markDirty();
+              },
+              itemBuilder: (context, idx) {
+                final item = items[idx];
+                final isLast = idx == items.length - 1;
+                return Column(
+                  key: ValueKey('estado_$idx'),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+                      child: Row(children: [
+                        ReorderableDragStartListener(
+                          index: idx,
+                          child: Icon(Icons.drag_handle, size: 18, color: Colors.grey.shade300),
                         ),
-                      ),
+                        const SizedBox(width: 8),
+                        // Color circle — tap to pick
+                        GestureDetector(
+                          onTap: () => _mostrarColorPicker(item.color, (hex) {
+                            setState(() => _data!.estados[idx].color = hex);
+                            _markDirty();
+                          }),
+                          child: Container(
+                            width: 24, height: 24,
+                            decoration: BoxDecoration(
+                              color: item.colorValue,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2),
+                              boxShadow: [BoxShadow(color: item.colorValue.withValues(alpha: 0.4), blurRadius: 4, offset: const Offset(0, 1))],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(item.nombre,
+                              style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF1E293B))),
+                        ),
+                        GestureDetector(
+                          onTap: () => _confirmarBorrado(
+                            titulo: 'Eliminar estado',
+                            mensaje: '¿Eliminar el estado "${item.nombre}"?\n\nEsto solo afecta los filtros.',
+                            onConfirm: () { setState(() => _data!.estados.removeAt(idx)); _markDirty(); },
+                          ),
+                          child: Icon(Icons.remove_circle_outline, size: 18, color: Colors.grey.shade400),
+                        ),
+                      ]),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(item.nombre,
-                          style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF1E293B))),
-                    ),
-                    GestureDetector(
-                      onTap: () => _confirmarBorrado(
-                        titulo: 'Eliminar estado',
-                        mensaje: '¿Eliminar el estado "${item.nombre}"?\n\nEsto solo afecta los filtros.',
-                        onConfirm: () { setState(() => _data!.estados.removeAt(e.key)); _markDirty(); },
-                      ),
-                      child: Icon(Icons.remove_circle_outline, size: 18, color: Colors.grey.shade400),
-                    ),
-                  ]),
-                ),
-                if (!isLast) const Divider(height: 1, indent: 52, endIndent: 16),
-              ]);
-            }),
+                    if (!isLast) const Divider(height: 1, indent: 68, endIndent: 16),
+                  ],
+                );
+              },
+            ),
           const Divider(height: 1),
           _addEstadoRow(),
         ],
@@ -449,32 +470,86 @@ class _ConfiguracionViewState extends State<ConfiguracionView> {
                   style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400)),
             )
           else
-            ...items.asMap().entries.map((e) {
-              final uso = _usoModalidades[e.value] ?? 0;
-              return _stringItem(
-                e.value,
-                showDivider: e.key < items.length - 1,
-                enUso: uso,
-                onDeleteTap: () {
-                  if (uso > 0) {
-                    _confirmarBorrado(
-                      titulo: 'No se puede eliminar',
-                      mensaje: '',
-                      onConfirm: () {},
-                      bloqueado: true,
-                      mensajeBloqueo:
-                          '"${e.value}" está asociada a $uso proyecto${uso > 1 ? 's' : ''}.\n\nPara eliminarla, primero reasigna esos proyectos a otra modalidad.',
-                    );
-                  } else {
-                    _confirmarBorrado(
-                      titulo: 'Eliminar modalidad',
-                      mensaje: '¿Eliminar la modalidad "${e.value}"?',
-                      onConfirm: () { setState(() => _data!.modalidades.removeAt(e.key)); _markDirty(); },
-                    );
-                  }
-                },
-              );
-            }),
+            ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: items.length,
+              onReorder: (oldIdx, newIdx) {
+                setState(() {
+                  if (newIdx > oldIdx) newIdx--;
+                  final item = _data!.modalidades.removeAt(oldIdx);
+                  _data!.modalidades.insert(newIdx, item);
+                });
+                _markDirty();
+              },
+              itemBuilder: (context, idx) {
+                final value = items[idx];
+                final uso = _usoModalidades[value] ?? 0;
+                final bloqueado = uso > 0;
+                final isLast = idx == items.length - 1;
+                return Column(
+                  key: ValueKey('modalidad_$idx'),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      child: Row(children: [
+                        ReorderableDragStartListener(
+                          index: idx,
+                          child: Icon(Icons.drag_handle, size: 18, color: Colors.grey.shade300),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(value,
+                              style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF1E293B))),
+                        ),
+                        if (uso > 0) ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.shade50,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: Colors.orange.shade200),
+                            ),
+                            child: Text(
+                              '$uso proyecto${uso > 1 ? 's' : ''}',
+                              style: GoogleFonts.inter(
+                                  fontSize: 11, color: Colors.orange.shade700, fontWeight: FontWeight.w500),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        GestureDetector(
+                          onTap: () {
+                            if (uso > 0) {
+                              _confirmarBorrado(
+                                titulo: 'No se puede eliminar',
+                                mensaje: '',
+                                onConfirm: () {},
+                                bloqueado: true,
+                                mensajeBloqueo:
+                                    '"$value" está asociada a $uso proyecto${uso > 1 ? 's' : ''}.\n\nPara eliminarla, primero reasigna esos proyectos a otra modalidad.',
+                              );
+                            } else {
+                              _confirmarBorrado(
+                                titulo: 'Eliminar modalidad',
+                                mensaje: '¿Eliminar la modalidad "$value"?',
+                                onConfirm: () { setState(() => _data!.modalidades.removeAt(idx)); _markDirty(); },
+                              );
+                            }
+                          },
+                          child: Icon(
+                            bloqueado ? Icons.lock_outline : Icons.remove_circle_outline,
+                            size: 18,
+                            color: bloqueado ? Colors.grey.shade300 : Colors.grey.shade400,
+                          ),
+                        ),
+                      ]),
+                    ),
+                    if (!isLast) const Divider(height: 1, indent: 16, endIndent: 16),
+                  ],
+                );
+              },
+            ),
           const Divider(height: 1),
           _addRow(
             label: 'Agregar modalidad',
@@ -483,54 +558,6 @@ class _ConfiguracionViewState extends State<ConfiguracionView> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _stringItem(String value, {
-    required bool showDivider,
-    required int? enUso,      // null = no mostrar, 0 = libre, >0 = en uso
-    required VoidCallback onDeleteTap,
-  }) {
-    final bloqueado = enUso != null && enUso > 0;
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(value,
-                    style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF1E293B))),
-              ),
-              if (enUso != null && enUso > 0) ...[
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.shade50,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.orange.shade200),
-                  ),
-                  child: Text(
-                    '$enUso proyecto${enUso > 1 ? 's' : ''}',
-                    style: GoogleFonts.inter(
-                        fontSize: 11, color: Colors.orange.shade700, fontWeight: FontWeight.w500),
-                  ),
-                ),
-                const SizedBox(width: 8),
-              ],
-              GestureDetector(
-                onTap: onDeleteTap,
-                child: Icon(
-                  bloqueado ? Icons.lock_outline : Icons.remove_circle_outline,
-                  size: 18,
-                  color: bloqueado ? Colors.grey.shade300 : Colors.grey.shade400,
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (showDivider) const Divider(height: 1, indent: 16, endIndent: 16),
-      ],
     );
   }
 
@@ -609,19 +636,54 @@ class _ConfiguracionViewState extends State<ConfiguracionView> {
                   style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400)),
             )
           else
-            ...items.asMap().entries.map((e) => _stringItem(
-                  e.value,
-                  showDivider: e.key < items.length - 1,
-                  enUso: null,
-                  onDeleteTap: () => _confirmarBorrado(
-                    titulo: 'Eliminar tipo de documento',
-                    mensaje: '¿Eliminar el tipo "${e.value}"?',
-                    onConfirm: () {
-                      setState(() => _data!.tiposDocumento.removeAt(e.key));
-                      _markDirty();
-                    },
-                  ),
-                )),
+            ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: items.length,
+              onReorder: (oldIdx, newIdx) {
+                setState(() {
+                  if (newIdx > oldIdx) newIdx--;
+                  final item = _data!.tiposDocumento.removeAt(oldIdx);
+                  _data!.tiposDocumento.insert(newIdx, item);
+                });
+                _markDirty();
+              },
+              itemBuilder: (context, idx) {
+                final value = items[idx];
+                final isLast = idx == items.length - 1;
+                return Column(
+                  key: ValueKey('tipodoc_$idx'),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      child: Row(children: [
+                        ReorderableDragStartListener(
+                          index: idx,
+                          child: Icon(Icons.drag_handle, size: 18, color: Colors.grey.shade300),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(value,
+                              style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF1E293B))),
+                        ),
+                        GestureDetector(
+                          onTap: () => _confirmarBorrado(
+                            titulo: 'Eliminar tipo de documento',
+                            mensaje: '¿Eliminar el tipo "$value"?',
+                            onConfirm: () {
+                              setState(() => _data!.tiposDocumento.removeAt(idx));
+                              _markDirty();
+                            },
+                          ),
+                          child: Icon(Icons.remove_circle_outline, size: 18, color: Colors.grey.shade400),
+                        ),
+                      ]),
+                    ),
+                    if (!isLast) const Divider(height: 1, indent: 16, endIndent: 16),
+                  ],
+                );
+              },
+            ),
           const Divider(height: 1),
           _addRow(
             label: 'Agregar tipo',
@@ -655,6 +717,8 @@ class _ConfiguracionViewState extends State<ConfiguracionView> {
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
               child: Row(
                 children: [
+                  const SizedBox(width: 26), // drag handle placeholder
+                  const SizedBox(width: 8),
                   SizedBox(
                     width: 90,
                     child: Text('Abreviatura',
@@ -672,76 +736,84 @@ class _ConfiguracionViewState extends State<ConfiguracionView> {
               ),
             ),
             const Divider(height: 1),
-            ...productos.asMap().entries.map((e) => _productoItem(
-                  e.value,
-                  index: e.key,
-                  showDivider: e.key < productos.length - 1,
-                  onDelete: () => _confirmarBorrado(
-                    titulo: 'Eliminar producto',
-                    mensaje: '¿Eliminar el producto "${e.value.abreviatura} – ${e.value.nombre}"?',
-                    onConfirm: () { setState(() => _data!.productos.removeAt(e.key)); _markDirty(); },
-                  ),
-                )),
+            ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: productos.length,
+              onReorder: (oldIdx, newIdx) {
+                setState(() {
+                  if (newIdx > oldIdx) newIdx--;
+                  final item = _data!.productos.removeAt(oldIdx);
+                  _data!.productos.insert(newIdx, item);
+                });
+                _markDirty();
+              },
+              itemBuilder: (context, idx) {
+                final p = productos[idx];
+                final isLast = idx == productos.length - 1;
+                final icono = kIconosProducto[p.icono] ?? kIconosProducto['label']!;
+                return Column(
+                  key: ValueKey('producto_$idx'),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+                      child: Row(children: [
+                        ReorderableDragStartListener(
+                          index: idx,
+                          child: Icon(Icons.drag_handle, size: 18, color: Colors.grey.shade300),
+                        ),
+                        const SizedBox(width: 8),
+                        // Icono con color
+                        Container(
+                          width: 36, height: 36,
+                          decoration: BoxDecoration(
+                            color: p.bgColor,
+                            borderRadius: BorderRadius.circular(9),
+                          ),
+                          child: Icon(icono, size: 18, color: p.fgColor),
+                        ),
+                        const SizedBox(width: 10),
+                        // Abreviatura badge
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: p.bgColor,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(p.abreviatura,
+                              style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: p.fgColor)),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                            child: Text(p.nombre,
+                                style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF1E293B)))),
+                        IconButton(
+                          onPressed: () => _showEditProductoDialog(p, idx),
+                          icon: Icon(Icons.edit_outlined, size: 16, color: Colors.grey.shade400),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                        const SizedBox(width: 4),
+                        GestureDetector(
+                          onTap: () => _confirmarBorrado(
+                            titulo: 'Eliminar producto',
+                            mensaje: '¿Eliminar el producto "${p.abreviatura} – ${p.nombre}"?',
+                            onConfirm: () { setState(() => _data!.productos.removeAt(idx)); _markDirty(); },
+                          ),
+                          child: Icon(Icons.remove_circle_outline, size: 18, color: Colors.grey.shade400),
+                        ),
+                      ]),
+                    ),
+                    if (!isLast) const Divider(height: 1, indent: 16, endIndent: 16),
+                  ],
+                );
+              },
+            ),
           ],
           const Divider(height: 1),
           _addProductoRow(),
         ],
       ),
-    );
-  }
-
-  Widget _productoItem(ProductoItem p, {
-    required bool showDivider,
-    required int index,
-    required VoidCallback onDelete,
-  }) {
-    final icono = kIconosProducto[p.icono] ?? kIconosProducto['label']!;
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
-          child: Row(
-            children: [
-              // Icono con color
-              Container(
-                width: 36, height: 36,
-                decoration: BoxDecoration(
-                  color: p.bgColor,
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: Icon(icono, size: 18, color: p.fgColor),
-              ),
-              const SizedBox(width: 10),
-              // Abreviatura badge
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                decoration: BoxDecoration(
-                  color: p.bgColor,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(p.abreviatura,
-                    style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: p.fgColor)),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                  child: Text(p.nombre,
-                      style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF1E293B)))),
-              IconButton(
-                onPressed: () => _showEditProductoDialog(p, index),
-                icon: Icon(Icons.edit_outlined, size: 16, color: Colors.grey.shade400),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-              const SizedBox(width: 4),
-              GestureDetector(
-                onTap: onDelete,
-                child: Icon(Icons.remove_circle_outline, size: 18, color: Colors.grey.shade400),
-              ),
-            ],
-          ),
-        ),
-        if (showDivider) const Divider(height: 1, indent: 16, endIndent: 16),
-      ],
     );
   }
 

@@ -25,7 +25,7 @@ PreferredSizeWidget buildBreadcrumbAppBar({
     elevation: 0,
     automaticallyImplyLeading: false,
     titleSpacing: 0,
-    actions: const [],
+    actions: actions.isEmpty ? const [] : [...actions, SizedBox(width: hPad - 8)],
     title: Center(
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxWidth),
@@ -45,8 +45,6 @@ PreferredSizeWidget buildBreadcrumbAppBar({
             ],
             // Breadcrumbs
             Expanded(child: _BreadcrumbRow(crumbs: crumbs)),
-            // Actions opcionales
-            ...actions,
           ]),
         ),
       ),
