@@ -288,50 +288,60 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final dialogWidth = screenWidth < 600 ? screenWidth * 0.95 : 560.0;
+    final viewInsets = MediaQuery.of(context).viewInsets.bottom;
+    final screenHeight = MediaQuery.of(context).size.height;
 
-    return Dialog(
-      backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-      child: SizedBox(
-        width: dialogWidth,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 20, 12, 0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      widget.isEditing ? 'Editar Proyecto' : 'Nuevo Proyecto',
-                      style: GoogleFonts.inter(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        color: const Color(0xFF1E293B),
-                      ),
+    return Container(
+      constraints: BoxConstraints(maxHeight: screenHeight * 0.90),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Handle + header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 12, 12, 0),
+            child: Column(children: [
+              Center(
+                child: Container(
+                  width: 32, height: 3,
+                  decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(children: [
+                Expanded(
+                  child: Text(
+                    widget.isEditing ? 'Editar Proyecto' : 'Nuevo Proyecto',
+                    style: GoogleFonts.inter(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF1E293B),
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.close, size: 20),
-                    onPressed: () => Navigator.of(context).pop(),
-                    color: Colors.grey.shade500,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Divider(height: 1),
-            // Form
-            Flexible(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
-                child: Form(
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 20),
+                  onPressed: () => Navigator.of(context).pop(),
+                  color: Colors.grey.shade500,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+                const SizedBox(width: 4),
+              ]),
+              const SizedBox(height: 12),
+              const Divider(height: 1),
+            ]),
+          ),
+          // Form — scrollable
+          Flexible(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(24, 20, 24, 8 + viewInsets),
+              child: Form(
                   key: _formKey,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -617,8 +627,7 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
             ),
           ],
         ),
-      ),
-    );
+      );
   }
 
   Widget _fieldLabel(String label) {

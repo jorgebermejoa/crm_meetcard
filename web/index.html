@@ -22,7 +22,33 @@
   </style>
 </head>
 <body>
-  <!-- Use the modern flutter_bootstrap.js for initialization -->
+  <!--
+    Pre-load Firebase JS SDK 12.9.0 (required by firebase_core_web 3.5.0).
+    Setting window.firebase_* before Flutter boots causes firebase_core_web to
+    skip its dynamic <script> injection, eliminating the "Injecting <script>
+    tag. Using callback. TypeError" console errors.
+  -->
+  <!--
+  <script type="module">
+    try {
+      const [core, auth, firestore, storage] = await Promise.all([
+        import('https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js'),
+        import('https://www.gstatic.com/firebasejs/12.9.0/firebase-auth.js'),
+        import('https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js'),
+        import('https://www.gstatic.com/firebasejs/12.9.0/firebase-storage.js'),
+      ]);
+      // Set individual vars first; firebase_core is the sentinel checked by
+      // FirebaseCoreWeb._initializeCore — set it last so all others are ready.
+      window.firebase_auth = auth;
+      window.firebase_firestore = firestore;
+      window.firebase_storage = storage;
+      window.firebase_core = core;
+    } catch (e) {
+      // Fall back to firebase_core_web's own dynamic injection.
+      console.warn('Firebase SDK pre-load failed, falling back to dynamic injection:', e);
+    }
+  </script>
+  -->
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

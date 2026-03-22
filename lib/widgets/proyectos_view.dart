@@ -53,7 +53,7 @@ class _ProyectosViewState extends State<ProyectosView>
   DateTime? _ganttWindowStart;
   DateTime? _ganttWindowEnd;
 
-  // Filters
+  // Filters — Proyectos tab
   String? _filterInstitucion;
   Set<String> _filterProductos = {};
   String? _filterModalidad;
@@ -61,8 +61,16 @@ class _ProyectosViewState extends State<ProyectosView>
   String? _filterReclamo;   // 'Pendiente' | 'Respondido'
   String? _filterVencer;    // '30 días' | '3 meses' | '6 meses' | '12 meses'
 
-  // Pagination
+  // Pagination — Proyectos tab
   int _currentPage = 0;
+
+  // Filters — Documentación tab
+  String? _docFilterInstitucion;
+  Set<String> _docFilterProductos = {};
+  String? _docFilterModalidad;
+  String? _docFilterEstado;
+  Set<String> _docFilterTipos = {};
+  int _docCurrentPage = 0;
 
   // Sorting
   int? _sortColumn;
@@ -86,7 +94,7 @@ class _ProyectosViewState extends State<ProyectosView>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _cargar();
     ConfigService.instance.load().then((cfg) {
       if (!mounted) return;
@@ -127,6 +135,17 @@ class _ProyectosViewState extends State<ProyectosView>
       _filterReclamo = null;
       _filterVencer = null;
       _currentPage = 0;
+    });
+  }
+
+  void _clearDocFilters() {
+    setState(() {
+      _docFilterInstitucion = null;
+      _docFilterProductos = {};
+      _docFilterModalidad = null;
+      _docFilterEstado = null;
+      _docFilterTipos = {};
+      _docCurrentPage = 0;
     });
   }
 
@@ -174,9 +193,13 @@ class _ProyectosViewState extends State<ProyectosView>
   }
 
   Future<void> _openCreateDialog() async {
-    final result = await showDialog(
+    final result = await showModalBottomSheet(
       context: context,
-      barrierDismissible: false,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (_) => const ProyectoFormDialog(isEditing: false),
     );
     if (result != null) _cargar(forceRefresh: true);
@@ -238,15 +261,6 @@ class _ProyectosViewState extends State<ProyectosView>
     }
   }
 
-  Widget _buildAppBar(bool isMobile) {
-    final hPad = isMobile ? 20.0 : 32.0;
-    return buildBreadcrumbAppBar(
-      context: context,
-      hPad: hPad,
-      onOpenMenu: openAppDrawer,
-      crumbs: [BreadcrumbItem('Proyectos')],
-    );
-  }
 
   void _showExportMenu(BuildContext context) {
     final filtered = _applySorting(_applyFilters(_proyectos));
@@ -419,35 +433,51 @@ class _ProyectosViewState extends State<ProyectosView>
         );
 
     if (isMobile) {
-      return Column(children: [
-        Row(children: [
-          Expanded(child: cards[0]),
-          const SizedBox(width: 12),
-          Expanded(child: cards[1]),
-        ]),
-        const SizedBox(height: 12),
-        Row(children: [
-          Expanded(child: cards[2]),
-          const SizedBox(width: 12),
-          Expanded(child: cards[3]),
-        ]),
-        const SizedBox(height: 8),
-        actionBadges(),
-      ]);
+      return LayoutBuilder(builder: (context, constraints) {
+        // Stack to 1 column if each card would be narrower than 150px
+        final stackSingle = (constraints.maxWidth - 12) / 2 < 150;
+        if (stackSingle) {
+          return Column(children: [
+            ...cards.map((c) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: c,
+                )),
+            actionBadges(),
+          ]);
+        }
+        return Column(children: [
+          Row(children: [
+            Expanded(child: cards[0]),
+            const SizedBox(width: 12),
+            Expanded(child: cards[1]),
+          ]),
+          const SizedBox(height: 12),
+          Row(children: [
+            Expanded(child: cards[2]),
+            const SizedBox(width: 12),
+            Expanded(child: cards[3]),
+          ]),
+          const SizedBox(height: 8),
+          actionBadges(),
+        ]);
+      });
     }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: cards.asMap().entries.map((e) {
-            return Expanded(
-              child: Padding(
-                padding: EdgeInsets.only(right: e.key < cards.length - 1 ? 14 : 0),
-                child: e.value,
-              ),
-            );
-          }).toList(),
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: cards.asMap().entries.map((e) {
+              return Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(right: e.key < cards.length - 1 ? 14 : 0),
+                  child: e.value,
+                ),
+              );
+            }).toList(),
+          ),
         ),
         const SizedBox(height: 8),
         actionBadges(),
@@ -855,7 +885,7 @@ class _ProyectosViewState extends State<ProyectosView>
               bottom: 0,
               width: 1.5,
               child: Container(
-                  color: const Color(0xFF6366F1).withValues(alpha: 0.55)),
+                  color: const Color(0xFF5B21B6).withValues(alpha: 0.55)),
             );
           }
 
@@ -890,7 +920,7 @@ class _ProyectosViewState extends State<ProyectosView>
                           bottom: 0,
                           width: 1.5,
                           child: Container(
-                              color: const Color(0xFF6366F1)
+                              color: const Color(0xFF5B21B6)
                                   .withValues(alpha: 0.55)),
                         ),
                       // Labels
@@ -940,21 +970,7 @@ class _ProyectosViewState extends State<ProyectosView>
                 final widthFrac =
                     ((endDays - startDays) / totalDays).clamp(0.0, 1.0);
 
-                Color barColor;
-                if (isPostulacion) {
-                  barColor = const Color(0xFF6366F1);
-                } else {
-                  switch (p.estado) {
-                    case EstadoProyecto.vigente:
-                      barColor = const Color(0xFF10B981);
-                      break;
-                    case EstadoProyecto.xVencer:
-                      barColor = const Color(0xFFF59E0B);
-                      break;
-                    default:
-                      barColor = Colors.grey.shade300;
-                  }
-                }
+                const barColor = Color(0xFF5B21B6);
 
                 final instFull = p.institucion.split('|').first.trim();
                 final instDisplay = instFull
@@ -1243,36 +1259,26 @@ class _ProyectosViewState extends State<ProyectosView>
                   spacing: 12,
                   runSpacing: 4,
                   children: [
+                    _legendItem(const Color(0xFF5B21B6), isPostulacion ? 'Publicación → Cierre' : 'Período'),
                     if (isPostulacion) ...[
-                      _legendItem(const Color(0xFF6366F1), 'Publicación → Cierre'),
                       _legendItem(const Color(0xFF0EA5E9), 'Consultas', isLine: true),
                       _legendItem(const Color(0xFFF59E0B), 'Adjudicación', isLine: true),
-                    ] else ...[
-                      _legendItem(const Color(0xFF10B981), 'Vigente'),
-                      _legendItem(const Color(0xFFF59E0B), 'X Vencer'),
-                      _legendItem(Colors.grey.shade300, 'Finalizado'),
                     ],
-                    _legendItem(const Color(0xFF6366F1).withValues(alpha: 0.55), 'Hoy', isLine: true),
+                    _legendItem(const Color(0xFF5B21B6).withValues(alpha: 0.55), 'Hoy', isLine: true),
                   ],
                 )
               else
                 Row(children: [
                   SizedBox(width: (isPostulacion ? 16 : 0) + labelW + 8),
+                  _legendItem(const Color(0xFF5B21B6), isPostulacion ? 'Publicación → Cierre' : 'Período'),
                   if (isPostulacion) ...[
-                    _legendItem(const Color(0xFF6366F1), 'Publicación → Cierre'),
                     const SizedBox(width: 14),
                     _legendItem(const Color(0xFF0EA5E9), 'Consultas', isLine: true),
                     const SizedBox(width: 14),
                     _legendItem(const Color(0xFFF59E0B), 'Adjudicación', isLine: true),
-                  ] else ...[
-                    _legendItem(const Color(0xFF10B981), 'Vigente'),
-                    const SizedBox(width: 14),
-                    _legendItem(const Color(0xFFF59E0B), 'X Vencer'),
-                    const SizedBox(width: 14),
-                    _legendItem(Colors.grey.shade300, 'Finalizado'),
                   ],
                   const SizedBox(width: 14),
-                  _legendItem(const Color(0xFF6366F1).withValues(alpha: 0.55), 'Hoy', isLine: true),
+                  _legendItem(const Color(0xFF5B21B6).withValues(alpha: 0.55), 'Hoy', isLine: true),
                 ]),
             ],
           );
@@ -1497,7 +1503,7 @@ class _ProyectosViewState extends State<ProyectosView>
         const SizedBox(height: 16),
         if (filtered.isEmpty)
           _buildEmptyState()
-        else if (isMobile)
+        else if (isMobile || MediaQuery.of(context).size.width < 800)
           _buildMobileCards(pageItems)
         else
           _buildDesktopTable(pageItems),
@@ -1513,8 +1519,16 @@ class _ProyectosViewState extends State<ProyectosView>
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final isMobileFab = screenWidth < 700;
+    final isMobileAppBar = screenWidth < 700;
+    final hPadAppBar = isMobileAppBar ? 20.0 : 32.0;
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
+      appBar: buildBreadcrumbAppBar(
+        context: context,
+        hPad: hPadAppBar,
+        onOpenMenu: openAppDrawer,
+        crumbs: [BreadcrumbItem('Proyectos')],
+      ),
       floatingActionButton: isMobileFab
           ? FloatingActionButton(
               onPressed: _openCreateDialog,
@@ -1528,11 +1542,7 @@ class _ProyectosViewState extends State<ProyectosView>
         final isMobile = constraints.maxWidth < 700;
         final hPad = isMobile ? 20.0 : 32.0;
 
-        return Column(
-          children: [
-            _buildAppBar(isMobile),
-            Expanded(
-              child: _cargando
+        return _cargando
                   ? const Center(child: CircularProgressIndicator())
                   : _error != null
                       ? Center(
@@ -1576,6 +1586,8 @@ class _ProyectosViewState extends State<ProyectosView>
                                       ),
                                       child: TabBar(
                                         controller: _tabController,
+                                        isScrollable: false,
+                                        tabAlignment: TabAlignment.fill,
                                         overlayColor: WidgetStateProperty.all(Colors.transparent),
                                         labelStyle: GoogleFonts.inter(
                                             fontSize: 13,
@@ -1594,6 +1606,7 @@ class _ProyectosViewState extends State<ProyectosView>
                                         tabs: const [
                                           Tab(text: 'Resumen'),
                                           Tab(text: 'Proyectos'),
+                                          Tab(text: 'Documentación'),
                                         ],
                                       ),
                                     ),
@@ -1605,6 +1618,9 @@ class _ProyectosViewState extends State<ProyectosView>
                                         if (_tabController.index == 0) {
                                           return _buildTabResumen(isMobile);
                                         }
+                                        if (_tabController.index == 2) {
+                                          return _buildTabDocumentacion(isMobile);
+                                        }
                                         return _buildTabProyectos(isMobile);
                                       },
                                     ),
@@ -1613,10 +1629,7 @@ class _ProyectosViewState extends State<ProyectosView>
                               ),
                             ),
                           ),
-                        ),
-            ),
-          ],
-        );
+                        );
       }),
     );
   }
@@ -1637,16 +1650,13 @@ class _ProyectosViewState extends State<ProyectosView>
       ),
       child: Row(
         children: [
-          Flexible(child: _summaryChip('Total $total', null, const Color(0xFF1E293B))),
+          Expanded(child: _summaryChip('Total $total', null, const Color(0xFF1E293B))),
           _divider(),
-          Flexible(child: _summaryChip(
-              'Postulación $postulacion', const Color(0xFF6366F1), const Color(0xFF6366F1))),
+          Expanded(child: _summaryChip('Postulación $postulacion', const Color(0xFF5B21B6), const Color(0xFF5B21B6))),
           _divider(),
-          Flexible(child: _summaryChip(
-              'En Evaluación $enEvaluacion', const Color(0xFF0EA5E9), const Color(0xFF0EA5E9))),
+          Expanded(child: _summaryChip('En Evaluación $enEvaluacion', const Color(0xFF0EA5E9), const Color(0xFF0EA5E9))),
           _divider(),
-          Flexible(child: _summaryChip(
-              'Vigentes $vigentes', const Color(0xFF10B981), const Color(0xFF10B981))),
+          Expanded(child: _summaryChip('Vigentes $vigentes', const Color(0xFF10B981), const Color(0xFF10B981))),
         ],
       ),
     );
@@ -1672,10 +1682,7 @@ class _ProyectosViewState extends State<ProyectosView>
     );
 
     if (isMobile) {
-      return SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: summaryCard,
-      );
+      return summaryCard;
     }
 
     return Row(
@@ -1690,6 +1697,7 @@ class _ProyectosViewState extends State<ProyectosView>
   Widget _summaryChip(String label, Color? dotColor, Color textColor) {
     return Row(
       mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
         if (dotColor != null) ...[
           Container(
@@ -1699,12 +1707,14 @@ class _ProyectosViewState extends State<ProyectosView>
                   BoxDecoration(color: dotColor, shape: BoxShape.circle)),
           const SizedBox(width: 6),
         ],
-        Text(label,
-            style: GoogleFonts.inter(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: textColor),
-            overflow: TextOverflow.ellipsis),
+        Flexible(
+          child: Text(label,
+              style: GoogleFonts.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: textColor),
+              overflow: TextOverflow.ellipsis),
+        ),
       ],
     );
   }
@@ -1748,50 +1758,43 @@ class _ProyectosViewState extends State<ProyectosView>
             () => setState(() { _filterVencer = null; _currentPage = 0; })),
     ];
 
+    final filterButton = GestureDetector(
+      onTap: () => _showFiltersSheet(all),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: hasFilters ? _primaryColor.withValues(alpha: 0.08) : Colors.white,
+          border: Border.all(
+            color: hasFilters ? _primaryColor : Colors.grey.shade200,
+            width: hasFilters ? 1.5 : 1.0,
+          ),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.tune_rounded, size: 15,
+                color: hasFilters ? _primaryColor : Colors.grey.shade500),
+            if (activeCount > 0) ...[
+              const SizedBox(width: 5),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                decoration: BoxDecoration(
+                    color: _primaryColor, borderRadius: BorderRadius.circular(10)),
+                child: Text('$activeCount',
+                    style: GoogleFonts.inter(
+                        fontSize: 10, fontWeight: FontWeight.w600, color: Colors.white)),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+
     return Row(
       children: [
-        // Filter icon button
-        GestureDetector(
-          onTap: () => _showFiltersSheet(all),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-            decoration: BoxDecoration(
-              color: hasFilters
-                  ? _primaryColor.withValues(alpha: 0.08)
-                  : Colors.white,
-              border: Border.all(
-                color: hasFilters ? _primaryColor : Colors.grey.shade200,
-                width: hasFilters ? 1.5 : 1.0,
-              ),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.tune_rounded, size: 15,
-                    color: hasFilters ? _primaryColor : Colors.grey.shade500),
-                if (activeCount > 0) ...[
-                  const SizedBox(width: 5),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                    decoration: BoxDecoration(
-                      color: _primaryColor,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text('$activeCount',
-                        style: GoogleFonts.inter(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white)),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-        // Active filter chips
-        if (activeChips.isNotEmpty) ...[
-          const SizedBox(width: 8),
+        // Active filter chips (left side)
+        if (activeChips.isNotEmpty)
           Expanded(
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -1802,15 +1805,18 @@ class _ProyectosViewState extends State<ProyectosView>
                   ..removeLast(),
               ),
             ),
-          ),
-        ],
+          )
+        else
+          const Spacer(),
         if (hasFilters) ...[
-          const SizedBox(width: 6),
           GestureDetector(
             onTap: _clearFilters,
             child: Icon(Icons.close, size: 15, color: Colors.grey.shade400),
           ),
+          const SizedBox(width: 6),
         ],
+        // Filter icon button (right side)
+        filterButton,
       ],
     );
   }
@@ -1857,6 +1863,8 @@ class _ProyectosViewState extends State<ProyectosView>
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => StatefulBuilder(
@@ -1871,10 +1879,9 @@ class _ProyectosViewState extends State<ProyectosView>
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Text(t,
                     style: GoogleFonts.inter(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade500,
-                        letterSpacing: 0.5)),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: const Color(0xFF475569))),
               );
 
           Widget chipGroup(
@@ -1966,68 +1973,75 @@ class _ProyectosViewState extends State<ProyectosView>
             expand: false,
             builder: (_, scrollCtrl) => Column(
               children: [
-                // Handle + header
+                // Handle + header (ProyectoFormDialog style)
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                  padding: const EdgeInsets.fromLTRB(24, 12, 12, 0),
                   child: Column(children: [
                     Center(
                       child: Container(
-                          width: 36, height: 4,
+                          width: 32, height: 3,
                           decoration: BoxDecoration(
                               color: Colors.grey.shade300,
                               borderRadius: BorderRadius.circular(2))),
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 16),
                     Row(children: [
-                      Text('Filtros',
-                          style: GoogleFonts.inter(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: const Color(0xFF1E293B))),
-                      if (activeCount > 0) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 7, vertical: 2),
-                          decoration: BoxDecoration(
-                              color: _primaryColor,
-                              borderRadius: BorderRadius.circular(10)),
-                          child: Text('$activeCount',
+                      Expanded(
+                        child: Row(children: [
+                          Text('Filtros',
                               style: GoogleFonts.inter(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white)),
-                        ),
-                      ],
-                      const Spacer(),
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w700,
+                                  color: const Color(0xFF1E293B))),
+                          if (activeCount > 0) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 7, vertical: 2),
+                              decoration: BoxDecoration(
+                                  color: _primaryColor,
+                                  borderRadius: BorderRadius.circular(10)),
+                              child: Text('$activeCount',
+                                  style: GoogleFonts.inter(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white)),
+                            ),
+                          ],
+                        ]),
+                      ),
                       if (activeCount > 0)
                         TextButton(
                           onPressed: () {
                             applyAndRefresh(() => _clearFilters());
                           },
-                          child: Text('Limpiar todo',
+                          style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 8)),
+                          child: Text('Limpiar',
                               style: GoogleFonts.inter(
                                   fontSize: 13, color: Colors.red.shade400)),
                         ),
                       IconButton(
-                        icon: const Icon(Icons.close, size: 18),
+                        icon: const Icon(Icons.close, size: 20),
                         onPressed: () => Navigator.pop(ctx),
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(),
-                        color: Colors.grey.shade400,
+                        color: Colors.grey.shade500,
                       ),
+                      const SizedBox(width: 4),
                     ]),
-                    const Divider(height: 20),
+                    const SizedBox(height: 12),
+                    const Divider(height: 1),
                   ]),
                 ),
                 // Scrollable content
                 Expanded(
                   child: ListView(
                     controller: scrollCtrl,
-                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
+                    padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
                     children: [
                       // Institución
-                      sectionTitle('INSTITUCIÓN'),
+                      sectionTitle('Institución'),
                       GestureDetector(
                         onTap: () async {
                           final sel = await showDialog<String>(
@@ -2053,12 +2067,12 @@ class _ProyectosViewState extends State<ProyectosView>
                           decoration: BoxDecoration(
                             color: _filterInstitucion != null
                                 ? _primaryColor.withValues(alpha: 0.06)
-                                : Colors.grey.shade50,
+                                : const Color(0xFFF8FAFC),
                             border: Border.all(
                                 color: _filterInstitucion != null
                                     ? _primaryColor.withValues(alpha: 0.3)
                                     : Colors.grey.shade200),
-                            borderRadius: BorderRadius.circular(10),
+                            borderRadius: BorderRadius.circular(8),
                           ),
                           child: Row(children: [
                             Expanded(
@@ -2089,33 +2103,698 @@ class _ProyectosViewState extends State<ProyectosView>
                       const SizedBox(height: 20),
 
                       // Productos
-                      sectionTitle('PRODUCTOS'),
+                      sectionTitle('Productos'),
                       multiChipGroup(allProducts, _filterProductos),
                       const SizedBox(height: 20),
 
                       // Contratación
-                      sectionTitle('CONTRATACIÓN'),
+                      sectionTitle('Contratación'),
                       chipGroup(modalidades, _filterModalidad,
                           (v) => _filterModalidad = v),
                       const SizedBox(height: 20),
 
                       // Estado
-                      sectionTitle('ESTADO'),
+                      sectionTitle('Estado'),
                       chipGroup(estados, _filterEstado,
                           (v) => _filterEstado = v),
                       const SizedBox(height: 20),
 
                       // Reclamos
-                      sectionTitle('RECLAMOS'),
+                      sectionTitle('Reclamos'),
                       chipGroup(const ['Pendiente', 'Respondido'],
                           _filterReclamo, (v) => _filterReclamo = v),
                       const SizedBox(height: 20),
 
                       // Por Vencer
-                      sectionTitle('POR VENCER'),
+                      sectionTitle('Por Vencer'),
                       chipGroup(
                           const ['30 días', '3 meses', '6 meses', '12 meses'],
                           _filterVencer, (v) => _filterVencer = v),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ── Documentación tab ───────────────────────────────────────────────────────
+
+  List<_DocItem> _buildDocItems(List<Proyecto> proyectos) {
+    final items = <_DocItem>[];
+    for (final p in proyectos) {
+      final estadoItem = _cfgEstados.firstWhere(
+          (e) => e.nombre == p.estado,
+          orElse: () => EstadoItem(nombre: p.estado, color: '64748B'));
+      final color = estadoItem.colorValue;
+
+      for (final doc in p.documentos) {
+        final tipo = doc.tipo.isNotEmpty ? doc.tipo : 'Documento';
+        items.add(_DocItem(
+          tipoDoc: tipo,
+          proyecto: p,
+          descripcion: doc.nombre?.isNotEmpty == true ? doc.nombre! : tipo,
+          fecha: null,
+          labelFecha: null,
+          urls: [doc.url],
+          color: color,
+        ));
+      }
+      for (final cert in p.certificados) {
+        items.add(_DocItem(
+          tipoDoc: 'Certificado',
+          proyecto: p,
+          descripcion: cert.descripcion,
+          fecha: cert.fechaEmision,
+          labelFecha: 'Emisión',
+          urls: cert.url != null ? [cert.url!] : [],
+          color: color,
+        ));
+      }
+      for (final rec in p.reclamos) {
+        final tipoDoc = rec.estado == 'Respondido'
+            ? 'Reclamo Respondido'
+            : 'Reclamo Pendiente';
+        items.add(_DocItem(
+          tipoDoc: tipoDoc,
+          proyecto: p,
+          descripcion: rec.descripcion,
+          fecha: rec.fechaReclamo,
+          labelFecha: 'Ingreso',
+          fechaSecundaria: rec.fechaRespuesta,
+          labelFechaSecundaria: rec.fechaRespuesta != null ? 'Respuesta' : null,
+          urls: [
+            ...rec.documentos.map((d) => d.url).where((u) => u.isNotEmpty),
+            ...rec.documentosRespuesta.map((d) => d.url).where((u) => u.isNotEmpty),
+          ],
+          color: color,
+        ));
+      }
+    }
+    return items;
+  }
+
+  List<_DocItem> _applyDocFilters(List<_DocItem> all) {
+    return all.where((item) {
+      final p = item.proyecto;
+      if (_docFilterInstitucion != null && _docFilterInstitucion!.isNotEmpty) {
+        if (!p.institucion.toLowerCase().contains(_docFilterInstitucion!.toLowerCase())) return false;
+      }
+      if (_docFilterProductos.isNotEmpty) {
+        final pp = p.productos.split(',').map((s) => s.trim()).toSet();
+        if (!_docFilterProductos.any((prod) => pp.contains(prod))) return false;
+      }
+      if (_docFilterModalidad != null && _docFilterModalidad!.isNotEmpty) {
+        if (p.modalidadCompra != _docFilterModalidad) return false;
+      }
+      if (_docFilterEstado != null && _docFilterEstado!.isNotEmpty) {
+        if (p.estado != _docFilterEstado) return false;
+      }
+      if (_docFilterTipos.isNotEmpty) {
+        if (!_docFilterTipos.contains(item.tipoDoc)) return false;
+      }
+      return true;
+    }).toList();
+  }
+
+  Widget _buildTabDocumentacion(bool isMobile) {
+    final allItems = _buildDocItems(_proyectos);
+    final filtered = _applyDocFilters(allItems);
+    final totalPages = (filtered.length / _pageSize).ceil();
+    final pageStart = _docCurrentPage * _pageSize;
+    final pageEnd = (pageStart + _pageSize).clamp(0, filtered.length);
+    final pageItems = filtered.isEmpty ? <_DocItem>[] : filtered.sublist(pageStart, pageEnd);
+
+    // Active doc filter count
+    final activeCount = [
+      _docFilterInstitucion,
+      _docFilterModalidad,
+      _docFilterEstado,
+    ].where((v) => v != null).length +
+        (_docFilterProductos.isNotEmpty ? 1 : 0) +
+        (_docFilterTipos.isNotEmpty ? 1 : 0);
+    final hasFilters = activeCount > 0;
+
+    // Available tipo options from current data
+    final allTipos = allItems.map((i) => i.tipoDoc).toSet().toList()..sort();
+
+    final docFilterButton = GestureDetector(
+      onTap: () => _showDocFiltersSheet(allTipos),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: hasFilters ? _primaryColor.withValues(alpha: 0.08) : Colors.white,
+          border: Border.all(
+              color: hasFilters ? _primaryColor : Colors.grey.shade200,
+              width: hasFilters ? 1.5 : 1.0),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.tune_rounded, size: 15,
+                color: hasFilters ? _primaryColor : Colors.grey.shade500),
+            if (activeCount > 0) ...[
+              const SizedBox(width: 5),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                decoration: BoxDecoration(
+                    color: _primaryColor, borderRadius: BorderRadius.circular(10)),
+                child: Text('$activeCount',
+                    style: GoogleFonts.inter(
+                        fontSize: 10, fontWeight: FontWeight.w600, color: Colors.white)),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+
+    Widget docFilterRow() => Row(
+      children: [
+        if (hasFilters)
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  if (_docFilterInstitucion != null)
+                    _activeChip(_docFilterInstitucion!.split('|').first.trim(),
+                        () => setState(() { _docFilterInstitucion = null; _docCurrentPage = 0; })),
+                  if (_docFilterProductos.isNotEmpty)
+                    _activeChip(_docFilterProductos.join(', '),
+                        () => setState(() { _docFilterProductos = {}; _docCurrentPage = 0; })),
+                  if (_docFilterModalidad != null)
+                    _activeChip(_docFilterModalidad!,
+                        () => setState(() { _docFilterModalidad = null; _docCurrentPage = 0; })),
+                  if (_docFilterEstado != null)
+                    _activeChip(_docFilterEstado!,
+                        () => setState(() { _docFilterEstado = null; _docCurrentPage = 0; })),
+                  if (_docFilterTipos.isNotEmpty)
+                    _activeChip(_docFilterTipos.join(', '),
+                        () => setState(() { _docFilterTipos = {}; _docCurrentPage = 0; })),
+                ].expand((c) => [c, const SizedBox(width: 6)]).toList()..removeLast(),
+              ),
+            ),
+          )
+        else
+          const Spacer(),
+        if (hasFilters) ...[
+          GestureDetector(
+            onTap: () => setState(() { _clearDocFilters(); }),
+            child: Icon(Icons.close, size: 15, color: Colors.grey.shade400),
+          ),
+          const SizedBox(width: 6),
+        ],
+        docFilterButton,
+      ],
+    );
+
+    Widget docPagination() {
+      if (totalPages <= 1) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.only(top: 16),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.chevron_left),
+              onPressed: _docCurrentPage > 0
+                  ? () => setState(() => _docCurrentPage--)
+                  : null,
+              color: _primaryColor,
+            ),
+            Text(
+              '${_docCurrentPage + 1} / $totalPages',
+              style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+            ),
+            IconButton(
+              icon: const Icon(Icons.chevron_right),
+              onPressed: _docCurrentPage < totalPages - 1
+                  ? () => setState(() => _docCurrentPage++)
+                  : null,
+              color: _primaryColor,
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Summary chip
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+              color: Colors.white, borderRadius: BorderRadius.circular(12),
+              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 6, offset: const Offset(0, 2))]),
+          child: Row(
+            children: [
+              Expanded(child: _summaryChip('Total ${allItems.length}', null, const Color(0xFF1E293B))),
+              _divider(),
+              Expanded(child: _summaryChip('Certificados ${allItems.where((i) => i.tipoDoc == 'Certificado').length}',
+                  const Color(0xFF0EA5E9), const Color(0xFF0EA5E9))),
+              _divider(),
+              Expanded(child: _summaryChip('Reclamos ${allItems.where((i) => i.tipoDoc.startsWith('Reclamo')).length}',
+                  const Color(0xFFEF4444), const Color(0xFFEF4444))),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        docFilterRow(),
+        const SizedBox(height: 16),
+        if (filtered.isEmpty)
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 64),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.description_outlined, size: 56, color: Colors.grey.shade300),
+                  const SizedBox(height: 12),
+                  Text('Sin documentos',
+                      style: GoogleFonts.inter(fontSize: 16, color: Colors.grey.shade500,
+                          fontWeight: FontWeight.w500)),
+                ],
+              ),
+            ),
+          )
+        else
+          Column(
+            children: pageItems.map((item) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _buildDocCard(item, isMobile),
+            )).toList(),
+          ),
+        docPagination(),
+      ],
+    );
+  }
+
+  Widget _buildDocCard(_DocItem item, bool isMobile) {
+    final p = item.proyecto;
+    final idLabel = p.idLicitacion?.isNotEmpty == true
+        ? p.idLicitacion
+        : p.idCotizacion?.isNotEmpty == true
+            ? p.idCotizacion
+            : p.idsOrdenesCompra.isNotEmpty
+                ? p.idsOrdenesCompra.first
+                : null;
+
+    return GestureDetector(
+      onTap: () => _openEditDialog(p),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 6, offset: const Offset(0, 2))],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header strip: tipo + ID/modalidad
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+              child: Row(children: [
+                Container(width: 8, height: 8,
+                    decoration: BoxDecoration(color: item.color, shape: BoxShape.circle)),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(item.tipoDoc,
+                      style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600,
+                          color: item.color),
+                      overflow: TextOverflow.ellipsis),
+                ),
+                const SizedBox(width: 8),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (idLabel != null)
+                      Text(idLabel,
+                          style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400),
+                          overflow: TextOverflow.ellipsis),
+                    Text(p.modalidadCompra,
+                        style: GoogleFonts.inter(fontSize: 9, color: Colors.grey.shade300),
+                        overflow: TextOverflow.ellipsis),
+                  ],
+                ),
+              ]),
+            ),
+            // Body
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 6, 14, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Document description (main title)
+                  Text(item.descripcion,
+                      style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600,
+                          color: const Color(0xFF1E293B)),
+                      maxLines: 2, overflow: TextOverflow.ellipsis),
+                  // Institution (small)
+                  const SizedBox(height: 2),
+                  Text(_cleanInst(p.institucion),
+                      style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade400),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  // Products
+                  if (p.productos.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(p.productos,
+                        style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade400),
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ],
+                  // Dates
+                  if (item.fecha != null || item.fechaSecundaria != null) ...[
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 4,
+                      children: [
+                        if (item.fecha != null && item.labelFecha != null)
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.calendar_today_outlined,
+                                  size: 11, color: Colors.grey.shade400),
+                              const SizedBox(width: 3),
+                              Text('${item.labelFecha}: ${_formatDate(item.fecha)}',
+                                  style: GoogleFonts.inter(
+                                      fontSize: 11, color: Colors.grey.shade500)),
+                            ],
+                          ),
+                        if (item.fechaSecundaria != null && item.labelFechaSecundaria != null)
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.check_circle_outline,
+                                  size: 11, color: Colors.grey.shade400),
+                              const SizedBox(width: 3),
+                              Text('${item.labelFechaSecundaria}: ${_formatDate(item.fechaSecundaria)}',
+                                  style: GoogleFonts.inter(
+                                      fontSize: 11, color: Colors.grey.shade500)),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ],
+                  // Document links
+                  if (item.urls.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: item.urls.asMap().entries.map((e) {
+                        final idx = e.key;
+                        final url = e.value;
+                        return MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: GestureDetector(
+                          onTap: () {
+                            web.window.open(url, '_blank');
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: _primaryColor.withValues(alpha: 0.07),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                  color: _primaryColor.withValues(alpha: 0.2)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.open_in_new, size: 12, color: _primaryColor),
+                                const SizedBox(width: 4),
+                                Text(item.urls.length > 1 ? 'Doc ${idx + 1}' : 'Ver documento',
+                                    style: GoogleFonts.inter(
+                                        fontSize: 11, fontWeight: FontWeight.w500,
+                                        color: _primaryColor)),
+                              ],
+                            ),
+                          ),
+                        ));
+                      }).toList(),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDocFiltersSheet(List<String> tipoOptions) {
+    final modalidades = _cfgModalidades;
+    final estados = _cfgEstados.map((e) => e.nombre).toList();
+    final allProducts = _cfgProductos.map((p) => p.abreviatura).toList()..sort();
+    final instituciones = _proyectos
+        .map((p) => p.institucion)
+        .toSet()
+        .where((s) => s.isNotEmpty)
+        .toList()
+      ..sort();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          void applyAndRefresh(VoidCallback fn) {
+            fn();
+            setSheet(() {});
+          }
+
+          Widget sectionTitle(String t) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(t,
+                    style: GoogleFonts.inter(
+                        fontSize: 13, fontWeight: FontWeight.w500,
+                        color: const Color(0xFF475569))),
+              );
+
+          Widget chipGroup(List<String> items, String? selected,
+              void Function(String?) onTap) {
+            return Wrap(spacing: 6, runSpacing: 6, children: [
+              for (final item in items)
+                GestureDetector(
+                  onTap: () {
+                    applyAndRefresh(() => setState(() {
+                          onTap(selected == item ? null : item);
+                          _docCurrentPage = 0;
+                        }));
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: selected == item ? _primaryColor : Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(item,
+                        style: GoogleFonts.inter(
+                            fontSize: 12, fontWeight: FontWeight.w500,
+                            color: selected == item ? Colors.white : Colors.grey.shade700)),
+                  ),
+                ),
+            ]);
+          }
+
+          Widget multiChipGroup(List<String> items, Set<String> selected,
+              void Function(Set<String>) onChanged) {
+            return Wrap(spacing: 6, runSpacing: 6, children: [
+              for (final item in items)
+                GestureDetector(
+                  onTap: () {
+                    applyAndRefresh(() => setState(() {
+                          final next = Set<String>.from(selected);
+                          if (next.contains(item)) { next.remove(item); } else { next.add(item); }
+                          onChanged(next);
+                          _docCurrentPage = 0;
+                        }));
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: selected.contains(item) ? _primaryColor : Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(item,
+                        style: GoogleFonts.inter(
+                            fontSize: 12, fontWeight: FontWeight.w500,
+                            color: selected.contains(item) ? Colors.white : Colors.grey.shade700)),
+                  ),
+                ),
+            ]);
+          }
+
+          final activeCount = [
+            _docFilterInstitucion,
+            _docFilterModalidad,
+            _docFilterEstado,
+          ].where((v) => v != null).length +
+              (_docFilterProductos.isNotEmpty ? 1 : 0) +
+              (_docFilterTipos.isNotEmpty ? 1 : 0);
+
+          return DraggableScrollableSheet(
+            initialChildSize: 0.75,
+            minChildSize: 0.4,
+            maxChildSize: 0.95,
+            expand: false,
+            builder: (_, scrollCtrl) => Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 12, 12, 0),
+                  child: Column(children: [
+                    Center(
+                      child: Container(
+                          width: 32, height: 3,
+                          decoration: BoxDecoration(
+                              color: Colors.grey.shade300,
+                              borderRadius: BorderRadius.circular(2))),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(children: [
+                      Expanded(
+                        child: Row(children: [
+                          Text('Filtros documentos',
+                              style: GoogleFonts.inter(fontSize: 18,
+                                  fontWeight: FontWeight.w700,
+                                  color: const Color(0xFF1E293B))),
+                          if (activeCount > 0) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                              decoration: BoxDecoration(
+                                  color: _primaryColor,
+                                  borderRadius: BorderRadius.circular(10)),
+                              child: Text('$activeCount',
+                                  style: GoogleFonts.inter(fontSize: 11,
+                                      fontWeight: FontWeight.w600, color: Colors.white)),
+                            ),
+                          ],
+                        ]),
+                      ),
+                      if (activeCount > 0)
+                        TextButton(
+                          onPressed: () { applyAndRefresh(() => _clearDocFilters()); },
+                          style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 8)),
+                          child: Text('Limpiar',
+                              style: GoogleFonts.inter(fontSize: 13,
+                                  color: Colors.red.shade400)),
+                        ),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 20),
+                        onPressed: () => Navigator.pop(ctx),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        color: Colors.grey.shade500,
+                      ),
+                      const SizedBox(width: 4),
+                    ]),
+                    const SizedBox(height: 12),
+                    const Divider(height: 1),
+                  ]),
+                ),
+                Expanded(
+                  child: ListView(
+                    controller: scrollCtrl,
+                    padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+                    children: [
+                      // Tipo de documento
+                      sectionTitle('Tipo de documento'),
+                      multiChipGroup(tipoOptions, _docFilterTipos,
+                          (v) => _docFilterTipos = v),
+                      const SizedBox(height: 20),
+
+                      // Institución
+                      sectionTitle('Institución'),
+                      GestureDetector(
+                        onTap: () async {
+                          final sel = await showDialog<String>(
+                            context: ctx,
+                            builder: (_) => _FilterSearchDialog(
+                              hint: 'Institución',
+                              value: _docFilterInstitucion,
+                              items: instituciones,
+                              displayLabel: (s) => s.split('|').first.trim(),
+                            ),
+                          );
+                          if (sel == '\x00') {
+                            applyAndRefresh(() => setState(
+                                () { _docFilterInstitucion = null; _docCurrentPage = 0; }));
+                          } else if (sel != null) {
+                            applyAndRefresh(() => setState(
+                                () { _docFilterInstitucion = sel; _docCurrentPage = 0; }));
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: _docFilterInstitucion != null
+                                ? _primaryColor.withValues(alpha: 0.06)
+                                : const Color(0xFFF8FAFC),
+                            border: Border.all(
+                                color: _docFilterInstitucion != null
+                                    ? _primaryColor.withValues(alpha: 0.3)
+                                    : Colors.grey.shade200),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(children: [
+                            Expanded(
+                              child: Text(
+                                _docFilterInstitucion != null
+                                    ? _docFilterInstitucion!.split('|').first.trim()
+                                    : 'Seleccionar institución…',
+                                style: GoogleFonts.inter(fontSize: 13,
+                                    color: _docFilterInstitucion != null
+                                        ? const Color(0xFF1E293B)
+                                        : Colors.grey.shade400),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Icon(
+                              _docFilterInstitucion != null ? Icons.close : Icons.search,
+                              size: 16,
+                              color: _docFilterInstitucion != null
+                                  ? _primaryColor : Colors.grey.shade400,
+                            ),
+                          ]),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Productos
+                      sectionTitle('Productos'),
+                      multiChipGroup(allProducts, _docFilterProductos,
+                          (v) => _docFilterProductos = v),
+                      const SizedBox(height: 20),
+
+                      // Contratación
+                      sectionTitle('Contratación'),
+                      chipGroup(modalidades, _docFilterModalidad,
+                          (v) => _docFilterModalidad = v),
+                      const SizedBox(height: 20),
+
+                      // Estado del proyecto
+                      sectionTitle('Estado del proyecto'),
+                      chipGroup(estados, _docFilterEstado,
+                          (v) => _docFilterEstado = v),
                     ],
                   ),
                 ),
@@ -2193,18 +2872,19 @@ class _ProyectosViewState extends State<ProyectosView>
                   child: GestureDetector(
                     onTap: () => _setSort(colIdx),
                     child: Row(
-                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          e.value,
-                          style: GoogleFonts.inter(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: isActive
-                                ? _primaryColor
-                                : Colors.grey.shade500,
+                        Flexible(
+                          child: Text(
+                            e.value,
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: isActive
+                                  ? _primaryColor
+                                  : Colors.grey.shade500,
+                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(width: 3),
                         Icon(
@@ -2363,15 +3043,29 @@ class _ProyectosViewState extends State<ProyectosView>
                         color: estadoItem.colorValue, shape: BoxShape.circle),
                   ),
                   const SizedBox(width: 6),
-                  Text(p.estado,
-                      style: GoogleFonts.inter(
-                          fontSize: 11, fontWeight: FontWeight.w600,
-                          color: estadoItem.colorValue)),
-                  const Spacer(),
-                  if (idLabel != null)
-                    Text(idLabel,
+                  Expanded(
+                    child: Text(p.estado,
                         style: GoogleFonts.inter(
-                            fontSize: 10, color: Colors.grey.shade400)),
+                            fontSize: 11, fontWeight: FontWeight.w600,
+                            color: estadoItem.colorValue),
+                        overflow: TextOverflow.ellipsis),
+                  ),
+                  const SizedBox(width: 8),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (idLabel != null)
+                        Text(idLabel,
+                            style: GoogleFonts.inter(
+                                fontSize: 10, color: Colors.grey.shade400),
+                            overflow: TextOverflow.ellipsis),
+                      Text(p.modalidadCompra,
+                          style: GoogleFonts.inter(
+                              fontSize: 9, color: Colors.grey.shade300),
+                          overflow: TextOverflow.ellipsis),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -2396,29 +3090,29 @@ class _ProyectosViewState extends State<ProyectosView>
                         overflow: TextOverflow.ellipsis),
                   ],
                   const SizedBox(height: 8),
-                  Row(
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 2,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      if (p.valorMensual != null) ...[
+                      if (p.valorMensual != null)
                         Text('\$ ${_fmt(p.valorMensual!.toInt())}',
                             style: GoogleFonts.inter(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w500,
                                 color: Colors.grey.shade500)),
-                        const SizedBox(width: 10),
-                      ],
-                      if (p.fechaTermino != null) ...[
-                        Icon(Icons.calendar_today_outlined,
-                            size: 11, color: Colors.grey.shade400),
-                        const SizedBox(width: 4),
-                        Text(_formatDate(p.fechaTermino),
-                            style: GoogleFonts.inter(
-                                fontSize: 12, color: Colors.grey.shade500)),
-                      ],
-                      const Spacer(),
-                      Flexible(child: Text(p.modalidadCompra,
-                          style: GoogleFonts.inter(
-                              fontSize: 10, color: Colors.grey.shade400),
-                          overflow: TextOverflow.ellipsis)),
+                      if (p.fechaTermino != null)
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.calendar_today_outlined,
+                                size: 11, color: Colors.grey.shade400),
+                            const SizedBox(width: 4),
+                            Text(_formatDate(p.fechaTermino),
+                                style: GoogleFonts.inter(
+                                    fontSize: 12, color: Colors.grey.shade500)),
+                          ],
+                        ),
                     ],
                   ),
                 ],
@@ -2673,8 +3367,44 @@ class _KpiCardShell extends StatefulWidget {
   State<_KpiCardShell> createState() => _KpiCardShellState();
 }
 
-class _KpiCardShellState extends State<_KpiCardShell> {
+class _KpiCardShellState extends State<_KpiCardShell>
+    with SingleTickerProviderStateMixin {
   bool _hovered = false;
+  late AnimationController _iconCtrl;
+  late Animation<double> _iconScale;
+  late Animation<double> _iconOpacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _iconCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
+    );
+    _iconScale = Tween<double>(begin: 0.72, end: 1.0).animate(
+      CurvedAnimation(parent: _iconCtrl, curve: Curves.easeOut),
+    );
+    _iconOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+          parent: _iconCtrl,
+          curve: const Interval(0.0, 0.55, curve: Curves.easeOut)),
+    );
+    _iconCtrl.value = 1.0; // start fully visible, no animation on first build
+  }
+
+  @override
+  void didUpdateWidget(_KpiCardShell old) {
+    super.didUpdateWidget(old);
+    if (old.currentIndex != widget.currentIndex) {
+      _iconCtrl.forward(from: 0.0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _iconCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2691,7 +3421,6 @@ class _KpiCardShellState extends State<_KpiCardShell> {
         },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
-          height: 130,
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
             color: Colors.white,
@@ -2715,12 +3444,18 @@ class _KpiCardShellState extends State<_KpiCardShell> {
                           fontWeight: FontWeight.w500),
                       maxLines: 2),
                 ),
-                widget.icon,
+                FadeTransition(
+                  opacity: _iconOpacity,
+                  child: ScaleTransition(
+                    scale: _iconScale,
+                    child: widget.icon,
+                  ),
+                ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             widget.value,
-            const Spacer(),
+            const SizedBox(height: 12),
             // Bottom row: dots (left) + Apple-style arrow (right, hover only)
             GestureDetector(
               behavior: HitTestBehavior.opaque,
@@ -2730,19 +3465,21 @@ class _KpiCardShellState extends State<_KpiCardShell> {
                 child: Row(
                   children: [
                     Expanded(
-                      child: Row(
-                        children: List.generate(widget.pageCount, (i) => AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          width: i == widget.currentIndex ? 12 : 5,
-                          height: 4,
-                          margin: const EdgeInsets.only(right: 4),
-                          decoration: BoxDecoration(
-                            color: i == widget.currentIndex
-                                ? widget.color
-                                : Colors.grey.shade200,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        )),
+                      child: ClipRect(
+                        child: Row(
+                          children: List.generate(widget.pageCount, (i) => AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            width: i == widget.currentIndex ? 12 : 5,
+                            height: 4,
+                            margin: const EdgeInsets.only(right: 4),
+                            decoration: BoxDecoration(
+                              color: i == widget.currentIndex
+                                  ? widget.color
+                                  : Colors.grey.shade200,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          )),
+                        ),
                       ),
                     ),
                     // Apple-style chevron — only when tappable and hovered
@@ -2816,7 +3553,7 @@ class _ReclamosCardState extends State<_ReclamosCard> {
       ),
       value: Text(count.toString(),
           style: GoogleFonts.inter(
-              fontSize: 28,
+              fontSize: 20,
               fontWeight: FontWeight.bold,
               letterSpacing: -0.5,
               color: const Color(0xFF1E293B))),
@@ -2881,7 +3618,7 @@ class _ProyectosKpiCardState extends State<_ProyectosKpiCard> {
       ),
       value: Text(count.toString(),
           style: GoogleFonts.inter(
-              fontSize: 28,
+              fontSize: 20,
               fontWeight: FontWeight.bold,
               letterSpacing: -0.5,
               color: const Color(0xFF1E293B))),
@@ -2947,7 +3684,7 @@ class _XVencerKpiCardState extends State<_XVencerKpiCard> {
       ),
       value: Text(count.toString(),
           style: GoogleFonts.inter(
-              fontSize: 28,
+              fontSize: 20,
               fontWeight: FontWeight.bold,
               letterSpacing: -0.5,
               color: const Color(0xFF1E293B))),
@@ -3028,6 +3765,32 @@ class _ValorMensualCardState extends State<_ValorMensualCard> {
       },
     );
   }
+}
+
+// ── Unified document item for Documentación tab ────────────────────────────────
+
+class _DocItem {
+  final String tipoDoc;
+  final Proyecto proyecto;
+  final String descripcion;
+  final DateTime? fecha;
+  final String? labelFecha;
+  final DateTime? fechaSecundaria;
+  final String? labelFechaSecundaria;
+  final List<String> urls;
+  final Color color;
+
+  const _DocItem({
+    required this.tipoDoc,
+    required this.proyecto,
+    required this.descripcion,
+    this.fecha,
+    this.labelFecha,
+    this.fechaSecundaria,
+    this.labelFechaSecundaria,
+    required this.urls,
+    required this.color,
+  });
 }
 
 // ── Single-select searchable filter dialog ─────────────────────────────────────

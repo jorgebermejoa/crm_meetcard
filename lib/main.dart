@@ -162,7 +162,16 @@ class _AppShell extends StatelessWidget {
       key: appShellKey,
       backgroundColor: const Color(0xFFF2F2F7),
       drawer: _AppDrawer(currentPath: currentPath),
-      body: SelectionArea(child: child),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          // SelectionArea intercepts taps on mobile web, blocking the keyboard.
+          // Only enable it on wider (desktop) screens.
+          if (constraints.maxWidth >= 700) {
+            return SelectionArea(child: child);
+          }
+          return child;
+        },
+      ),
     );
   }
 }

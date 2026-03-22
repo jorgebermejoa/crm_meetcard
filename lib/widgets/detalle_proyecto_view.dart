@@ -956,14 +956,13 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
       ),
     );
 
-    final badgesRow = Row(
+    final badgesRow = Wrap(
+      spacing: 8,
+      runSpacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         _exportBadge(),
-        const SizedBox(width: 8),
-        if (hasFicha) ...[
-          _fichaButton(),
-          const SizedBox(width: 8),
-        ],
+        if (hasFicha) _fichaButton(),
         GestureDetector(
           onTap: _mostrarOpcionesEstado,
           child: _estadoBadge(_proyecto.estado),
@@ -975,9 +974,12 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (isMobile) ...[
-          badgesRow,
-          const SizedBox(height: 8),
           titleText,
+          const SizedBox(height: 6),
+          Text(subtitleText,
+              style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade500)),
+          const SizedBox(height: 10),
+          badgesRow,
         ] else
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -987,9 +989,11 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
               badgesRow,
             ],
           ),
-        const SizedBox(height: 6),
-        Text(subtitleText,
-            style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade500)),
+        if (!isMobile) ...[
+          const SizedBox(height: 6),
+          Text(subtitleText,
+              style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade500)),
+        ],
         const SizedBox(height: 20),
         _buildStatRow(isMobile),
       ],
@@ -1046,14 +1050,20 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
     ];
 
     if (isMobile) {
-      return GridView.count(
-        crossAxisCount: 2,
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
-        childAspectRatio: 2.4,
-        children: stats.map(_buildStatCard).toList(),
+      return Column(
+        children: [
+          Row(children: [
+            Expanded(child: _buildStatCard(stats[0])),
+            const SizedBox(width: 10),
+            Expanded(child: _buildStatCard(stats[1])),
+          ]),
+          const SizedBox(height: 10),
+          Row(children: [
+            Expanded(child: _buildStatCard(stats[2])),
+            const SizedBox(width: 10),
+            Expanded(child: _buildStatCard(stats[3])),
+          ]),
+        ],
       );
     }
 
@@ -1134,6 +1144,7 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
             child: TabBar(
               controller: _tabController,
               isScrollable: false,
+              tabAlignment: TabAlignment.fill,
               overlayColor: WidgetStateProperty.all(Colors.transparent),
               labelStyle: GoogleFonts.inter(
                   fontSize: 13, fontWeight: FontWeight.w600),
