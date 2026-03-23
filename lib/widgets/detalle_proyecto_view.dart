@@ -44,6 +44,7 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
   late TabController _tabController;
 
   Map<String, dynamic>? _ocdsData;
+  Map<String, dynamic>? _mpApiData;
   bool _cargandoOcds = false;
   String? _errorOcds;
   String? _ocdsLastFetch;
@@ -64,7 +65,6 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
   List<String> _productosOpciones = [];
   List<String> _tiposDocumento = ['Contrato', 'Orden de Compra', 'Acta de Evaluación', 'Otro'];
   List<EstadoItem> _estados = [
-    EstadoItem(nombre: 'Postulación', color: '6366F1'),
     EstadoItem(nombre: 'Vigente', color: '10B981'),
     EstadoItem(nombre: 'X Vencer', color: 'F59E0B'),
     EstadoItem(nombre: 'Finalizado', color: '64748B'),
@@ -159,6 +159,9 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
               });
               _sincronizarFechasDesdeOcds();
             }
+            // Si releases vacío en caché, intentar mp_api como complemento
+            final releases = (c['data']['releases'] as List?) ?? [];
+            if (releases.isEmpty) await _tryLoadMpApiCache();
             return;
           }
         }
@@ -193,12 +196,41 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
             }
           } catch (_) {}
         });
+        // Si releases vacío, intentar mp_api como complemento
+        final releases = (data['releases'] as List?) ?? [];
+        if (releases.isEmpty) await _tryLoadMpApiCache();
       } else {
-        if (mounted) setState(() { _errorOcds = 'Error ${resp.statusCode}'; _cargandoOcds = false; });
+        // OCDS no disponible → intentar caché mp_api
+        await _tryLoadMpApiCache();
+        if (_mpApiData == null && mounted) {
+          setState(() { _errorOcds = 'Error ${resp.statusCode}'; _cargandoOcds = false; });
+        }
       }
     } catch (e) {
-      if (mounted) setState(() { _errorOcds = e.toString(); _cargandoOcds = false; });
+      await _tryLoadMpApiCache();
+      if (_mpApiData == null && mounted) {
+        setState(() { _errorOcds = e.toString(); _cargandoOcds = false; });
+      }
     }
+  }
+
+  /// Intenta cargar el caché mp_api cuando OCDS no está disponible.
+  Future<void> _tryLoadMpApiCache() async {
+    try {
+      final resp = await http
+          .get(Uri.parse(
+              '$_baseUrl/obtenerCacheExterno?proyectoId=${_proyecto.id}&tipo=mp_api'))
+          .timeout(const Duration(seconds: 10));
+      if (resp.statusCode == 200) {
+        final c = json.decode(resp.body);
+        if (c != null && c['data'] != null && mounted) {
+          setState(() {
+            _mpApiData = c['data'] as Map<String, dynamic>;
+            _cargandoOcds = false;
+          });
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _cargarOc({bool forceRefresh = false}) async {
@@ -959,7 +991,7 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
     final estadoColor = {
           EstadoProyecto.vigente: '#16a34a',
           EstadoProyecto.xVencer: '#d97706',
-          EstadoProyecto.postulacion: '#2563eb',
+
           EstadoProyecto.finalizado: '#6b7280',
           EstadoProyecto.sinFecha: '#6b7280',
         }[estado] ??
@@ -1630,7 +1662,7 @@ $convenioHtml
             ),
           ),
         ]),
-        if (_proyecto.estadoManual == EstadoProyecto.postulacion) ...[
+        if (_proyecto.estadoManual == 'En Evaluación') ...[
           const SizedBox(height: 12),
           _buildPostulacionFechasCard(),
         ],
@@ -1727,8 +1759,110 @@ $convenioHtml
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
           ),
         ),
+        const SizedBox(height: 24),
+        Divider(color: Colors.grey.shade200),
+        const SizedBox(height: 8),
+        Center(
+         child: TextButton.icon(
+          onPressed: _borrarProyecto,
+          icon: Icon(Icons.delete_outline, size: 18, color: Colors.red.shade400),
+          label: Text('Borrar proyecto',
+              style: GoogleFonts.inter(
+                  fontSize: 14,
+                  color: Colors.red.shade400,
+                  fontWeight: FontWeight.w500)),
+          style: TextButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+            overlayColor: Colors.red.shade50,
+          ),
+        ),
+        ),
+        const SizedBox(height: 16),
       ],
     );
+  }
+
+  Future<void> _borrarProyecto() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: Row(children: [
+          Icon(Icons.delete_outline, color: Colors.red.shade400, size: 22),
+          const SizedBox(width: 10),
+          Text('Borrar proyecto',
+              style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 17)),
+        ]),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(_proyecto.institucion,
+              style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 14, color: const Color(0xFF1E293B))),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.red.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.red.shade100),
+            ),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Icon(Icons.warning_amber_rounded, size: 16, color: Colors.red.shade600),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('Esta acción no es reversible. El proyecto y todos sus datos serán eliminados permanentemente.',
+                    style: GoogleFonts.inter(fontSize: 13, color: Colors.red.shade700, height: 1.4)),
+              ),
+            ]),
+          ),
+        ]),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text('Cancelar', style: GoogleFonts.inter(color: Colors.grey.shade600))),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red.shade500,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+            child: Text('Borrar', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      final resp = await http.post(
+        Uri.parse('$_baseUrl/eliminarProyecto'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'id': _proyecto.id}),
+      );
+      if (!mounted) return;
+      if (resp.statusCode == 200) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Proyecto eliminado', style: GoogleFonts.inter()),
+            backgroundColor: const Color(0xFF1E293B),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al eliminar: ${resp.statusCode}', style: GoogleFonts.inter()),
+            backgroundColor: Colors.red.shade600,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: $e', style: GoogleFonts.inter()),
+          backgroundColor: Colors.red.shade600,
+        ),
+      );
+    }
   }
 
   // ─── OC IDS FIELD ─────────────────────────────────────────────────────────
@@ -2294,6 +2428,132 @@ $convenioHtml
     }
   }
 
+  // ── Sección MP API (fallback cuando OCDS no está disponible) ────────────
+
+  Widget _buildMpApiSection(Map<String, dynamic> data, bool isMobile) {
+    final listado =
+        (data['Listado'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    if (listado.isEmpty) {
+      return Center(
+        child: Text('Sin datos de API Mercado Público',
+            style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade500)),
+      );
+    }
+    final item = listado.first;
+    final comprador = item['Comprador'] as Map<String, dynamic>? ?? {};
+    final fechas = item['Fechas'] as Map<String, dynamic>? ?? {};
+
+    String fmtIso(String? iso) {
+      if (iso == null || iso.isEmpty) return '—';
+      final d = DateTime.tryParse(iso);
+      if (d == null) return '—';
+      return '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+    }
+
+    Widget infoCard(String title, List<(String, String?)> rows) {
+      final visible = rows.where((r) => r.$2 != null && r.$2!.isNotEmpty).toList();
+      if (visible.isEmpty) return const SizedBox();
+      return Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.shade200),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Text(title,
+                style: GoogleFonts.inter(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF1E293B))),
+          ),
+          const Divider(height: 1),
+          ...visible.map((r) => Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  SizedBox(
+                    width: 160,
+                    child: Text(r.$1,
+                        style: GoogleFonts.inter(
+                            fontSize: 12, color: Colors.grey.shade500)),
+                  ),
+                  Expanded(
+                    child: Text(r.$2!,
+                        style: GoogleFonts.inter(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: const Color(0xFF1E293B))),
+                  ),
+                ]),
+              )),
+        ]),
+      );
+    }
+
+    return SingleChildScrollView(
+      padding: EdgeInsets.all(isMobile ? 12 : 20),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // Aviso fuente
+        Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFF7ED),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFFED7AA)),
+          ),
+          child: Row(children: [
+            const Icon(Icons.info_outline, size: 15, color: Color(0xFFD97706)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Datos de API Mercado Público — OCDS aún no disponible para esta licitación.',
+                style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF92400E)),
+              ),
+            ),
+          ]),
+        ),
+        infoCard('Licitación', [
+          ('Nombre', item['Nombre']?.toString()),
+          ('Código', item['CodigoExterno']?.toString()),
+          ('Estado', item['Estado']?.toString()),
+          ('Tipo', item['Tipo']?.toString()),
+          ('Monto estimado', item['MontoEstimado'] != null
+              ? '${item['MontoEstimado']} ${item['Moneda'] ?? ''}'
+              : null),
+          ('Duración', item['Tiempo'] != null
+              ? '${item['Tiempo']} ${item['UnidadTiempo']?.toString() == '2' ? 'meses' : 'días'}'
+              : null),
+        ]),
+        infoCard('Comprador', [
+          ('Organismo', comprador['NombreOrganismo']?.toString()),
+          ('Dirección', comprador['DireccionUnidad']?.toString()),
+          ('Comuna', comprador['ComunaUnidad']?.toString()),
+          ('Región', comprador['RegionUnidad']?.toString()),
+        ]),
+        infoCard('Fechas', [
+          ('Publicación', fmtIso(fechas['FechaPublicacion']?.toString())),
+          ('Inicio', fmtIso(fechas['FechaInicio']?.toString())),
+          ('Cierre', fmtIso(fechas['FechaCierre']?.toString())),
+          ('Apertura Técnica', fmtIso(fechas['FechaActoAperturaTecnica']?.toString())),
+          ('Apertura Económica', fmtIso(fechas['FechaActoAperturaEconomica']?.toString())),
+          ('Adjudicación (est.)', fmtIso(fechas['FechaEstimadaAdjudicacion']?.toString())),
+          ('Firma (est.)', fmtIso(fechas['FechaEstimadaFirma']?.toString())),
+        ]),
+        Center(
+          child: TextButton.icon(
+            onPressed: () => _cargarOcds(forceRefresh: true),
+            icon: const Icon(Icons.refresh, size: 16),
+            label: Text('Buscar OCDS', style: GoogleFonts.inter()),
+          ),
+        ),
+      ]),
+    );
+  }
+
   Widget _buildTabOcds(bool isMobile) {
     if (_proyecto.idLicitacion?.isNotEmpty != true) {
       return Center(
@@ -2348,6 +2608,7 @@ $convenioHtml
       );
     }
     if (_ocdsData == null) {
+      if (_mpApiData != null) return _buildMpApiSection(_mpApiData!, isMobile);
       return Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 48),
@@ -2371,6 +2632,7 @@ $convenioHtml
         (_ocdsData!['releases'] as List?)?.cast<Map<String, dynamic>>() ??
             [];
     if (releases.isEmpty) {
+      if (_mpApiData != null) return _buildMpApiSection(_mpApiData!, isMobile);
       return Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 48),
@@ -4180,7 +4442,7 @@ $convenioHtml
 
   Future<void> _sincronizarFechasDesdeConvenio() async {
     if (_convenioData == null) return;
-    if (_proyecto.estadoManual != EstadoProyecto.postulacion) return;
+    if (_proyecto.estadoManual != 'En Evaluación') return;
 
     final campos = (_convenioData!['campos'] as List?)
             ?.cast<Map<String, dynamic>>() ?? [];
@@ -4232,7 +4494,7 @@ $convenioHtml
 
   Future<void> _sincronizarFechasDesdeOcds() async {
     if (_ocdsData == null) return;
-    if (_proyecto.estadoManual != EstadoProyecto.postulacion) return;
+    if (_proyecto.estadoManual != 'En Evaluación') return;
 
     final releases = (_ocdsData!['releases'] as List?)?.cast<Map<String, dynamic>>() ?? [];
     if (releases.isEmpty) return;

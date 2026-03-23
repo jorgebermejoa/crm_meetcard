@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 
 import '../models/proyecto.dart';
 import '../services/config_service.dart';
+import '../services/licitacion_api_service.dart';
 
 class ProyectoFormDialog extends StatefulWidget {
   final bool isEditing;
@@ -86,31 +87,11 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
     setState(() { _buscandoLicitacion = true; _errorBusqueda = null; });
 
     try {
-      final uri = Uri.parse(
-        'https://us-central1-licitaciones-prod.cloudfunctions.net/buscarLicitacionPorId?id=${Uri.encodeComponent(id)}&type=$type',
-      );
-      final response = await http.get(uri).timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        String? nombre;
-        try {
-          final releases = data['releases'] as List?;
-          if (releases != null && releases.isNotEmpty) {
-            final release = releases[0] as Map<String, dynamic>;
-            nombre = release['awards']?[0]?['buyer']?['name'] as String?;
-            nombre ??= release['buyer']?['name'] as String?;
-            nombre ??= release['tender']?['procuringEntity']?['name'] as String?;
-          }
-        } catch (_) {}
-
-        if (nombre != null && nombre.isNotEmpty) {
-          setState(() => _institucionCtrl.text = nombre!);
-        } else {
-          setState(() => _errorBusqueda = 'No se encontró la institución');
-        }
+      final info = await LicitacionApiService.instance.fetchLP(id, type: type);
+      if (info.institucion.isNotEmpty && info.institucion != id) {
+        setState(() => _institucionCtrl.text = info.institucion);
       } else {
-        setState(() => _errorBusqueda = 'No se encontró el ID (${response.statusCode})');
+        setState(() => _errorBusqueda = 'No se encontró la institución');
       }
     } catch (e) {
       setState(() => _errorBusqueda = 'Error al buscar: ${e.toString()}');

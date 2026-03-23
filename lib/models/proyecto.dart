@@ -120,7 +120,6 @@ class DocumentoProyecto {
 /// Constantes de estado de proyecto — usar estas en lugar de strings literales
 /// para evitar errores de tipeo y facilitar refactoring.
 class EstadoProyecto {
-  static const postulacion = 'Postulación';
   static const vigente    = 'Vigente';
   static const xVencer    = 'X Vencer';
   static const finalizado = 'Finalizado';

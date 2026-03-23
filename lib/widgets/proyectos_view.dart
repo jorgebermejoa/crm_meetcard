@@ -228,7 +228,7 @@ class _ProyectosViewState extends State<ProyectosView>
         if (p.modalidadCompra != _filterModalidad) return false;
       }
       if (_filterEstado != null && _filterEstado!.isNotEmpty) {
-        if (p.estado != _filterEstado) return false;
+        if (p.estado != _filterEstado) { return false; }
       }
       if (_filterReclamo != null) {
         if (_filterReclamo == 'Pendiente') {
@@ -379,7 +379,8 @@ class _ProyectosViewState extends State<ProyectosView>
         p.estado == EstadoProyecto.vigente || p.estado == EstadoProyecto.xVencer).length;
     final kpiVigentes   = all.where((p) => p.estado == EstadoProyecto.vigente).length;
     final kpiXVencer    = all.where((p) => p.estado == EstadoProyecto.xVencer).length;
-    final kpiPostulacion = all.where((p) => p.estado == EstadoProyecto.postulacion).length;
+    bool esPostulacion(Proyecto p) => p.estadoManual == 'En Evaluación';
+    final kpiPostulacion = all.where(esPostulacion).length;
     final kpiFinalizados = all.where((p) => p.estado == EstadoProyecto.finalizado).length;
 
     final kpiValorTotal = all.fold<double>(0, (s, p) => s + (p.valorMensual ?? 0));
@@ -387,7 +388,7 @@ class _ProyectosViewState extends State<ProyectosView>
         .where((p) => p.estado == EstadoProyecto.vigente)
         .fold<double>(0, (s, p) => s + (p.valorMensual ?? 0));
     final kpiValorPostulacion = all
-        .where((p) => p.estado == EstadoProyecto.postulacion)
+        .where(esPostulacion)
         .fold<double>(0, (s, p) => s + (p.valorMensual ?? 0));
 
     final kpiReclPend = all.fold<int>(
@@ -806,11 +807,11 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
 
   static const _cfBase = 'https://us-central1-licitaciones-prod.cloudfunctions.net';
 
-  /// Para proyectos en Postulación con idLicitacion pero sin fechaPublicacion,
+  /// Para proyectos en Evaluación con idLicitacion pero sin fechaPublicacion,
   /// obtiene las fechas desde OCDS y las guarda en Firestore automáticamente.
   Future<void> _sincronizarPostulacionDesdeOcds() async {
     final pendientes = _proyectos.where((p) =>
-        p.estadoManual == EstadoProyecto.postulacion &&
+        p.estadoManual == 'En Evaluación' &&
         p.idLicitacion != null &&
         p.idLicitacion!.isNotEmpty &&
         (p.fechaPublicacion == null || p.fechaConsultasInicio == null)).toList();
@@ -882,7 +883,7 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
 
     // Pre-filter by estado before date check
     final byEstado = isPostulacion
-        ? proyectos.where((p) => p.estado == EstadoProyecto.postulacion).toList()
+        ? proyectos.where((p) => p.estadoManual == 'En Evaluación').toList()
         : proyectos.where((p) => p.estado == EstadoProyecto.vigente).toList();
 
     final withDates = byEstado.where(hasDates).toList()
@@ -890,7 +891,7 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
           .compareTo(startOf(b, isRuta: isRuta, isPostulacion: isPostulacion)));
 
     final String emptyMsg = isPostulacion
-        ? 'Ningún proyecto en estado Postulación tiene fechas de publicación y cierre registradas.'
+        ? 'Ningún proyecto en estado En Evaluación tiene fechas de publicación y cierre registradas.'
         : isRuta
             ? 'Ningún proyecto tiene fechas de ruta de implementación registradas.'
             : '';
@@ -1469,8 +1470,8 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
     const inactiveColor = Color(0xFF94A3B8);
     final tabs = [
       ('contrato', 'Contrato'),
+      ('postulacion', 'En Evaluación'),
       ('ruta', 'Implementación'),
-      ('postulacion', 'Postulación'),
     ];
 
     final subtitles = {
@@ -1663,14 +1664,13 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
         filtered.isEmpty ? <Proyecto>[] : filtered.sublist(pageStart, pageEnd);
 
     final total = _proyectos.length;
-    final postulacion = _proyectos.where((p) => p.estado == EstadoProyecto.postulacion).length;
-    final enEvaluacion = _proyectos.where((p) => p.estado == 'En Evaluación').length;
+    final enEvaluacion = _proyectos.where((p) => p.estadoManual == 'En Evaluación').length;
     final vigentes = _proyectos.where((p) => p.estado == EstadoProyecto.vigente).length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildSummaryRow(total, postulacion, enEvaluacion, vigentes, isMobile),
+        _buildSummaryRow(total, enEvaluacion, vigentes, isMobile),
         const SizedBox(height: 16),
         _buildFilterRow(_proyectos, isMobile),
         const SizedBox(height: 16),
@@ -1808,7 +1808,7 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
   }
 
   Widget _buildSummaryRow(
-      int total, int postulacion, int enEvaluacion, int vigentes, bool isMobile) {
+      int total, int enEvaluacion, int vigentes, bool isMobile) {
     final summaryCard = Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
@@ -1824,8 +1824,6 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
       child: Row(
         children: [
           Expanded(child: _summaryChip('Total $total', null, const Color(0xFF1E293B))),
-          _divider(),
-          Expanded(child: _summaryChip('Postulación $postulacion', const Color(0xFF5B21B6), const Color(0xFF5B21B6))),
           _divider(),
           Expanded(child: _summaryChip('En Evaluación $enEvaluacion', const Color(0xFF0EA5E9), const Color(0xFF0EA5E9))),
           _divider(),
@@ -1921,7 +1919,8 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
         _activeChip(_filterModalidad!,
             () => setState(() { _filterModalidad = null; _currentPage = 0; })),
       if (_filterEstado != null)
-        _activeChip(_filterEstado!,
+        _activeChip(
+            _filterEstado!,
             () => setState(() { _filterEstado = null; _currentPage = 0; })),
       if (_filterReclamo != null)
         _activeChip('Reclamo: $_filterReclamo',
@@ -3758,7 +3757,7 @@ class _ProyectosKpiCardState extends State<_ProyectosKpiCard> {
     (label: 'Proyectos\nActivos',     estado: null as String?,            color: Color(0xFF5B21B6), activos: true),
     (label: 'Proyectos\nVigentes',    estado: EstadoProyecto.vigente,     color: Color(0xFF10B981), activos: false),
     (label: 'Proyectos\nX Vencer',    estado: EstadoProyecto.xVencer,     color: Color(0xFFF59E0B), activos: false),
-    (label: 'Proyectos\nPostulación', estado: EstadoProyecto.postulacion, color: Color(0xFF6366F1), activos: false),
+    (label: 'Proyectos\nEn Evaluación', estado: 'En Evaluación',            color: Color(0xFF6366F1), activos: false),
     (label: 'Proyectos\nFinalizados', estado: EstadoProyecto.finalizado,  color: Color(0xFF64748B), activos: false),
     (label: 'Proyectos\nTotal',       estado: null as String?,            color: Color(0xFF0EA5E9), activos: false),
   ];
@@ -3832,6 +3831,7 @@ class _XVencerKpiCardState extends State<_XVencerKpiCard> {
     final now = DateTime.now();
     final limite = now.add(Duration(days: dias));
     return widget.proyectos.where((p) {
+      if (p.estado != EstadoProyecto.vigente && p.estado != EstadoProyecto.xVencer) return false;
       final ft = p.fechaTermino;
       if (ft == null) return false;
       return ft.isAfter(now) && ft.isBefore(limite);
@@ -3887,7 +3887,7 @@ class _ValorMensualCardState extends State<_ValorMensualCard> {
   static const _pages = [
     (label: 'Valor Mensual\nVigente',     short: 'Vigente',     estado: EstadoProyecto.vigente,    color: Color(0xFF10B981)),
     (label: 'Valor Mensual\nX Vencer',    short: 'X Vencer',    estado: EstadoProyecto.xVencer,    color: Color(0xFFF59E0B)),
-    (label: 'Valor Mensual\nPostulación', short: 'Postulación', estado: EstadoProyecto.postulacion, color: Color(0xFF0EA5E9)),
+    (label: 'Valor Mensual\nEn Evaluación', short: 'En Evaluación', estado: 'En Evaluación',            color: Color(0xFF0EA5E9)),
     (label: 'Valor Mensual\nTotal',       short: 'Total',       estado: null as String?,            color: Color(0xFF5B21B6)),
   ];
 
@@ -3904,9 +3904,9 @@ class _ValorMensualCardState extends State<_ValorMensualCard> {
   @override
   Widget build(BuildContext context) {
     final page = _pages[_idx];
-    final filtered = page.estado != null
-        ? widget.proyectos.where((p) => p.estado == page.estado)
-        : widget.proyectos;
+    final filtered = page.estado == null
+        ? widget.proyectos.toList()
+        : widget.proyectos.where((p) => p.estado == page.estado).toList();
     final total = filtered.fold<double>(0, (s, p) => s + (p.valorMensual ?? 0));
     final color = page.color;
 

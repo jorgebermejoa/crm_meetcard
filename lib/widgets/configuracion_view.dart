@@ -29,10 +29,20 @@ class _ConfiguracionViewState extends State<ConfiguracionView> {
   bool _guardando = false;
   bool _isDirty = false;
 
+  // Add-row inline state (persiste entre rebuilds del padre)
+  bool _showAddModalidad = false;
+  final _addModalidadCtrl = TextEditingController();
+
   @override
   void initState() {
     super.initState();
     _cargar();
+  }
+
+  @override
+  void dispose() {
+    _addModalidadCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _cargar() async {
@@ -253,6 +263,7 @@ class _ConfiguracionViewState extends State<ConfiguracionView> {
           else
             ReorderableListView.builder(
               shrinkWrap: true,
+              buildDefaultDragHandles: false,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: items.length,
               onReorder: (oldIdx, newIdx) {
@@ -298,13 +309,16 @@ class _ConfiguracionViewState extends State<ConfiguracionView> {
                           child: Text(item.nombre,
                               style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF1E293B))),
                         ),
-                        GestureDetector(
-                          onTap: () => _confirmarBorrado(
+                        IconButton(
+                          onPressed: () => _confirmarBorrado(
                             titulo: 'Eliminar estado',
-                            mensaje: '¿Eliminar el estado "${item.nombre}"?\n\nEsto solo afecta los filtros.',
+                            mensaje: '¿Eliminar el estado "${item.nombre}"?\n\nEsto solo afecta los filtros.\nEsta acción no es reversible.',
                             onConfirm: () { setState(() => _data!.estados.removeAt(idx)); _markDirty(); },
                           ),
-                          child: Icon(Icons.remove_circle_outline, size: 18, color: Colors.grey.shade400),
+                          icon: Icon(Icons.delete_outline, size: 18, color: Colors.red.shade300),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          tooltip: 'Eliminar',
                         ),
                       ]),
                     ),
@@ -472,6 +486,7 @@ class _ConfiguracionViewState extends State<ConfiguracionView> {
           else
             ReorderableListView.builder(
               shrinkWrap: true,
+              buildDefaultDragHandles: false,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: items.length,
               onReorder: (oldIdx, newIdx) {
@@ -518,8 +533,8 @@ class _ConfiguracionViewState extends State<ConfiguracionView> {
                           ),
                           const SizedBox(width: 8),
                         ],
-                        GestureDetector(
-                          onTap: () {
+                        IconButton(
+                          onPressed: () {
                             if (uso > 0) {
                               _confirmarBorrado(
                                 titulo: 'No se puede eliminar',
@@ -532,16 +547,19 @@ class _ConfiguracionViewState extends State<ConfiguracionView> {
                             } else {
                               _confirmarBorrado(
                                 titulo: 'Eliminar modalidad',
-                                mensaje: '¿Eliminar la modalidad "$value"?',
+                                mensaje: '¿Eliminar la modalidad "$value"?\nEsta acción no es reversible.',
                                 onConfirm: () { setState(() => _data!.modalidades.removeAt(idx)); _markDirty(); },
                               );
                             }
                           },
-                          child: Icon(
-                            bloqueado ? Icons.lock_outline : Icons.remove_circle_outline,
+                          icon: Icon(
+                            bloqueado ? Icons.lock_outline : Icons.delete_outline,
                             size: 18,
-                            color: bloqueado ? Colors.grey.shade300 : Colors.grey.shade400,
+                            color: bloqueado ? Colors.grey.shade300 : Colors.red.shade300,
                           ),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          tooltip: bloqueado ? 'No se puede eliminar' : 'Eliminar',
                         ),
                       ]),
                     ),
@@ -551,10 +569,13 @@ class _ConfiguracionViewState extends State<ConfiguracionView> {
               },
             ),
           const Divider(height: 1),
-          _addRow(
+          _inlineAddRow(
+            showing: _showAddModalidad,
+            ctrl: _addModalidadCtrl,
             label: 'Agregar modalidad',
             hint: 'Ej: Licitación Pública',
-            onAdd: (v) { setState(() => _data!.modalidades.add(v)); _markDirty(); },
+            onToggle: (v) => setState(() => _showAddModalidad = v),
+            onAdd: (v) { setState(() { _data!.modalidades.add(v); _showAddModalidad = false; }); _addModalidadCtrl.clear(); _markDirty(); },
           ),
         ],
       ),
@@ -563,62 +584,60 @@ class _ConfiguracionViewState extends State<ConfiguracionView> {
 
   // ── ADD ROW ───────────────────────────────────────────────────────────────
 
-  Widget _addRow({required String label, required String hint, required void Function(String) onAdd}) {
-    final ctrl = TextEditingController();
-    return StatefulBuilder(builder: (_, __) {
-      bool showing = false;
-      return StatefulBuilder(builder: (_, setSt) {
-        if (!showing) {
-          return TextButton.icon(
-            onPressed: () => setSt(() => showing = true),
-            icon: const Icon(Icons.add, size: 16),
-            label: Text(label, style: GoogleFonts.inter(fontSize: 13)),
-            style: TextButton.styleFrom(
-              foregroundColor: _primaryColor,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-          );
-        }
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: ctrl,
-                  autofocus: true,
-                  style: GoogleFonts.inter(fontSize: 13),
-                  decoration: _inputDecor(hint),
-                  onSubmitted: (v) {
-                    final s = v.trim();
-                    if (s.isNotEmpty) { onAdd(s); ctrl.clear(); setSt(() => showing = false); }
-                  },
-                ),
-              ),
-              const SizedBox(width: 8),
-              TextButton(
-                onPressed: () {
-                  final s = ctrl.text.trim();
-                  if (s.isNotEmpty) { onAdd(s); ctrl.clear(); setSt(() => showing = false); }
-                },
-                style: TextButton.styleFrom(
-                  foregroundColor: _primaryColor,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                ),
-                child: Text('Agregar', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
-              ),
-              IconButton(
-                onPressed: () { ctrl.clear(); setSt(() => showing = false); },
-                icon: Icon(Icons.close, size: 16, color: Colors.grey.shade400),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-            ],
+  Widget _inlineAddRow({
+    required bool showing,
+    required TextEditingController ctrl,
+    required String label,
+    required String hint,
+    required void Function(bool) onToggle,
+    required void Function(String) onAdd,
+  }) {
+    void submit() {
+      final s = ctrl.text.trim();
+      if (s.isNotEmpty) onAdd(s);
+    }
+
+    if (!showing) {
+      return TextButton.icon(
+        onPressed: () => onToggle(true),
+        icon: const Icon(Icons.add, size: 16),
+        label: Text(label, style: GoogleFonts.inter(fontSize: 13)),
+        style: TextButton.styleFrom(
+          foregroundColor: _primaryColor,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+      child: Row(children: [
+        Expanded(
+          child: TextField(
+            controller: ctrl,
+            autofocus: true,
+            style: GoogleFonts.inter(fontSize: 13),
+            decoration: _inputDecor(hint),
+            onSubmitted: (_) => submit(),
           ),
-        );
-      });
-    });
+        ),
+        const SizedBox(width: 8),
+        TextButton(
+          onPressed: submit,
+          style: TextButton.styleFrom(
+            foregroundColor: _primaryColor,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          ),
+          child: Text('Agregar', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+        ),
+        IconButton(
+          onPressed: () { ctrl.clear(); onToggle(false); },
+          icon: Icon(Icons.close, size: 16, color: Colors.grey.shade400),
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+        ),
+      ]),
+    );
   }
 
   // ── TIPOS DE DOCUMENTO ────────────────────────────────────────────────────
@@ -638,6 +657,7 @@ class _ConfiguracionViewState extends State<ConfiguracionView> {
           else
             ReorderableListView.builder(
               shrinkWrap: true,
+              buildDefaultDragHandles: false,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: items.length,
               onReorder: (oldIdx, newIdx) {
@@ -666,16 +686,19 @@ class _ConfiguracionViewState extends State<ConfiguracionView> {
                           child: Text(value,
                               style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF1E293B))),
                         ),
-                        GestureDetector(
-                          onTap: () => _confirmarBorrado(
+                        IconButton(
+                          onPressed: () => _confirmarBorrado(
                             titulo: 'Eliminar tipo de documento',
-                            mensaje: '¿Eliminar el tipo "$value"?',
+                            mensaje: '¿Eliminar el tipo "$value"?\nEsta acción no es reversible.',
                             onConfirm: () {
                               setState(() => _data!.tiposDocumento.removeAt(idx));
                               _markDirty();
                             },
                           ),
-                          child: Icon(Icons.remove_circle_outline, size: 18, color: Colors.grey.shade400),
+                          icon: Icon(Icons.delete_outline, size: 18, color: Colors.red.shade300),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          tooltip: 'Eliminar',
                         ),
                       ]),
                     ),
@@ -685,20 +708,72 @@ class _ConfiguracionViewState extends State<ConfiguracionView> {
               },
             ),
           const Divider(height: 1),
-          _addRow(
-            label: 'Agregar tipo',
-            hint: 'Ej: Contrato, Acta de Evaluación',
-            onAdd: (v) {
-              setState(() => _data!.tiposDocumento.add(v));
-              _markDirty();
-            },
-          ),
+          _addTipoDocRow(),
         ],
       ),
     );
   }
 
   // ── PRODUCTOS ─────────────────────────────────────────────────────────────
+
+  Widget _addTipoDocRow() {
+    final ctrl = TextEditingController();
+    return StatefulBuilder(builder: (_, __) {
+      bool showing = false;
+      return StatefulBuilder(builder: (_, setSt) {
+        if (!showing) {
+          return TextButton.icon(
+            onPressed: () => setSt(() => showing = true),
+            icon: const Icon(Icons.add, size: 16),
+            label: Text('Agregar tipo', style: GoogleFonts.inter(fontSize: 13)),
+            style: TextButton.styleFrom(
+              foregroundColor: _primaryColor,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          );
+        }
+        void submit() {
+          final s = ctrl.text.trim();
+          if (s.isNotEmpty) {
+            setState(() => _data!.tiposDocumento.add(s));
+            _markDirty();
+            ctrl.clear();
+            setSt(() => showing = false);
+          }
+        }
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+          child: Row(children: [
+            Expanded(
+              child: TextField(
+                controller: ctrl,
+                autofocus: true,
+                style: GoogleFonts.inter(fontSize: 13),
+                decoration: _inputDecor('Ej: Contrato, Acta de Evaluación'),
+                onSubmitted: (_) => submit(),
+              ),
+            ),
+            const SizedBox(width: 8),
+            TextButton(
+              onPressed: submit,
+              style: TextButton.styleFrom(
+                foregroundColor: _primaryColor,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              ),
+              child: Text('Agregar', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+            ),
+            IconButton(
+              onPressed: () { ctrl.clear(); setSt(() => showing = false); },
+              icon: Icon(Icons.close, size: 16, color: Colors.grey.shade400),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+            ),
+          ]),
+        );
+      });
+    });
+  }
 
   Widget _productosCard() {
     final productos = _data!.productos;
@@ -738,6 +813,7 @@ class _ConfiguracionViewState extends State<ConfiguracionView> {
             const Divider(height: 1),
             ReorderableListView.builder(
               shrinkWrap: true,
+              buildDefaultDragHandles: false,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: productos.length,
               onReorder: (oldIdx, newIdx) {
@@ -996,19 +1072,96 @@ class _ConfiguracionViewState extends State<ConfiguracionView> {
     });
   }
 
-  InputDecoration _inputDecor(String hint) => InputDecoration(
-        hintText: hint,
-        hintStyle: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400),
-        isDense: true,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(color: Colors.grey.shade200)),
-        enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(color: Colors.grey.shade200)),
-        focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: _primaryColor, width: 1.5)),
+}
+
+InputDecoration _inputDecor(String hint) => InputDecoration(
+      hintText: hint,
+      hintStyle: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400),
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: Colors.grey.shade200)),
+      enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: Colors.grey.shade200)),
+      focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: _primaryColor, width: 1.5)),
+    );
+
+// ── Add-row widget (stable across parent rebuilds) ─────────────────────────
+class _AddRow extends StatefulWidget {
+  final String label;
+  final String hint;
+  final void Function(String) onAdd;
+  const _AddRow({required this.label, required this.hint, required this.onAdd});
+
+  @override
+  State<_AddRow> createState() => _AddRowState();
+}
+
+class _AddRowState extends State<_AddRow> {
+  final _ctrl = TextEditingController();
+  bool _showing = false;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final s = _ctrl.text.trim();
+    if (s.isNotEmpty) {
+      widget.onAdd(s);
+      _ctrl.clear();
+      setState(() => _showing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_showing) {
+      return TextButton.icon(
+        onPressed: () => setState(() => _showing = true),
+        icon: const Icon(Icons.add, size: 16),
+        label: Text(widget.label, style: GoogleFonts.inter(fontSize: 13)),
+        style: TextButton.styleFrom(
+          foregroundColor: _primaryColor,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
       );
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+      child: Row(children: [
+        Expanded(
+          child: TextField(
+            controller: _ctrl,
+            autofocus: true,
+            style: GoogleFonts.inter(fontSize: 13),
+            decoration: _inputDecor(widget.hint),
+            onSubmitted: (_) => _submit(),
+          ),
+        ),
+        const SizedBox(width: 8),
+        TextButton(
+          onPressed: _submit,
+          style: TextButton.styleFrom(
+            foregroundColor: _primaryColor,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          ),
+          child: Text('Agregar', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+        ),
+        IconButton(
+          onPressed: () { _ctrl.clear(); setState(() => _showing = false); },
+          icon: Icon(Icons.close, size: 16, color: Colors.grey.shade400),
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+        ),
+      ]),
+    );
+  }
 }

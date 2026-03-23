@@ -87,33 +87,119 @@ const kColorPaleta = [
   '64748B', // slate
   '5B21B6', // primary
   'EC4899', // pink
+  '06B6D4', // cyan
+  '84CC16', // lime
+  'A3E635', // yellow-green
+  'FBBF24', // yellow
+  'FB923C', // orange-400
+  'E11D48', // rose-600
+  'BE185D', // pink-700
+  '7C3AED', // violet
+  '4338CA', // indigo-700
+  '1D4ED8', // blue-700
+  '0369A1', // sky-700
+  '0F766E', // teal-700
+  '15803D', // green-700
+  '92400E', // amber-800
+  '7F1D1D', // red-900
+  '374151', // gray-700
+  '111827', // gray-900
+  'FFFFFF', // white
 ];
 
 // ── Mapa de iconos para productos ─────────────────────────────────────────────
 
 const kIconosProducto = <String, IconData>{
-  'label': Icons.label_outline,
-  'devices': Icons.devices_outlined,
-  'people': Icons.people_outline,
-  'public': Icons.public_outlined,
-  'assessment': Icons.assessment_outlined,
-  'security': Icons.security_outlined,
-  'directions_car': Icons.directions_car_outlined,
-  'business': Icons.business_outlined,
-  'school': Icons.school_outlined,
+  // General
+  'label':             Icons.label_outline,
+  'star':              Icons.star_outline,
+  'work':              Icons.work_outline,
+  'business':          Icons.business_outlined,
+  'store':             Icons.store_outlined,
+  'inventory':         Icons.inventory_2_outlined,
+  'receipt':           Icons.receipt_long_outlined,
+  'payments':          Icons.payments_outlined,
+  'account_balance':   Icons.account_balance_outlined,
+  'savings':           Icons.savings_outlined,
+  // Tecnología
+  'devices':           Icons.devices_outlined,
+  'monitor':           Icons.monitor_outlined,
+  'phone_android':     Icons.phone_android_outlined,
+  'tablet':            Icons.tablet_outlined,
+  'computer':          Icons.computer_outlined,
+  'wifi':              Icons.wifi_outlined,
+  'cloud':             Icons.cloud_outlined,
+  'storage':           Icons.storage_outlined,
+  'code':              Icons.code_outlined,
+  'terminal':          Icons.terminal_outlined,
+  'api':               Icons.api_outlined,
+  'smart_toy':         Icons.smart_toy_outlined,
+  'data_usage':        Icons.data_usage_outlined,
+  'analytics':         Icons.analytics_outlined,
+  'assessment':        Icons.assessment_outlined,
+  // Personas / Organización
+  'people':            Icons.people_outline,
+  'person':            Icons.person_outline,
+  'groups':            Icons.groups_outlined,
+  'school':            Icons.school_outlined,
+  'card_membership':   Icons.card_membership_outlined,
+  'badge':             Icons.badge_outlined,
+  'assignment_ind':    Icons.assignment_ind_outlined,
+  // Seguridad / Legal
+  'security':          Icons.security_outlined,
+  'local_police':      Icons.local_police_outlined,
+  'gavel':             Icons.gavel_outlined,
+  'policy':            Icons.policy_outlined,
+  'verified':          Icons.verified_outlined,
+  'lock':              Icons.lock_outline,
+  // Salud / Bienestar
   'health_and_safety': Icons.health_and_safety_outlined,
-  'build': Icons.build_outlined,
-  'park': Icons.park_outlined,
-  'camera_alt': Icons.camera_alt_outlined,
-  'wifi': Icons.wifi_outlined,
-  'local_police': Icons.local_police_outlined,
-  'home': Icons.home_outlined,
-  'map': Icons.map_outlined,
-  'star': Icons.star_outline,
-  'phone_android': Icons.phone_android_outlined,
-  'monitor': Icons.monitor_outlined,
-  'card_membership': Icons.card_membership_outlined,
-  'work': Icons.work_outline,
+  'local_hospital':    Icons.local_hospital_outlined,
+  'emergency':         Icons.emergency_outlined,
+  'medication':        Icons.medication_outlined,
+  // Transporte / Movilidad
+  'directions_car':    Icons.directions_car_outlined,
+  'local_shipping':    Icons.local_shipping_outlined,
+  'flight':            Icons.flight_outlined,
+  'directions_bus':    Icons.directions_bus_outlined,
+  'train':             Icons.train_outlined,
+  // Infraestructura / Territorio
+  'home':              Icons.home_outlined,
+  'map':               Icons.map_outlined,
+  'public':            Icons.public_outlined,
+  'location_city':     Icons.location_city_outlined,
+  'park':              Icons.park_outlined,
+  'terrain':           Icons.terrain_outlined,
+  'water':             Icons.water_outlined,
+  'electrical_services': Icons.electrical_services_outlined,
+  'build':             Icons.build_outlined,
+  'construction':      Icons.construction_outlined,
+  // Comunicación / Multimedia
+  'camera_alt':        Icons.camera_alt_outlined,
+  'photo_library':     Icons.photo_library_outlined,
+  'videocam':          Icons.videocam_outlined,
+  'mic':               Icons.mic_outlined,
+  'campaign':          Icons.campaign_outlined,
+  'chat':              Icons.chat_outlined,
+  'email':             Icons.email_outlined,
+  'notifications':     Icons.notifications_outlined,
+  // Documentos / Gestión
+  'folder':            Icons.folder_outlined,
+  'description':       Icons.description_outlined,
+  'assignment':        Icons.assignment_outlined,
+  'fact_check':        Icons.fact_check_outlined,
+  'edit_document':     Icons.edit_document,
+  'print':             Icons.print_outlined,
+  'archive':           Icons.archive_outlined,
+  // Otros
+  'settings':          Icons.settings_outlined,
+  'tune':              Icons.tune_outlined,
+  'support':           Icons.support_outlined,
+  'volunteer_activism': Icons.volunteer_activism_outlined,
+  'sports':            Icons.sports_outlined,
+  'music_note':        Icons.music_note_outlined,
+  'restaurant':        Icons.restaurant_outlined,
+  'local_fire_department': Icons.local_fire_department_outlined,
 };
 
 // ── ConfiguracionData ─────────────────────────────────────────────────────────

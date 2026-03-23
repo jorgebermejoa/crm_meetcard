@@ -12,6 +12,7 @@ import 'firebase_options.dart';
 import 'models/proyecto.dart';
 import 'services/auth_service.dart';
 import 'widgets/admin_usuarios_view.dart';
+import 'widgets/migracion_view.dart';
 import 'widgets/home_view.dart';
 import 'widgets/login_view.dart';
 import 'widgets/perfil_view.dart';
@@ -115,6 +116,10 @@ final _router = GoRouter(
           path: '/admin/usuarios',
           pageBuilder: (_, __) => _fadePage(const AdminUsuariosView()),
         ),
+        GoRoute(
+          path: '/admin/migracion',
+          pageBuilder: (_, __) => _fadePage(const MigracionView()),
+        ),
       ],
     ),
   ],
@@ -201,14 +206,14 @@ class _AppDrawer extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Brand header
+            // Brand header (fijo)
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 24, 20, 6),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Licitaciones',
+                    'CRM Meetcard',
                     style: GoogleFonts.inter(
                       fontSize: 20,
                       fontWeight: FontWeight.w800,
@@ -216,78 +221,84 @@ class _AppDrawer extends StatelessWidget {
                       letterSpacing: -0.5,
                     ),
                   ),
-                  Text(
-                    'Inteligencia de Mercado Público',
-                    style: GoogleFonts.inter(
-                        fontSize: 12, color: Colors.grey.shade400),
-                  ),
                 ],
               ),
             ),
             const SizedBox(height: 8),
-            const Divider(height: 1),
-            const SizedBox(height: 8),
 
-            // Navigation items
-            _DrawerItem(
-              icon: Icons.search_outlined,
-              label: 'Búsqueda',
-              selected: _selectedIndex == 0,
-              onTap: () {
-                Navigator.pop(context);
-                context.go('/');
-              },
-            ),
-            _DrawerItem(
-              icon: Icons.folder_outlined,
-              label: 'Proyectos',
-              selected: _selectedIndex == 1,
-              onTap: () {
-                Navigator.pop(context);
-                context.go('/proyectos');
-              },
-            ),
-            _DrawerItem(
-              icon: Icons.settings_outlined,
-              label: 'Configuración',
-              selected: _selectedIndex == 2,
-              onTap: () {
-                Navigator.pop(context);
-                context.go('/configuracion');
-              },
-            ),
+            // Ítems de navegación con scroll para pantallas pequeñas
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _DrawerItem(
+                      icon: Icons.search_outlined,
+                      label: 'Búsqueda',
+                      selected: _selectedIndex == 0,
+                      onTap: () {
+                        Navigator.pop(context);
+                        context.go('/');
+                      },
+                    ),
+                    _DrawerItem(
+                      icon: Icons.folder_outlined,
+                      label: 'Proyectos',
+                      selected: _selectedIndex == 1,
+                      onTap: () {
+                        Navigator.pop(context);
+                        context.go('/proyectos');
+                      },
+                    ),
+                    _DrawerItem(
+                      icon: Icons.settings_outlined,
+                      label: 'Configuración',
+                      selected: _selectedIndex == 2,
+                      onTap: () {
+                        Navigator.pop(context);
+                        context.go('/configuracion');
+                      },
+                    ),
 
-            // Admin section
-            if (perfil?.esAdmin == true) ...[
-              const SizedBox(height: 8),
-              const Divider(height: 1),
-              const SizedBox(height: 4),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-                child: Text(
-                  'ADMINISTRACIÓN',
-                  style: GoogleFonts.inter(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade400,
-                      letterSpacing: 0.5),
+                    // Admin section
+                    if (perfil?.esAdmin == true) ...[
+                      const SizedBox(height: 4),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+                        child: Text(
+                          'ADMINISTRACIÓN',
+                          style: GoogleFonts.inter(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey.shade400,
+                              letterSpacing: 0.5),
+                        ),
+                      ),
+                      _DrawerItem(
+                        icon: Icons.people_outline,
+                        label: 'Gestión de usuarios',
+                        selected: currentPath == '/admin/usuarios',
+                        onTap: () {
+                          Navigator.pop(context);
+                          context.go('/admin/usuarios');
+                        },
+                      ),
+                      _DrawerItem(
+                        icon: Icons.upload_file_outlined,
+                        label: 'Migración CSV',
+                        selected: currentPath.startsWith('/admin/migracion'),
+                        onTap: () {
+                          Navigator.pop(context);
+                          context.go('/admin/migracion');
+                        },
+                      ),
+                    ],
+                  ],
                 ),
               ),
-              _DrawerItem(
-                icon: Icons.people_outline,
-                label: 'Gestión de usuarios',
-                selected: currentPath.startsWith('/admin'),
-                onTap: () {
-                  Navigator.pop(context);
-                  context.go('/admin/usuarios');
-                },
-              ),
-            ],
+            ),
 
-            const Spacer(),
-            const Divider(height: 1),
-
-            // User profile
+            // Footer fijo (perfil + logout)
             if (perfil != null)
               ListTile(
                 contentPadding:
@@ -331,8 +342,6 @@ class _AppDrawer extends StatelessWidget {
                   context.go('/perfil');
                 },
               ),
-
-            // Logout
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
               child: ListTile(

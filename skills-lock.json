@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "skills": {
+    "audit": {
+      "source": "pbakaus/impeccable",
+      "sourceType": "github",
+      "computedHash": "bf302f77a47430b0996bea0200c10e247f968d45c16f4389fd14e5bdbe2b5a74"
+    },
+    "extract": {
+      "source": "pbakaus/impeccable",
+      "sourceType": "github",
+      "computedHash": "bb09b2fb79da58e670550d70d995de9128a5893901ecdb8c1f165157a1badc35"
+    },
+    "frontend-design": {
+      "source": "pbakaus/impeccable",
+      "sourceType": "github",
+      "computedHash": "f8ecd3028ae60e1b710a9e1c13a43ddfb3a9d4bf67df99209a1855297c1ea2bd"
+    }
+  }
+}
