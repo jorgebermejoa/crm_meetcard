@@ -797,10 +797,9 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
           ],
           const SizedBox(height: 8),
           _exportOpt(Icons.print_outlined, 'Imprimir / PDF',
-              'Usa el diálogo de impresión del navegador', () async {
+              'Genera una página HTML lista para imprimir o guardar como PDF', () {
             Navigator.pop(context);
-            await Future.delayed(const Duration(milliseconds: 400));
-            web.window.print();
+            _exportDetalleProyectoPDF();
           }),
         ]),
       ),
@@ -930,6 +929,339 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
 
     final ts = DateTime.now().millisecondsSinceEpoch;
     _downloadFile(buf.toString(), 'ordenes_compra_$ts.csv', 'text/csv;charset=utf-8;');
+  }
+
+  void _exportDetalleProyectoPDF() {
+    final p = _proyecto;
+    String fmtDate(DateTime? d) => d == null
+        ? '—'
+        : '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+    String fmtVal(double? v) {
+      if (v == null) return '—';
+      final s = v.toInt().toString();
+      final buf = StringBuffer();
+      for (int i = 0; i < s.length; i++) {
+        if (i > 0 && (s.length - i) % 3 == 0) buf.write('.');
+        buf.write(s[i]);
+      }
+      return '\$ ${buf.toString()}';
+    }
+    String esc(String s) => s
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;');
+
+    final institucion = _cleanName(p.institucion);
+    final estado = p.estado;
+
+    // ── Estado color ──
+    final estadoColor = {
+          EstadoProyecto.vigente: '#16a34a',
+          EstadoProyecto.xVencer: '#d97706',
+          EstadoProyecto.postulacion: '#2563eb',
+          EstadoProyecto.finalizado: '#6b7280',
+          EstadoProyecto.sinFecha: '#6b7280',
+        }[estado] ??
+        '#6b7280';
+
+    // ── Fechas rows ──
+    final fechaRows = StringBuffer();
+    void addFecha(String label, DateTime? d) {
+      if (d == null) return;
+      fechaRows.write('<tr><td class="fl">$label</td><td>${esc(fmtDate(d))}</td></tr>');
+    }
+    addFecha('Inicio contrato', p.fechaInicio);
+    addFecha('Término contrato', p.fechaTermino);
+    addFecha('Inicio ruta', p.fechaInicioRuta);
+    addFecha('Término ruta', p.fechaTerminoRuta);
+    addFecha('Publicación licitación', p.fechaPublicacion);
+    addFecha('Cierre recepción', p.fechaCierre);
+    addFecha('Adjudicación', p.fechaAdjudicacion);
+
+    // ── Reclamos section ──
+    final reclamosHtml = StringBuffer();
+    if (p.reclamos.isNotEmpty) {
+      reclamosHtml.write('''
+<h2>Reclamos (${p.reclamos.length})</h2>
+<table>
+  <thead><tr><th>#</th><th>Descripción</th><th>Estado</th><th>Ingreso</th><th>Respuesta</th><th>Documentos</th></tr></thead>
+  <tbody>
+''');
+      for (int i = 0; i < p.reclamos.length; i++) {
+        final r = p.reclamos[i];
+        final allDocs = [...r.documentos, ...r.documentosRespuesta];
+        final docsHtml = allDocs.isEmpty
+            ? '—'
+            : allDocs.map((d) => '<a href="${esc(d.url)}">${esc(d.nombre ?? d.tipo)}</a>').join('<br>');
+        reclamosHtml.write('''
+    <tr>
+      <td>${i + 1}</td>
+      <td>${esc(r.descripcion)}</td>
+      <td><span style="color:${r.estado == 'Pendiente' ? '#d97706' : '#16a34a'}">${esc(r.estado)}</span></td>
+      <td>${esc(fmtDate(r.fechaReclamo))}</td>
+      <td>${esc(fmtDate(r.fechaRespuesta))}</td>
+      <td>$docsHtml</td>
+    </tr>
+''');
+        if (r.descripcionRespuesta != null && r.descripcionRespuesta!.isNotEmpty) {
+          reclamosHtml.write('''
+    <tr><td></td><td colspan="5" style="color:#374151;font-style:italic">Respuesta: ${esc(r.descripcionRespuesta!)}</td></tr>
+''');
+        }
+      }
+      reclamosHtml.write('  </tbody></table>');
+    }
+
+    // ── Certificados section ──
+    final certHtml = StringBuffer();
+    if (p.certificados.isNotEmpty) {
+      certHtml.write('''
+<h2>Certificados de experiencia (${p.certificados.length})</h2>
+<table>
+  <thead><tr><th>#</th><th>Descripción</th><th>Fecha emisión</th><th>Enlace</th></tr></thead>
+  <tbody>
+''');
+      for (int i = 0; i < p.certificados.length; i++) {
+        final c = p.certificados[i];
+        final enlace = c.url != null ? '<a href="${esc(c.url!)}">${esc(c.url!)}</a>' : '—';
+        certHtml.write('''
+    <tr>
+      <td>${i + 1}</td>
+      <td>${esc(c.descripcion)}</td>
+      <td>${esc(fmtDate(c.fechaEmision))}</td>
+      <td>$enlace</td>
+    </tr>
+''');
+      }
+      certHtml.write('  </tbody></table>');
+    }
+
+    // ── Documentos section ──
+    final docsHtml = StringBuffer();
+    if (p.documentos.isNotEmpty) {
+      docsHtml.write('''
+<h2>Documentos del proyecto (${p.documentos.length})</h2>
+<table>
+  <thead><tr><th>#</th><th>Tipo</th><th>Nombre</th><th>Enlace</th></tr></thead>
+  <tbody>
+''');
+      for (int i = 0; i < p.documentos.length; i++) {
+        final d = p.documentos[i];
+        docsHtml.write('''
+    <tr>
+      <td>${i + 1}</td>
+      <td>${esc(d.tipo)}</td>
+      <td>${esc(d.nombre ?? '—')}</td>
+      <td><a href="${esc(d.url)}">${esc(d.url)}</a></td>
+    </tr>
+''');
+      }
+      docsHtml.write('  </tbody></table>');
+    }
+
+    // ── OC IDs ──
+    final ocHtml = p.idsOrdenesCompra.isEmpty
+        ? ''
+        : '<p><strong>Órdenes de compra:</strong> ${p.idsOrdenesCompra.map(esc).join(', ')}</p>';
+
+    // ── Notas ──
+    final notasHtml = (p.notas != null && p.notas!.isNotEmpty)
+        ? '<h2>Notas</h2><p>${esc(p.notas!).replaceAll('\n', '<br>')}</p>'
+        : '';
+
+    // ── Detalle OCDS (licitación) ──
+    final ocdsHtml = StringBuffer();
+    if (_ocdsData != null) {
+      final releases = _ocdsData!['releases'] as List?;
+      final last = releases?.isNotEmpty == true
+          ? releases!.last as Map<String, dynamic>
+          : <String, dynamic>{};
+      final tender = last['tender'] as Map<String, dynamic>? ?? {};
+      final parties = (last['parties'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      final buyer = parties.firstWhere(
+          (pp) => (pp['roles'] as List?)?.contains('buyer') == true,
+          orElse: () => <String, dynamic>{});
+
+      // Tender header
+      final tenderTitle = tender['title']?.toString() ?? '';
+      final tenderDesc = tender['description']?.toString() ?? '';
+      final tenderStatus = tender['statusDetails']?.toString() ?? tender['status']?.toString() ?? '';
+      final tenderMethod = tender['procurementMethodDetails']?.toString() ?? '';
+      ocdsHtml.write('<h2>Detalle licitación (OCDS)</h2>');
+      if (tenderTitle.isNotEmpty) ocdsHtml.write('<p><strong>${esc(tenderTitle)}</strong></p>');
+      if (tenderDesc.isNotEmpty) ocdsHtml.write('<p style="color:#374151;margin:4px 0">${esc(tenderDesc)}</p>');
+      if (tenderStatus.isNotEmpty || tenderMethod.isNotEmpty) {
+        ocdsHtml.write('<p style="font-size:11px;color:#64748b;margin:4px 0">');
+        if (tenderStatus.isNotEmpty) ocdsHtml.write('Estado: <strong>${esc(tenderStatus)}</strong>');
+        if (tenderMethod.isNotEmpty) ocdsHtml.write(' &nbsp;·&nbsp; Modalidad: <strong>${esc(tenderMethod)}</strong>');
+        ocdsHtml.write('</p>');
+      }
+
+      // Buyer
+      if (buyer.isNotEmpty) {
+        final bName = _cleanName(buyer['name']?.toString());
+        final bId = (buyer['identifier'] as Map?)?['id']?.toString() ?? '';
+        final bAddr = (buyer['address'] as Map?)?['streetAddress']?.toString() ?? '';
+        final bRegion = (buyer['address'] as Map?)?['region']?.toString() ?? '';
+        final bContact = (buyer['contactPoint'] as Map?)?['name']?.toString() ?? '';
+        ocdsHtml.write('<h2 style="margin-top:12px">Comprador</h2>');
+        ocdsHtml.write('<table style="max-width:480px"><tbody>');
+        if (bName.isNotEmpty) ocdsHtml.write('<tr><td class="fl">Nombre</td><td>${esc(bName)}</td></tr>');
+        if (bId.isNotEmpty) ocdsHtml.write('<tr><td class="fl">RUT/ID</td><td>${esc(bId)}</td></tr>');
+        if (bAddr.isNotEmpty) ocdsHtml.write('<tr><td class="fl">Dirección</td><td>${esc(bAddr)}</td></tr>');
+        if (bRegion.isNotEmpty) ocdsHtml.write('<tr><td class="fl">Región</td><td>${esc(bRegion)}</td></tr>');
+        if (bContact.isNotEmpty) ocdsHtml.write('<tr><td class="fl">Contacto</td><td>${esc(bContact)}</td></tr>');
+        ocdsHtml.write('</tbody></table>');
+      }
+
+      // Plazos
+      String fmtRaw(String? s) {
+        if (s == null) return '—';
+        final d = DateTime.tryParse(s);
+        return d != null ? fmtDate(d) : s;
+      }
+      final tenderPeriod = tender['tenderPeriod'] as Map? ?? {};
+      final enquiryPeriod = tender['enquiryPeriod'] as Map? ?? {};
+      final awardPeriod = tender['awardPeriod'] as Map? ?? {};
+      final hasPlazos = tenderPeriod.isNotEmpty || enquiryPeriod.isNotEmpty || awardPeriod.isNotEmpty;
+      if (hasPlazos) {
+        ocdsHtml.write('<h2 style="margin-top:12px">Plazos licitación</h2>');
+        ocdsHtml.write('<table style="max-width:480px"><tbody>');
+        if (tenderPeriod['startDate'] != null) ocdsHtml.write('<tr><td class="fl">Publicación</td><td>${esc(fmtRaw(tenderPeriod['startDate']?.toString()))}</td></tr>');
+        if (tenderPeriod['endDate'] != null) ocdsHtml.write('<tr><td class="fl">Cierre recepción</td><td>${esc(fmtRaw(tenderPeriod['endDate']?.toString()))}</td></tr>');
+        if (enquiryPeriod['startDate'] != null) ocdsHtml.write('<tr><td class="fl">Inicio consultas</td><td>${esc(fmtRaw(enquiryPeriod['startDate']?.toString()))}</td></tr>');
+        if (enquiryPeriod['endDate'] != null) ocdsHtml.write('<tr><td class="fl">Fin consultas</td><td>${esc(fmtRaw(enquiryPeriod['endDate']?.toString()))}</td></tr>');
+        if (awardPeriod['startDate'] != null) ocdsHtml.write('<tr><td class="fl">Adjudicación</td><td>${esc(fmtRaw(awardPeriod['startDate']?.toString()))}</td></tr>');
+        if (awardPeriod['endDate'] != null) ocdsHtml.write('<tr><td class="fl">Fin adjudicación</td><td>${esc(fmtRaw(awardPeriod['endDate']?.toString()))}</td></tr>');
+        ocdsHtml.write('</tbody></table>');
+      }
+
+      // Items
+      final items = (tender['items'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      if (items.isNotEmpty) {
+        ocdsHtml.write('<h2 style="margin-top:12px">Ítems licitación (${items.length})</h2>');
+        ocdsHtml.write('<table><thead><tr><th>#</th><th>Descripción</th><th>Clasificación</th><th>Cantidad</th><th>Unidad</th></tr></thead><tbody>');
+        for (int i = 0; i < items.length; i++) {
+          final item = items[i];
+          final desc = item['description']?.toString() ?? '';
+          final classif = (item['classification'] as Map?)?['id']?.toString() ?? '';
+          final qty = item['quantity']?.toString() ?? '';
+          final unit = (item['unit'] as Map?)?['name']?.toString() ?? '';
+          ocdsHtml.write('<tr><td>${i + 1}</td><td>${esc(desc)}</td><td>${esc(classif)}</td><td>${esc(qty)}</td><td>${esc(unit)}</td></tr>');
+        }
+        ocdsHtml.write('</tbody></table>');
+      }
+
+      // Bids / offers
+      final bidsRelease = releases?.cast<Map<String, dynamic>>().lastWhere(
+          (r) => r['bids'] != null,
+          orElse: () => <String, dynamic>{});
+      final bids = (bidsRelease?['bids']?['details'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      if (bids.isNotEmpty) {
+        ocdsHtml.write('<h2 style="margin-top:12px">Ofertas recibidas (${bids.length})</h2>');
+        ocdsHtml.write('<table><thead><tr><th>#</th><th>Proveedor</th><th>Monto</th><th>Estado</th><th>Fecha</th></tr></thead><tbody>');
+        for (int i = 0; i < bids.length; i++) {
+          final bid = bids[i];
+          final tenderers = (bid['tenderers'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+          final provName = tenderers.isNotEmpty ? _cleanName(tenderers.first['name']?.toString()) : '';
+          final amount = bid['value']?['amount'];
+          final currency = bid['value']?['currency']?.toString() ?? 'CLP';
+          final amountStr = amount != null ? '$currency ${esc(amount.toString())}' : '—';
+          final bidStatus = bid['status']?.toString() ?? '';
+          final bidDate = fmtRaw(bid['date']?.toString());
+          ocdsHtml.write('<tr><td>${i + 1}</td><td>${esc(provName)}</td><td>$amountStr</td><td>${esc(bidStatus)}</td><td>${esc(bidDate)}</td></tr>');
+        }
+        ocdsHtml.write('</tbody></table>');
+      }
+    }
+
+    // ── Detalle Convenio Marco ──
+    final convenioHtml = StringBuffer();
+    if (_convenioData != null) {
+      final cv = _convenioData!;
+      final cvTitulo = cv['titulo']?.toString() ?? '';
+      final cvComprador = cv['comprador']?.toString() ?? '';
+      final cvConvenio = cv['convenioMarco']?.toString() ?? '';
+      final cvEstado = cv['estado']?.toString() ?? '';
+      final cvCampos = (cv['campos'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      final camposFiltrados = cvCampos
+          .where((c) => (c['label']?.toString() ?? '').isNotEmpty && (c['valor']?.toString() ?? '').isNotEmpty)
+          .toList();
+
+      convenioHtml.write('<h2>Detalle Convenio Marco</h2>');
+      if (cvTitulo.isNotEmpty) convenioHtml.write('<p><strong>${esc(cvTitulo)}</strong></p>');
+      convenioHtml.write('<table style="max-width:480px;margin-top:8px"><tbody>');
+      if (cvConvenio.isNotEmpty) convenioHtml.write('<tr><td class="fl">Convenio</td><td>${esc(cvConvenio)}</td></tr>');
+      if (cvComprador.isNotEmpty) convenioHtml.write('<tr><td class="fl">Comprador</td><td>${esc(cvComprador)}</td></tr>');
+      if (cvEstado.isNotEmpty) convenioHtml.write('<tr><td class="fl">Estado</td><td>${esc(cvEstado)}</td></tr>');
+      for (final campo in camposFiltrados) {
+        convenioHtml.write('<tr><td class="fl">${esc(campo['label']!.toString())}</td><td>${esc(campo['valor']!.toString())}</td></tr>');
+      }
+      convenioHtml.write('</tbody></table>');
+    }
+
+    final html = '''<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>${esc(institucion)}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         font-size: 13px; color: #1e293b; background: #fff; padding: 24px 32px; }
+  h1 { font-size: 20px; font-weight: 700; color: #1e293b; margin-bottom: 4px; }
+  h2 { font-size: 14px; font-weight: 600; color: #374151; margin: 20px 0 8px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
+  .subtitle { font-size: 12px; color: #64748b; margin-bottom: 12px; }
+  .badge { display:inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; color:#fff; margin-left: 8px; }
+  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; }
+  .info-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; }
+  .info-card .label { font-size: 11px; color: #94a3b8; margin-bottom: 2px; }
+  .info-card .value { font-size: 14px; font-weight: 600; color: #1e293b; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 8px; }
+  th { background: #f1f5f9; text-align: left; padding: 6px 8px; font-weight: 600; color: #475569; border: 1px solid #e2e8f0; }
+  td { padding: 5px 8px; border: 1px solid #e2e8f0; vertical-align: top; }
+  .fl { color: #64748b; white-space: nowrap; }
+  a { color: #5b21b6; word-break: break-all; }
+  .footer { margin-top: 24px; font-size: 10px; color: #94a3b8; text-align: right; }
+  @media print {
+    body { padding: 0; }
+    a { color: #5b21b6; }
+  }
+</style>
+<script>window.addEventListener('load', () => window.print());</script>
+</head>
+<body>
+<h1>${esc(institucion)} <span class="badge" style="background:$estadoColor">${esc(estado)}</span></h1>
+<div class="subtitle">${esc(p.modalidadCompra)}${p.idLicitacion != null ? ' &nbsp;·&nbsp; ID: ${esc(p.idLicitacion!)}' : ''}${p.idCotizacion != null ? ' &nbsp;·&nbsp; Cot: ${esc(p.idCotizacion!)}' : ''}</div>
+<div class="subtitle">${esc(p.productos)}</div>
+
+<div class="info-grid">
+  <div class="info-card"><div class="label">Valor mensual</div><div class="value">${esc(fmtVal(p.valorMensual))}</div></div>
+  <div class="info-card"><div class="label">Período contrato</div><div class="value">${esc(fmtDate(p.fechaInicio))} → ${esc(fmtDate(p.fechaTermino))}</div></div>
+</div>
+
+<h2>Fechas</h2>
+<table style="max-width:420px"><tbody>$fechaRows</tbody></table>
+
+$ocHtml
+$reclamosHtml
+$certHtml
+$docsHtml
+$notasHtml
+$ocdsHtml
+$convenioHtml
+
+<div class="footer">Generado el ${esc(fmtDate(DateTime.now()))}</div>
+</body>
+</html>''';
+
+    final bytes = utf8.encode(html);
+    final blob = web.Blob(
+        [bytes.toJS].toJS, web.BlobPropertyBag(type: 'text/html;charset=utf-8'));
+    final url = web.URL.createObjectURL(blob);
+    web.window.open(url, '_blank');
+    Future.delayed(const Duration(seconds: 10), () => web.URL.revokeObjectURL(url));
   }
 
   // ─── HEADER ───────────────────────────────────────────────────────────────
