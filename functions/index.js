@@ -1063,14 +1063,73 @@ exports.obtenerConfiguracion = onRequest({ cors: true, region: 'us-central1' }, 
 exports.guardarConfiguracion = onRequest({ cors: true, region: 'us-central1' }, async (req, res) => {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try {
-    const { estados, modalidades, productos } = req.body;
+    const { estados, modalidades, productos } = req.body; // tiposDocumento ya no se recibe aquí
     await admin.firestore().collection('configuracion').doc('opciones').set({
       estados: estados ?? [],
       modalidades: modalidades ?? [],
       productos: productos ?? [],
-    });
+    }, { merge: true }); // Usar merge: true para no sobrescribir la subcolección de documentos
     return res.json({ ok: true });
   } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// --- FUNCIONES CORREGIDAS PARA TIPOS DE DOCUMENTO (COMO ARRAY) ---
+
+// 1. Obtener la lista de strings desde el documento principal
+exports.obtenerTiposDocumento = onRequest({ cors: true, region: 'us-central1' }, async (req, res) => {
+  try {
+    const doc = await admin.firestore().collection('configuracion').doc('opciones').get();
+    if (!doc.exists) return res.json([]);
+    
+    // Retornamos el array 'tiposDocumento' o una lista vacía si no existe
+    const tipos = doc.data().tiposDocumento || [];
+    return res.json(tipos);
+  } catch (e) {
+    logger.error("Error en obtenerTiposDocumento:", e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// 2. Agregar un nuevo texto a la lista (arrayUnion)
+exports.guardarTipoDocumento = onRequest({ cors: true, region: 'us-central1' }, async (req, res) => {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const { nombre } = req.body; 
+    if (!nombre) return res.status(400).json({ error: 'Missing nombre' });
+
+    const docRef = admin.firestore().collection('configuracion').doc('opciones');
+    
+    // Agrega el string al array solo si no existe ya
+    await docRef.update({
+      tiposDocumento: admin.firestore.FieldValue.arrayUnion(nombre)
+    });
+
+    return res.json({ ok: true, nombre });
+  } catch (e) {
+    logger.error("Error en guardarTipoDocumento:", e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// 3. Quitar un texto de la lista (arrayRemove)
+exports.eliminarTipoDocumento = onRequest({ cors: true, region: 'us-central1' }, async (req, res) => {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const { nombre } = req.body; 
+    if (!nombre) return res.status(400).json({ error: 'Missing nombre' });
+
+    const docRef = admin.firestore().collection('configuracion').doc('opciones');
+    
+    // Elimina el string exacto de la lista
+    await docRef.update({
+      tiposDocumento: admin.firestore.FieldValue.arrayRemove(nombre)
+    });
+    
+    return res.json({ ok: true });
+  } catch (e) {
+    logger.error("Error en eliminarTipoDocumento:", e);
     return res.status(500).json({ error: e.message });
   }
 });
