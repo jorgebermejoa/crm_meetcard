@@ -154,6 +154,8 @@ class Proyecto {
   final DateTime? fechaConsultas;       // enquiryPeriod.endDate
   final DateTime? fechaAdjudicacion;    // awardPeriod.startDate
   final DateTime? fechaAdjudicacionFin;
+  final double? montoTotalOC; // Suma total OC en CLP (UF ya convertido)
+  final String? proyectoContinuacionId; // ID del proyecto que continúa este contrato
 
   Proyecto({
     required this.id,
@@ -182,7 +184,41 @@ class Proyecto {
     this.fechaConsultas,
     this.fechaAdjudicacion,
     this.fechaAdjudicacionFin,
+    this.montoTotalOC,
+    this.proyectoContinuacionId,
   });
+
+  Proyecto copyWithMontoTotalOC(double monto) => Proyecto(
+    id: id, institucion: institucion, productos: productos,
+    modalidadCompra: modalidadCompra, valorMensual: valorMensual,
+    fechaInicio: fechaInicio, fechaTermino: fechaTermino,
+    idLicitacion: idLicitacion, idCotizacion: idCotizacion,
+    urlConvenioMarco: urlConvenioMarco, idsOrdenesCompra: idsOrdenesCompra,
+    documentos: documentos, certificados: certificados, reclamos: reclamos,
+    notas: notas, fechaCreacion: fechaCreacion, completado: completado,
+    estadoManual: estadoManual, fechaInicioRuta: fechaInicioRuta,
+    fechaTerminoRuta: fechaTerminoRuta, fechaPublicacion: fechaPublicacion,
+    fechaCierre: fechaCierre, fechaConsultasInicio: fechaConsultasInicio,
+    fechaConsultas: fechaConsultas, fechaAdjudicacion: fechaAdjudicacion,
+    fechaAdjudicacionFin: fechaAdjudicacionFin, montoTotalOC: monto,
+    proyectoContinuacionId: proyectoContinuacionId,
+  );
+
+  Proyecto copyWithContinuacion(String? continuacionId) => Proyecto(
+    id: id, institucion: institucion, productos: productos,
+    modalidadCompra: modalidadCompra, valorMensual: valorMensual,
+    fechaInicio: fechaInicio, fechaTermino: fechaTermino,
+    idLicitacion: idLicitacion, idCotizacion: idCotizacion,
+    urlConvenioMarco: urlConvenioMarco, idsOrdenesCompra: idsOrdenesCompra,
+    documentos: documentos, certificados: certificados, reclamos: reclamos,
+    notas: notas, fechaCreacion: fechaCreacion, completado: completado,
+    estadoManual: estadoManual, fechaInicioRuta: fechaInicioRuta,
+    fechaTerminoRuta: fechaTerminoRuta, fechaPublicacion: fechaPublicacion,
+    fechaCierre: fechaCierre, fechaConsultasInicio: fechaConsultasInicio,
+    fechaConsultas: fechaConsultas, fechaAdjudicacion: fechaAdjudicacion,
+    fechaAdjudicacionFin: fechaAdjudicacionFin, montoTotalOC: montoTotalOC,
+    proyectoContinuacionId: continuacionId,
+  );
 
   // Backward compat: first OC in list
   String? get idOrdenCompra =>
@@ -256,6 +292,8 @@ class Proyecto {
       fechaConsultas: d['fechaConsultas'] != null ? DateTime.tryParse(d['fechaConsultas']) : null,
       fechaAdjudicacion: d['fechaAdjudicacion'] != null ? DateTime.tryParse(d['fechaAdjudicacion']) : null,
       fechaAdjudicacionFin: d['fechaAdjudicacionFin'] != null ? DateTime.tryParse(d['fechaAdjudicacionFin']) : null,
+      montoTotalOC: (d['montoTotalOC'] as num?)?.toDouble(),
+      proyectoContinuacionId: d['proyectoContinuacionId']?.toString(),
     );
   }
 }

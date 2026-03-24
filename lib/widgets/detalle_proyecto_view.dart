@@ -244,6 +244,64 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
       if (mounted) setState(() => _ocDataList = List.from(results));
     }
     if (mounted) setState(() => _cargandoOc = false);
+    // Calcular y guardar montoTotalOC si aún no está registrado
+    if (_proyecto.montoTotalOC == null && results.any((oc) => oc != null)) {
+      _calcularYGuardarMontoTotalOC(results);
+    }
+  }
+
+  Future<void> _calcularYGuardarMontoTotalOC(List<Map<String, dynamic>?> ocs) async {
+    double total = 0;
+    for (final oc in ocs) {
+      if (oc == null) continue;
+      final raw = (oc['Total'] as num?)?.toDouble() ?? 0;
+      if (raw == 0) continue;
+      final moneda = (oc['_moneda']?.toString().isNotEmpty == true
+              ? oc['_moneda']
+              : oc['Moneda'])
+          ?.toString() ?? 'CLP';
+      if (moneda == 'UF') {
+        final fechaStr = oc['Fechas']?['FechaCreacion']?.toString();
+        final fecha = (fechaStr != null ? DateTime.tryParse(fechaStr) : null) ?? DateTime.now();
+        final uf = await _getUFValue(fecha);
+        total += raw * (uf > 0 ? uf : 1);
+      } else {
+        total += raw;
+      }
+    }
+    if (total == 0) return;
+    try {
+      await http.post(
+        Uri.parse('$_baseUrl/actualizarProyecto'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'id': _proyecto.id,
+          'montoTotalOC': total,
+          '_campoEditado': 'montoTotalOC',
+          '_valorAnterior': '',
+          '_valorNuevo': total.toStringAsFixed(0),
+        }),
+      );
+      ProyectosService.instance.invalidate();
+      if (mounted) setState(() => _proyecto = _proyecto.copyWithMontoTotalOC(total));
+    } catch (_) {}
+  }
+
+  Future<double> _getUFValue(DateTime fecha) async {
+    try {
+      final d = '${fecha.day.toString().padLeft(2, '0')}-${fecha.month.toString().padLeft(2, '0')}-${fecha.year}';
+      final resp = await http
+          .get(Uri.parse('https://mindicador.cl/api/uf/$d'))
+          .timeout(const Duration(seconds: 8));
+      if (resp.statusCode == 200) {
+        final data = json.decode(resp.body);
+        final serie = data['serie'] as List?;
+        if (serie != null && serie.isNotEmpty) {
+          return (serie[0]['valor'] as num).toDouble();
+        }
+      }
+    } catch (_) {}
+    return 0;
   }
 
   Future<Map<String, dynamic>?> _cargarUnaOc(String id, {bool forceRefresh = false}) async {
@@ -489,6 +547,80 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
           borderRadius: BorderRadius.circular(20),
         ),
         child: const Icon(Icons.file_download_outlined, size: 14, color: Color(0xFF64748B)),
+      ),
+    );
+  }
+
+  Future<void> _abrirDialogoEncadenar() async {
+    List<Proyecto> todos;
+    try {
+      todos = await ProyectosService.instance.load();
+    } catch (_) {
+      todos = [];
+    }
+    // Exclude self
+    final candidatos = todos.where((p) => p.id != _proyecto.id).toList();
+
+    if (!mounted) return;
+
+    final seleccionado = await showDialog<Proyecto>(
+      context: context,
+      builder: (ctx) => _EncadenarDialog(
+        candidatos: candidatos,
+        actual: _proyecto,
+      ),
+    );
+
+    if (seleccionado == null) return;
+
+    try {
+      await http.post(
+        Uri.parse('$_baseUrl/actualizarProyecto'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'id': _proyecto.id,
+          'proyectoContinuacionId': seleccionado.id,
+        }),
+      );
+      ProyectosService.instance.invalidate();
+      if (mounted) {
+        setState(() => _proyecto = _proyecto.copyWithContinuacion(seleccionado.id));
+      }
+    } catch (_) {}
+  }
+
+  Widget _encadenarButton() {
+    final linked = _proyecto.proyectoContinuacionId?.isNotEmpty == true;
+    return InkWell(
+      onTap: _abrirDialogoEncadenar,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        decoration: BoxDecoration(
+          color: linked
+              ? const Color(0xFF10B981).withValues(alpha: 0.12)
+              : const Color(0xFF64748B).withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              linked ? Icons.link : Icons.link_outlined,
+              size: 13,
+              color: linked ? const Color(0xFF10B981) : const Color(0xFF64748B),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              linked ? 'Encadenado' : 'Encadenar',
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: linked ? const Color(0xFF10B981) : const Color(0xFF64748B),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1327,6 +1459,9 @@ $convenioHtml
       children: [
         _exportBadge(),
         if (hasFicha) _fichaButton(),
+        if (_proyecto.estado == EstadoProyecto.finalizado ||
+            _proyecto.proyectoContinuacionId?.isNotEmpty == true)
+          _encadenarButton(),
         GestureDetector(
           onTap: _mostrarOpcionesEstado,
           child: _estadoBadge(_proyecto.estado),
@@ -3429,12 +3564,18 @@ $convenioHtml
   // ─── TAB ORDEN DE COMPRA ──────────────────────────────────────────────────
 
   Widget _buildTabOc(bool isMobile) {
-    // Only full-block spinner when nothing loaded yet
+    // Skeleton when nothing loaded yet
     if (_cargandoOc && _ocDataList.isEmpty) {
-      return const Center(
-          child: Padding(
-              padding: EdgeInsets.symmetric(vertical: 64),
-              child: CircularProgressIndicator()));
+      return SingleChildScrollView(
+        padding: EdgeInsets.all(isMobile ? 12 : 20),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          _OcSkeletonCard(height: 90),
+          const SizedBox(height: 12),
+          _OcSkeletonCard(height: 200),
+          const SizedBox(height: 12),
+          _OcSkeletonCard(height: 200),
+        ]),
+      );
     }
     if (_errorOc != null && _ocDataList.isEmpty) {
       return Center(
@@ -3493,16 +3634,7 @@ $convenioHtml
                   ]),
                 )
           else if (_cargandoOc)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
-              child: Row(children: [
-                SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: _primaryColor.withValues(alpha: 0.5))),
-                const SizedBox(width: 12),
-                Text('Cargando OC ${_proyecto.idsOrdenesCompra[i]}...',
-                    style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400)),
-              ]),
-            ),
+            _OcSkeletonCard(height: 200),
         ],
       ],
     );
@@ -3518,7 +3650,9 @@ $convenioHtml
   }
 
   Widget _ocResumenCard(List<Map<String, dynamic>> ocs) {
-    final totalAcum = ocs.fold<double>(0, (s, oc) => s + ((oc['Total'] as num?)?.toDouble() ?? 0));
+    // Prefer stored montoTotalOC (already UF-converted); fall back to raw sum
+    final totalAcum = _proyecto.montoTotalOC ??
+        ocs.fold<double>(0, (s, oc) => s + ((oc['Total'] as num?)?.toDouble() ?? 0));
     final estadoCount = <String, int>{};
     for (final oc in ocs) {
       final e = oc['Estado']?.toString() ?? 'Desconocido';
@@ -3570,22 +3704,10 @@ $convenioHtml
     final impuestos = oc['Impuestos'];
     final financiamiento = oc['Financiamiento']?.toString() ?? '';
 
-    // Key date: aceptación > envío > creación
-    String? fechaClaveLabel;
-    String? fechaClaveVal;
-    if (fechas['FechaAceptacion'] != null) {
-      fechaClaveLabel = 'Aceptación';
-      fechaClaveVal = _fmtDateStr(fechas['FechaAceptacion'].toString());
-    } else if (fechas['FechaCancelacion'] != null) {
-      fechaClaveLabel = 'Cancelación';
-      fechaClaveVal = _fmtDateStr(fechas['FechaCancelacion'].toString());
-    } else if (fechas['FechaEnvio'] != null) {
-      fechaClaveLabel = 'Envío';
-      fechaClaveVal = _fmtDateStr(fechas['FechaEnvio'].toString());
-    } else if (fechas['FechaCreacion'] != null) {
-      fechaClaveLabel = 'Creación';
-      fechaClaveVal = _fmtDateStr(fechas['FechaCreacion'].toString());
-    }
+    final fechaEnvioVal = fechas['FechaEnvio'] != null
+        ? _fmtDateStr(fechas['FechaEnvio'].toString()) : null;
+    final fechaAceptVal = fechas['FechaAceptacion'] != null
+        ? _fmtDateStr(fechas['FechaAceptacion'].toString()) : null;
 
     return Container(
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
@@ -3628,27 +3750,60 @@ $convenioHtml
 
         // Proveedor
         if (proveedor.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
-            child: Row(children: [
-              Container(width: 36, height: 36, decoration: BoxDecoration(color: _bgColor, borderRadius: BorderRadius.circular(9)),
-                  child: const Icon(Icons.business_outlined, size: 16, color: _primaryColor)),
-              const SizedBox(width: 12),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(proveedor['Nombre']?.toString() ?? '', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B))),
-                if (proveedor['RutSucursal'] != null)
-                  Text('RUT ${proveedor['RutSucursal']}', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
-              ])),
-              if (fechaClaveLabel != null) ...[
-                const SizedBox(width: 12),
-                Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                  Text(fechaClaveLabel, style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400, fontWeight: FontWeight.w500)),
-                  const SizedBox(height: 2),
-                  Text(fechaClaveVal ?? '', style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF1E293B), fontWeight: FontWeight.w600)),
-                ]),
+          LayoutBuilder(builder: (ctx, box) {
+            Widget dateCol(String label, String val) => Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(label, style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400, fontWeight: FontWeight.w500)),
+                const SizedBox(height: 2),
+                Text(val, style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF1E293B), fontWeight: FontWeight.w600)),
               ],
-            ]),
-          ),
+            );
+
+            final narrow = box.maxWidth < 380;
+
+            Widget? datesWidget;
+            if (fechaEnvioVal != null && fechaAceptVal != null) {
+              datesWidget = narrow
+                  ? Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                      dateCol('Envío', fechaEnvioVal),
+                      const SizedBox(height: 8),
+                      dateCol('Aceptación', fechaAceptVal),
+                    ])
+                  : Row(mainAxisSize: MainAxisSize.min, children: [
+                      dateCol('Envío', fechaEnvioVal),
+                      const SizedBox(width: 16),
+                      dateCol('Aceptación', fechaAceptVal),
+                    ]);
+            } else if (fechaEnvioVal != null) {
+              datesWidget = dateCol('Envío', fechaEnvioVal);
+            } else if (fechaAceptVal != null) {
+              datesWidget = dateCol('Aceptación', fechaAceptVal);
+            }
+
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(color: _bgColor, borderRadius: BorderRadius.circular(9)),
+                  child: const Icon(Icons.business_outlined, size: 16, color: _primaryColor),
+                ),
+                const SizedBox(width: 12),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(proveedor['Nombre']?.toString() ?? '',
+                      style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B))),
+                  if (proveedor['RutSucursal'] != null)
+                    Text('RUT ${proveedor['RutSucursal']}',
+                        style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
+                ])),
+                if (datesWidget != null) ...[
+                  const SizedBox(width: 12),
+                  datesWidget,
+                ],
+              ]),
+            );
+          }),
 
         const Divider(height: 1),
 
@@ -5317,6 +5472,225 @@ class _ReclamoCardState extends State<_ReclamoCard> {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+// ── OC Skeleton card ──────────────────────────────────────────────────────────
+
+class _OcSkeletonCard extends StatefulWidget {
+  final double height;
+  const _OcSkeletonCard({this.height = 160});
+
+  @override
+  State<_OcSkeletonCard> createState() => _OcSkeletonCardState();
+}
+
+class _OcSkeletonCardState extends State<_OcSkeletonCard>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 1100))
+      ..repeat(reverse: true);
+    _anim = CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Widget _box({double? width, double height = 12, double radius = 6}) {
+    return AnimatedBuilder(
+      animation: _anim,
+      builder: (_, __) => Container(
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(radius),
+          color: Color.lerp(
+              const Color(0xFFEDF0F3), const Color(0xFFF7F9FB), _anim.value),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: widget.height,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            _box(width: 80, height: 10),
+            const Spacer(),
+            _box(width: 50, height: 22, radius: 20),
+          ]),
+          const SizedBox(height: 14),
+          _box(height: 14),
+          const SizedBox(height: 10),
+          _box(width: 180, height: 10),
+          const Spacer(),
+          _box(height: 10),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Dialog: Encadenar proyecto ────────────────────────────────────────────────
+
+class _EncadenarDialog extends StatefulWidget {
+  final List<Proyecto> candidatos;
+  final Proyecto actual;
+
+  const _EncadenarDialog({required this.candidatos, required this.actual});
+
+  @override
+  State<_EncadenarDialog> createState() => _EncadenarDialogState();
+}
+
+class _EncadenarDialogState extends State<_EncadenarDialog> {
+  final _search = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  String _cleanName(String name) {
+    const prefixes = [
+      'MUNICIPALIDAD DE ', 'I. MUNICIPALIDAD DE ', 'ILUSTRE MUNICIPALIDAD DE ',
+      'SERVICIO DE SALUD ', 'HOSPITAL ', 'MINISTERIO DE ',
+    ];
+    var n = name.toUpperCase().trim();
+    for (final p in prefixes) {
+      if (n.startsWith(p)) return n.substring(p.length);
+    }
+    return n;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final q = _query.toLowerCase();
+    final filtered = widget.candidatos.where((p) {
+      if (q.isEmpty) return true;
+      return p.institucion.toLowerCase().contains(q) ||
+          p.productos.toLowerCase().contains(q) ||
+          p.id.toLowerCase().contains(q);
+    }).toList()
+      ..sort((a, b) => a.institucion.compareTo(b.institucion));
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480, maxHeight: 560),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Encadenar proyecto',
+                      style: GoogleFonts.inter(
+                          fontSize: 16, fontWeight: FontWeight.w700,
+                          color: const Color(0xFF1E293B))),
+                  const SizedBox(height: 4),
+                  Text('Selecciona el proyecto que continúa este contrato.',
+                      style: GoogleFonts.inter(
+                          fontSize: 12, color: Colors.grey.shade500)),
+                ],
+              ),
+            ),
+            // Search
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: TextField(
+                controller: _search,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: 'Buscar por institución o productos…',
+                  hintStyle: GoogleFonts.inter(fontSize: 13),
+                  prefixIcon: const Icon(Icons.search, size: 18),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: Colors.grey.shade300),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: Colors.grey.shade300),
+                  ),
+                ),
+                onChanged: (v) => setState(() => _query = v),
+              ),
+            ),
+            const SizedBox(height: 8),
+            // List
+            Expanded(
+              child: filtered.isEmpty
+                  ? Center(
+                      child: Text('Sin resultados',
+                          style: GoogleFonts.inter(color: Colors.grey.shade400)))
+                  : ListView.separated(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (ctx, i) {
+                        final p = filtered[i];
+                        return ListTile(
+                          dense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                          title: Text(
+                            _cleanName(p.institucion),
+                            style: GoogleFonts.inter(
+                                fontSize: 13, fontWeight: FontWeight.w600),
+                          ),
+                          subtitle: Text(
+                            p.productos,
+                            style: GoogleFonts.inter(
+                                fontSize: 11, color: Colors.grey.shade500),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: p.proyectoContinuacionId?.isNotEmpty == true
+                              ? const Icon(Icons.link, size: 14, color: Color(0xFF10B981))
+                              : null,
+                          onTap: () => Navigator.of(ctx).pop(p),
+                        );
+                      },
+                    ),
+            ),
+            // Cancel
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text('Cancelar',
+                    style: GoogleFonts.inter(color: Colors.grey.shade600)),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

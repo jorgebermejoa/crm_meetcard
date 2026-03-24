@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../app_shell.dart';
 import '../models/proyecto.dart';
+import '../services/bigquery_service.dart';
 import '../services/licitacion_api_service.dart';
 import '../services/proyectos_service.dart';
 import 'app_breadcrumbs.dart';
@@ -211,6 +212,16 @@ class _MigracionViewState extends State<MigracionView> {
   final List<_MigResult> _log = [];
   Set<String> _existingLPs = {};
   Set<String> _existingCMs = {};
+  Map<String, dynamic>? _bqResult;
+  bool _bqLoading = false;
+  // Log de correcciones BQ: { tipo, id, msg, ok }
+  final List<Map<String, dynamic>> _bqFixLog = [];
+  bool _bqFixRunning = false;
+  // Duplicados: lista de grupos { idLicitacion, proyectos: [...] }
+  List<Map<String, dynamic>>? _duplicados;
+  bool _dupLoading = false;
+  bool _dupRunning = false;
+  final List<Map<String, dynamic>> _dupLog = [];
 
   int get _lpCount => _rows.where((r) => r.isLP).length;
   int get _cmCount => _rows.where((r) => !r.isLP).length;
@@ -508,6 +519,300 @@ class _MigracionViewState extends State<MigracionView> {
     }
   }
 
+  // ── Análisis BigQuery ──────────────────────────────────────────────────
+
+  Future<void> _runAnalisisBQ() async {
+    if (_bqLoading || _running) return;
+    setState(() { _bqLoading = true; _bqResult = null; });
+    try {
+      final result = await BigQueryService.instance.analizarMesesPublicadoOC();
+      if (mounted) setState(() => _bqResult = result);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _bqLoading = false);
+    }
+  }
+
+  // ── Correcciones BQ ────────────────────────────────────────────────────
+
+  /// Agrega la OC de BQ a idsOrdenesCompra de cada proyecto en ocFaltante.
+  Future<void> _registrarOCsFaltantes(List<Map<String, dynamic>> items) async {
+    if (_bqFixRunning) return;
+    setState(() { _bqFixRunning = true; _bqFixLog.clear(); });
+    for (final row in items) {
+      final proyectoId = row['proyectoId']?.toString() ?? '';
+      final ocBQ       = row['id_oc_bq']?.toString() ?? '';
+      if (proyectoId.isEmpty || ocBQ.isEmpty) continue;
+      final currentOCs = List<String>.from(row['oc_en_app'] as List? ?? []);
+      if (!currentOCs.map((o) => o.toUpperCase()).contains(ocBQ.toUpperCase())) {
+        currentOCs.add(ocBQ);
+      }
+      try {
+        final resp = await http.post(
+          Uri.parse('$_cfBase/actualizarProyecto'),
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode({'id': proyectoId, 'idsOrdenesCompra': currentOCs}),
+        ).timeout(const Duration(seconds: 15));
+        final ok = resp.statusCode == 200;
+        setState(() => _bqFixLog.add({
+          'tipo': 'oc', 'id': row['id_licitacion'], 'oc': ocBQ,
+          'msg': ok ? 'OC registrada → $proyectoId' : 'Error ${resp.statusCode}',
+          'ok': ok,
+        }));
+      } catch (e) {
+        setState(() => _bqFixLog.add({
+          'tipo': 'oc', 'id': row['id_licitacion'], 'oc': ocBQ,
+          'msg': 'Error: $e', 'ok': false,
+        }));
+      }
+      await Future.delayed(const Duration(milliseconds: 400));
+    }
+    ProyectosService.instance.invalidate();
+    if (mounted) setState(() => _bqFixRunning = false);
+  }
+
+  /// Crea proyectos para las licitaciones de BQ no presentes en la app.
+  /// Usa OCDS → MP API (mismo fallback que migración CSV).
+  Future<void> _crearProyectosFaltantes(List<Map<String, dynamic>> items) async {
+    if (_bqFixRunning) return;
+    setState(() { _bqFixRunning = true; _bqFixLog.clear(); });
+    for (final row in items) {
+      final idLicit = row['id_licitacion']?.toString() ?? '';
+      final idOC    = row['id_oc_bq']?.toString() ?? '';
+      if (idLicit.isEmpty) continue;
+      try {
+        // 1. Obtener datos via OCDS → MP API
+        final info = await LicitacionApiService.instance.fetchLP(idLicit);
+
+        // 2. Fechas: intentar contractPeriod del OCDS, fallback a fecha_envio_oc de BQ
+        DateTime? fechaInicio;
+        DateTime? fechaTermino;
+
+        if (info.ocdsData != null) {
+          final releases = (info.ocdsData!['releases'] as List?)
+              ?.cast<Map<String, dynamic>>() ?? [];
+          if (releases.isNotEmpty) {
+            final last = releases.last;
+            final contracts = (last['contracts'] as List?)
+                ?.cast<Map<String, dynamic>>() ?? [];
+            if (contracts.isNotEmpty) {
+              final period = contracts.first['period'] as Map<String, dynamic>?;
+              fechaInicio  = LicitacionApiService.parseDate(period?['startDate']?.toString());
+              fechaTermino = LicitacionApiService.parseDate(period?['endDate']?.toString());
+            }
+            // Fallback a awardPeriod si no hay contrato
+            if (fechaInicio == null) {
+              final tender = last['tender'] as Map<String, dynamic>? ?? {};
+              fechaInicio = LicitacionApiService.parseDate(
+                  tender['awardPeriod']?['startDate']?.toString());
+            }
+          }
+        }
+        // Último fallback: fecha_envio_oc de BQ (DD/MM/YYYY)
+        fechaInicio ??= LicitacionApiService.parseDate(row['fecha_envio_oc']?.toString());
+
+        // 3. Crear proyecto
+        final body = <String, dynamic>{
+          'institucion':   info.institucion.isNotEmpty ? info.institucion : idLicit,
+          'productos':     '',
+          'modalidadCompra': 'Licitación Pública',
+          'completado':    false,
+          'idLicitacion':  idLicit,
+          if (idOC.isNotEmpty) 'idsOrdenesCompra': [idOC],
+          if (fechaInicio  != null) 'fechaInicio':  fechaInicio.toIso8601String(),
+          if (fechaTermino != null) 'fechaTermino': fechaTermino.toIso8601String(),
+        };
+
+        final createResp = await http.post(
+          Uri.parse('$_cfBase/crearProyecto'),
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode(body),
+        ).timeout(const Duration(seconds: 20));
+
+        String? proyectoId;
+        try { proyectoId = json.decode(createResp.body)['id']?.toString(); } catch (_) {}
+
+        // 4. Guardar caché externo (fire & forget)
+        if (proyectoId != null && info.data != null) {
+          http.post(
+            Uri.parse('$_cfBase/guardarCacheExterno'),
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({'proyectoId': proyectoId, 'tipo': info.cacheKey, 'data': info.data}),
+          ).ignore();
+        }
+
+        final ok = createResp.statusCode == 200;
+        setState(() => _bqFixLog.add({
+          'tipo': 'crear', 'id': idLicit, 'oc': idOC,
+          'msg': ok
+              ? 'Creado · ${info.institucion} · fuente: ${info.source}${proyectoId != null ? ' · $proyectoId' : ''}'
+              : 'Error ${createResp.statusCode}: ${createResp.body}',
+          'ok': ok,
+        }));
+      } catch (e) {
+        setState(() => _bqFixLog.add({
+          'tipo': 'crear', 'id': idLicit, 'oc': idOC,
+          'msg': 'Error: $e', 'ok': false,
+        }));
+      }
+      await Future.delayed(const Duration(milliseconds: 800));
+    }
+    ProyectosService.instance.invalidate();
+    if (mounted) setState(() => _bqFixRunning = false);
+  }
+
+  // ── Duplicados ─────────────────────────────────────────────────────────
+
+  Future<void> _detectarDuplicados() async {
+    if (_dupLoading) return;
+    setState(() { _dupLoading = true; _duplicados = null; _dupLog.clear(); });
+    try {
+      final all = await ProyectosService.instance.load(forceRefresh: true);
+      // Agrupar por idLicitacion normalizado
+      final grupos = <String, List<Map<String, dynamic>>>{};
+      for (final p in all) {
+        final key = (p.idLicitacion ?? '').trim().toUpperCase();
+        if (key.isEmpty) continue;
+        grupos.putIfAbsent(key, () => []).add({
+          'id':               p.id,
+          'idLicitacion':     p.idLicitacion,
+          'institucion':      p.institucion,
+          'idsOrdenesCompra': p.idsOrdenesCompra,
+          'fechaCreacion':    p.fechaCreacion?.toIso8601String(),
+          'fechaInicio':      p.fechaInicio?.toIso8601String(),
+          'fechaTermino':     p.fechaTermino?.toIso8601String(),
+          'notas':            p.notas,
+          'estadoManual':     p.estadoManual,
+          'valorMensual':     p.valorMensual,
+        });
+      }
+      final duplicados = grupos.entries
+          .where((e) => e.value.length > 1)
+          .map((e) => {'idLicitacion': e.key, 'proyectos': e.value})
+          .toList()
+          ..sort((a, b) => (a['idLicitacion'] as String)
+              .compareTo(b['idLicitacion'] as String));
+      setState(() => _duplicados = duplicados);
+    } finally {
+      if (mounted) setState(() => _dupLoading = false);
+    }
+  }
+
+  Future<void> _unificarTodos() async {
+    final grupos = _duplicados;
+    if (grupos == null || grupos.isEmpty || _dupRunning) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Unificar duplicados',
+            style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+        content: Text(
+          'Se unificarán ${grupos.length} grupos de proyectos duplicados.\n'
+          'Las órdenes de compra se consolidarán en el proyecto con más datos '
+          'y los duplicados serán eliminados.\n\n¿Continuar?',
+          style: GoogleFonts.inter()),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false),
+              child: Text('Cancelar', style: GoogleFonts.inter())),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: _primaryColor),
+            child: Text('Unificar', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    setState(() { _dupRunning = true; _dupLog.clear(); });
+
+    for (final grupo in grupos) {
+      final idLicit   = grupo['idLicitacion'] as String;
+      final proyectos = List<Map<String, dynamic>>.from(grupo['proyectos'] as List);
+
+      // Elegir proyecto a conservar: mayor cantidad de OCs; empate → más antiguo
+      proyectos.sort((a, b) {
+        final aOCs = (a['idsOrdenesCompra'] as List?)?.length ?? 0;
+        final bOCs = (b['idsOrdenesCompra'] as List?)?.length ?? 0;
+        if (bOCs != aOCs) return bOCs.compareTo(aOCs);
+        final aDate = a['fechaCreacion'] as String? ?? '';
+        final bDate = b['fechaCreacion'] as String? ?? '';
+        return aDate.compareTo(bDate); // más antiguo primero
+      });
+
+      final kept = proyectos.first;
+      final dups  = proyectos.skip(1).toList();
+
+      // Unión de todas las OCs (sin duplicados, case-insensitive)
+      final allOCs = <String>{};
+      for (final p in proyectos) {
+        for (final oc in (p['idsOrdenesCompra'] as List?)?.cast<String>() ?? []) {
+          allOCs.add(oc.trim());
+        }
+      }
+
+      // Tomar el mejor valor disponible de cada campo entre todos los duplicados
+      String? bestNotas      = kept['notas'] as String?;
+      double? bestValor      = (kept['valorMensual'] as num?)?.toDouble();
+      String? bestEstado     = kept['estadoManual'] as String?;
+      String? bestInicio     = kept['fechaInicio'] as String?;
+      String? bestTermino    = kept['fechaTermino'] as String?;
+      for (final p in dups) {
+        bestNotas   ??= p['notas']        as String?;
+        bestValor   ??= (p['valorMensual'] as num?)?.toDouble();
+        bestEstado  ??= p['estadoManual'] as String?;
+        bestInicio  ??= p['fechaInicio']  as String?;
+        bestTermino ??= p['fechaTermino'] as String?;
+      }
+
+      try {
+        // Actualizar el proyecto conservado
+        final updateBody = <String, dynamic>{
+          'id':               kept['id'],
+          'idsOrdenesCompra': allOCs.toList(),
+          if (bestNotas   != null) 'notas':        bestNotas,
+          if (bestValor   != null) 'valorMensual':  bestValor,
+          if (bestEstado  != null) 'estadoManual':  bestEstado,
+          if (bestInicio  != null) 'fechaInicio':   bestInicio,
+          if (bestTermino != null) 'fechaTermino':  bestTermino,
+        };
+        final updResp = await http.post(
+          Uri.parse('$_cfBase/actualizarProyecto'),
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode(updateBody),
+        ).timeout(const Duration(seconds: 15));
+
+        if (updResp.statusCode != 200) throw Exception('actualizarProyecto: ${updResp.statusCode}');
+
+        // Eliminar duplicados
+        for (final dup in dups) {
+          await http.post(
+            Uri.parse('$_cfBase/eliminarProyecto'),
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({'id': dup['id']}),
+          ).timeout(const Duration(seconds: 15));
+          await Future.delayed(const Duration(milliseconds: 300));
+        }
+
+        setState(() => _dupLog.add({
+          'ok': true,
+          'msg': '$idLicit  ·  conservado: ${kept['id']}  ·  OCs: ${allOCs.length}  ·  eliminados: ${dups.length}',
+        }));
+      } catch (e) {
+        setState(() => _dupLog.add({'ok': false, 'msg': '$idLicit  ·  Error: $e'}));
+      }
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+
+    ProyectosService.instance.invalidate();
+    if (mounted) setState(() { _dupRunning = false; _duplicados = null; });
+  }
+
   // ── Auditoría ──────────────────────────────────────────────────────────
 
   Future<void> _runAudit() async {
@@ -564,6 +869,299 @@ class _MigracionViewState extends State<MigracionView> {
     });
   }
 
+  // ── Duplicados ─────────────────────────────────────────────────────────
+
+  Widget _buildDuplicados(List<Map<String, dynamic>> grupos) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Proyectos duplicados',
+                style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B))),
+            const SizedBox(height: 2),
+            Text(grupos.isEmpty
+                ? 'No se encontraron duplicados'
+                : '${grupos.length} licitaciones con más de un proyecto',
+                style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500)),
+          ])),
+          if (grupos.isNotEmpty)
+            ElevatedButton.icon(
+              onPressed: _dupRunning ? null : _unificarTodos,
+              icon: const Icon(Icons.merge, size: 18),
+              label: Text('Unificar todos (${grupos.length})',
+                  style: GoogleFonts.inter(fontWeight: FontWeight.w500)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF7C3AED),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+        ]),
+        if (_dupRunning) ...[
+          const SizedBox(height: 12),
+          const LinearProgressIndicator(),
+        ],
+        if (_dupLog.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          ..._dupLog.map((e) => Container(
+            margin: const EdgeInsets.only(bottom: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            decoration: BoxDecoration(
+              color: (e['ok'] as bool) ? const Color(0xFFF0FDF4) : const Color(0xFFFEF2F2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(children: [
+              Icon(
+                (e['ok'] as bool) ? Icons.check_circle : Icons.error_outline,
+                size: 14,
+                color: (e['ok'] as bool) ? const Color(0xFF16A34A) : const Color(0xFFDC2626),
+              ),
+              const SizedBox(width: 8),
+              Expanded(child: Text(e['msg'] as String,
+                  style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF1E293B)))),
+            ]),
+          )),
+        ],
+        if (grupos.isEmpty && _dupLog.isEmpty)
+          const SizedBox(height: 8),
+        if (grupos.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          ...grupos.map((grupo) {
+            final idLicit   = grupo['idLicitacion'] as String;
+            final proyectos = (grupo['proyectos'] as List).cast<Map<String, dynamic>>();
+            return Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFAF5FF),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFE9D5FF)),
+              ),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(idLicit,
+                    style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600,
+                        color: const Color(0xFF7C3AED))),
+                const SizedBox(height: 6),
+                ...proyectos.map((p) {
+                  final ocs = (p['idsOrdenesCompra'] as List?)?.cast<String>() ?? [];
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 3),
+                    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      const Text('• ', style: TextStyle(fontSize: 11, color: Color(0xFF6B7280))),
+                      Expanded(child: Text(
+                        '${p['id']}  ·  ${p['institucion'] ?? '—'}'
+                        '${ocs.isNotEmpty ? '  ·  OCs: ${ocs.join(', ')}' : '  ·  sin OC'}',
+                        style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF374151)),
+                      )),
+                    ]),
+                  );
+                }),
+              ]),
+            );
+          }),
+        ],
+      ]),
+    );
+  }
+
+  // ── Resultado análisis BigQuery ────────────────────────────────────────
+
+  Widget _buildBQResult(Map<String, dynamic> r) {
+    final totalBQ      = r['totalBQ'] as int? ?? 0;
+    final totalEnApp   = r['totalEnApp'] as int? ?? 0;
+    final totalFuera   = r['totalFueraDeApp'] as int? ?? 0;
+    final totalOCFalt  = r['totalConOCFaltante'] as int? ?? 0;
+    final enApp        = (r['enApp']  as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final fueraDeApp   = (r['fueraDeApp'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final ocFaltante   = (r['ocFaltante'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+
+    Widget kpi(String label, int value, Color color) => Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.07),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('$value', style: GoogleFonts.inter(fontSize: 22, fontWeight: FontWeight.w700, color: color)),
+          Text(label,   style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500)),
+        ]),
+      ),
+    );
+
+    Widget section(String title, Color color, List<Map<String, dynamic>> rows, List<Widget> Function(Map<String, dynamic>) rowBuilder) {
+      if (rows.isEmpty) return const SizedBox.shrink();
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const SizedBox(height: 16),
+        Text(title, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: color)),
+        const SizedBox(height: 8),
+        ...rows.map((row) => Container(
+          margin: const EdgeInsets.only(bottom: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.05),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: color.withValues(alpha: 0.15)),
+          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: rowBuilder(row)),
+        )),
+      ]);
+    }
+
+    String? ocList(Map<String, dynamic> row) {
+      final ocs = row['oc_en_app'];
+      if (ocs is List && ocs.isNotEmpty) return ocs.join(', ');
+      return null;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Análisis OC vs Proyectos (BigQuery)',
+            style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B))),
+        const SizedBox(height: 4),
+        Text('Tabla: sistema_compras.meses_publicado_ordendecompra',
+            style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
+        const SizedBox(height: 14),
+        Row(children: [
+          kpi('Total en BQ',       totalBQ,     const Color(0xFF1E293B)),
+          const SizedBox(width: 8),
+          kpi('En la app',         totalEnApp,  const Color(0xFF16A34A)),
+          const SizedBox(width: 8),
+          kpi('Fuera de la app',   totalFuera,  const Color(0xFFDC2626)),
+          const SizedBox(width: 8),
+          kpi('OC no registrada',  totalOCFalt, const Color(0xFFD97706)),
+        ]),
+
+        // Proyectos en app con OC no registrada
+        section('OC de BQ no registrada en el proyecto', const Color(0xFFD97706), ocFaltante, (row) => [
+          Text('${row['id_licitacion']}  ·  ${row['institucion'] ?? ''}',
+              style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
+          Text('OC BQ: ${row['id_oc_bq']}  ·  En app: ${ocList(row) ?? 'ninguna'}',
+              style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade600)),
+          if (row['fecha_envio_oc'] != null)
+            Text('Envío OC: ${row['fecha_envio_oc']}  ·  ${row['meses_totales']} meses desde publicación',
+                style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500)),
+        ]),
+
+        // Licitaciones sin proyecto en la app
+        section('Licitaciones sin proyecto en la app', const Color(0xFFDC2626), fueraDeApp, (row) => [
+          Text(row['id_licitacion'] ?? '', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
+          Text('OC: ${row['id_oc_bq']}  ·  Publicación: ${row['fecha_publicacion'] ?? '-'}  ·  Envío OC: ${row['fecha_envio_oc'] ?? '-'}',
+              style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade600)),
+          Text('${row['meses_totales']} meses entre publicación y OC',
+              style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500)),
+        ]),
+
+        // Botones de corrección
+        if (ocFaltante.isNotEmpty || fueraDeApp.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          const Divider(),
+          const SizedBox(height: 12),
+          Text('Correcciones', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B))),
+          const SizedBox(height: 10),
+          Wrap(spacing: 10, runSpacing: 8, children: [
+            if (ocFaltante.isNotEmpty)
+              ElevatedButton.icon(
+                onPressed: _bqFixRunning ? null : () => _registrarOCsFaltantes(ocFaltante),
+                icon: const Icon(Icons.add_link, size: 18),
+                label: Text('Registrar OCs faltantes (${ocFaltante.length})',
+                    style: GoogleFonts.inter(fontWeight: FontWeight.w500)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFD97706),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            if (fueraDeApp.isNotEmpty)
+              ElevatedButton.icon(
+                onPressed: _bqFixRunning ? null : () => _crearProyectosFaltantes(fueraDeApp),
+                icon: const Icon(Icons.add_circle_outline, size: 18),
+                label: Text('Crear proyectos faltantes (${fueraDeApp.length})',
+                    style: GoogleFonts.inter(fontWeight: FontWeight.w500)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFDC2626),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+          ]),
+          if (_bqFixRunning) ...[
+            const SizedBox(height: 12),
+            const LinearProgressIndicator(),
+          ],
+          if (_bqFixLog.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            ..._bqFixLog.map((entry) => Container(
+              margin: const EdgeInsets.only(bottom: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: (entry['ok'] as bool)
+                    ? const Color(0xFFF0FDF4)
+                    : const Color(0xFFFEF2F2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(children: [
+                Icon(
+                  (entry['ok'] as bool) ? Icons.check_circle : Icons.error_outline,
+                  size: 14,
+                  color: (entry['ok'] as bool) ? const Color(0xFF16A34A) : const Color(0xFFDC2626),
+                ),
+                const SizedBox(width: 8),
+                Expanded(child: Text(
+                  '${entry['tipo'] == 'oc' ? 'OC' : 'Nuevo'}  ·  ${entry['id']}  ·  ${entry['msg']}',
+                  style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF1E293B)),
+                )),
+              ]),
+            )),
+          ],
+        ],
+
+        // Proyectos en app (colapsado por defecto si son muchos)
+        if (enApp.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          Text('En la app ($totalEnApp proyectos)',
+              style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF16A34A))),
+          const SizedBox(height: 8),
+          ...enApp.map((row) => Container(
+            margin: const EdgeInsets.only(bottom: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF0FDF4),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(children: [
+              Icon(row['oc_bq_registrada'] == true ? Icons.check_circle : Icons.warning_amber,
+                  size: 14,
+                  color: row['oc_bq_registrada'] == true ? const Color(0xFF16A34A) : const Color(0xFFD97706)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${row['id_licitacion']}  ·  ${row['institucion'] ?? ''}  ·  OC BQ: ${row['id_oc_bq']}',
+                  style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF1E293B)),
+                ),
+              ),
+            ]),
+          )),
+        ],
+      ]),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isMobile = MediaQuery.sizeOf(context).width < 700;
@@ -586,6 +1184,14 @@ class _MigracionViewState extends State<MigracionView> {
               _buildHeader(),
               const SizedBox(height: 20),
               _buildActions(),
+              if (_duplicados != null) ...[
+                const SizedBox(height: 24),
+                _buildDuplicados(_duplicados!),
+              ],
+              if (_bqResult != null) ...[
+                const SizedBox(height: 24),
+                _buildBQResult(_bqResult!),
+              ],
               if (_log.isNotEmpty) ...[
                 const SizedBox(height: 24),
                 _buildLog(),
@@ -733,6 +1339,36 @@ class _MigracionViewState extends State<MigracionView> {
                     fontWeight: FontWeight.w500, color: Colors.red)),
             style: OutlinedButton.styleFrom(
               side: const BorderSide(color: Colors.red),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+          const Divider(height: 1),
+          OutlinedButton.icon(
+            onPressed: (_running || _dupLoading) ? null : _detectarDuplicados,
+            icon: _dupLoading
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.merge_outlined, size: 18),
+            label: Text('Detectar duplicados',
+                style: GoogleFonts.inter(fontWeight: FontWeight.w500)),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF7C3AED),
+              side: const BorderSide(color: Color(0xFF7C3AED)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+          OutlinedButton.icon(
+            onPressed: (_running || _bqLoading) ? null : _runAnalisisBQ,
+            icon: _bqLoading
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.analytics_outlined, size: 18),
+            label: Text('Analizar OC vs Proyectos (BQ)',
+                style: GoogleFonts.inter(fontWeight: FontWeight.w500)),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF0369A1),
+              side: const BorderSide(color: Color(0xFF0369A1)),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10)),

@@ -31,6 +31,10 @@
       ]
     }
   ],
+  "extensions": {
+    "firestore-bigquery-export-proyectos": "firebase/firestore-bigquery-export@0.2.10",
+    "firestore-bigquery-export-licitaciones": "firebase/firestore-bigquery-export@0.2.10"
+  },
   "hosting": {
     "public": "build/web",
     "ignore": [

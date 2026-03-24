@@ -13,6 +13,7 @@ import '../services/config_service.dart';
 import '../services/proyectos_service.dart';
 import 'app_breadcrumbs.dart';
 import 'proyecto_form_dialog.dart';
+import 'walkthrough.dart';
 
 // Top-level helper: strips "|" suffix and "Unidad de compra:" prefix from institution name
 String _cleanInst(String raw) {
@@ -60,6 +61,9 @@ class _ProyectosViewState extends State<ProyectosView>
   String? _filterEstado;
   String? _filterReclamo;   // 'Pendiente' | 'Respondido'
   String? _filterVencer;    // '30 días' | '3 meses' | '6 meses' | '12 meses'
+  int? _filterQuarterYear;
+  int? _filterQuarterQ;
+  bool _filterQuarterOnlyWithOC = false;
 
   // Pagination — Proyectos tab
   int _currentPage = 0;
@@ -71,6 +75,7 @@ class _ProyectosViewState extends State<ProyectosView>
   String? _docFilterEstado;
   Set<String> _docFilterTipos = {};
   int _docCurrentPage = 0;
+  bool _docSortAscending = false; // false = más reciente primero
 
   // Sorting
   int? _sortColumn;
@@ -134,6 +139,9 @@ class _ProyectosViewState extends State<ProyectosView>
       _filterEstado = null;
       _filterReclamo = null;
       _filterVencer = null;
+      _filterQuarterYear = null;
+      _filterQuarterQ = null;
+      _filterQuarterOnlyWithOC = false;
       _currentPage = 0;
     });
   }
@@ -248,6 +256,13 @@ class _ProyectosViewState extends State<ProyectosView>
         final limite = now.add(Duration(days: dias));
         if (!ft.isAfter(now) || !ft.isBefore(limite)) return false;
       }
+      if (_filterQuarterYear != null && _filterQuarterQ != null) {
+        if (_filterQuarterOnlyWithOC && p.idsOrdenesCompra.isEmpty) return false;
+        final fecha = p.fechaInicio ?? p.fechaCreacion;
+        if (fecha == null) return false;
+        final q = ((fecha.month - 1) ~/ 3) + 1;
+        if (fecha.year != _filterQuarterYear || q != _filterQuarterQ) return false;
+      }
       return true;
     }).toList();
   }
@@ -301,7 +316,8 @@ class _ProyectosViewState extends State<ProyectosView>
   bool get _hasActiveFilters =>
       _filterInstitucion != null || _filterProductos.isNotEmpty ||
       _filterModalidad != null || _filterEstado != null ||
-      _filterReclamo != null || _filterVencer != null;
+      _filterReclamo != null || _filterVencer != null ||
+      _filterQuarterYear != null;
 
   Widget _exportOption(IconData icon, String title, String subtitle, VoidCallback onTap) {
     return ListTile(
@@ -579,13 +595,35 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
     _tabController.animateTo(1);
   }
 
+  void _goToQuarterFiltered(int year, int quarter, {bool onlyWithOC = false}) {
+    setState(() {
+      _filterQuarterYear = year;
+      _filterQuarterQ = quarter;
+      _filterQuarterOnlyWithOC = onlyWithOC;
+      _currentPage = 0;
+    });
+    _tabController.animateTo(1);
+  }
+
   Widget _buildKpiRow(int activos, List<Proyecto> proyectos, int reclamosPend,
       int reclamosFinalizados, int xVencer, bool isMobile) {
-    final cards = [
+    final kpiCards = [
       _ProyectosKpiCard(proyectos: proyectos, onNavigate: _goToProyectosFiltered),
       _ValorMensualCard(proyectos: proyectos, onNavigate: _goToProyectosFiltered),
       _ReclamosCard(pendientes: reclamosPend, finalizados: reclamosFinalizados, onNavigate: _goToReclamosFiltered),
       _XVencerKpiCard(proyectos: proyectos, onNavigate: _goToVencerFiltered),
+    ];
+    final chartCards = [
+      _ClientesChartCard(
+        proyectos: proyectos,
+        onQuarterTap: (y, q, {bool onlyWithOC = false}) =>
+            _goToQuarterFiltered(y, q, onlyWithOC: onlyWithOC),
+      ),
+      _FacturacionChartCard(
+        proyectos: proyectos,
+        onQuarterTap: (y, q, {bool onlyWithOC = false}) =>
+            _goToQuarterFiltered(y, q, onlyWithOC: onlyWithOC),
+      ),
     ];
 
     Widget actionBadges() => Row(
@@ -607,34 +645,10 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
         );
 
     if (isMobile) {
-      return LayoutBuilder(builder: (context, constraints) {
-        // Stack to 1 column if each card would be narrower than 150px
-        final stackSingle = (constraints.maxWidth - 12) / 2 < 150;
-        if (stackSingle) {
-          return Column(children: [
-            ...cards.map((c) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: c,
-                )),
-            actionBadges(),
-          ]);
-        }
-        return Column(children: [
-          Row(children: [
-            Expanded(child: cards[0]),
-            const SizedBox(width: 12),
-            Expanded(child: cards[1]),
-          ]),
-          const SizedBox(height: 12),
-          Row(children: [
-            Expanded(child: cards[2]),
-            const SizedBox(width: 12),
-            Expanded(child: cards[3]),
-          ]),
-          const SizedBox(height: 8),
-          actionBadges(),
-        ]);
-      });
+      return _KpiCarouselMobile(
+        cards: [...kpiCards, ...chartCards],
+        actionBadges: actionBadges(),
+      );
     }
 
     return Column(
@@ -643,14 +657,24 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
         IntrinsicHeight(
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: cards.asMap().entries.map((e) {
-              return Expanded(
-                child: Padding(
-                  padding: EdgeInsets.only(right: e.key < cards.length - 1 ? 14 : 0),
-                  child: e.value,
-                ),
-              );
-            }).toList(),
+            children: [
+              for (int i = 0; i < kpiCards.length; i++) ...[
+                if (i > 0) const SizedBox(width: 14),
+                Expanded(child: kpiCards[i]),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        SizedBox(
+          height: 200,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: chartCards[0]),
+              const SizedBox(width: 14),
+              Expanded(child: chartCards[1]),
+            ],
           ),
         ),
         const SizedBox(height: 8),
@@ -1701,6 +1725,7 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
         hPad: hPadAppBar,
         onOpenMenu: openAppDrawer,
         crumbs: [BreadcrumbItem('Proyectos')],
+        actions: const [HelpToggleButton()],
       ),
       floatingActionButton: isMobileFab
           ? FloatingActionButton(
@@ -1716,7 +1741,14 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
         final hPad = isMobile ? 20.0 : 32.0;
 
         return _cargando
-                  ? const Center(child: CircularProgressIndicator())
+                  ? SingleChildScrollView(
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 880),
+                          child: _buildSkeletonDashboard(hPad),
+                        ),
+                      ),
+                    )
                   : _error != null
                       ? Center(
                           child: Column(
@@ -1903,7 +1935,9 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
       _filterEstado,
       _filterReclamo,
       _filterVencer,
-    ].where((v) => v != null).length + (_filterProductos.isNotEmpty ? 1 : 0);
+    ].where((v) => v != null).length +
+        (_filterProductos.isNotEmpty ? 1 : 0) +
+        (_filterQuarterYear != null ? 1 : 0);
 
     final hasFilters = activeCount > 0;
 
@@ -1928,6 +1962,14 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
       if (_filterVencer != null)
         _activeChip('Vencer: $_filterVencer',
             () => setState(() { _filterVencer = null; _currentPage = 0; })),
+      if (_filterQuarterYear != null && _filterQuarterQ != null)
+        _activeChip('Q$_filterQuarterQ · $_filterQuarterYear',
+            () => setState(() {
+              _filterQuarterYear = null;
+              _filterQuarterQ = null;
+              _filterQuarterOnlyWithOC = false;
+              _currentPage = 0;
+            })),
     ];
 
     final filterButton = GestureDetector(
@@ -2025,12 +2067,15 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
     final modalidades = _cfgModalidades;
     final estados = _cfgEstados.map((e) => e.nombre).toList();
     final allProducts = _cfgProductos.map((p) => p.abreviatura).toList()..sort();
-    final instituciones = all
-        .map((p) => p.institucion)
-        .toSet()
-        .where((s) => s.isNotEmpty)
-        .toList()
-      ..sort();
+    // Deduplicate case-insensitively so names differing only in casing/spaces don't repeat
+    final instSeen = <String>{};
+    final instituciones = <String>[];
+    for (final p in all) {
+      final norm = p.institucion.trim().toUpperCase();
+      if (norm.isEmpty) continue;
+      if (instSeen.add(norm)) instituciones.add(norm);
+    }
+    instituciones.sort();
 
     showModalBottomSheet(
       context: context,
@@ -2222,7 +2267,7 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
                               hint: 'Institución',
                               value: _filterInstitucion,
                               items: instituciones,
-                              displayLabel: (s) => s.split('|').first.trim(),
+                              displayLabel: (s) => s,
                             ),
                           );
                           if (sel == '\x00') {
@@ -2394,7 +2439,12 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
 
   Widget _buildTabDocumentacion(bool isMobile) {
     final allItems = _buildDocItems(_proyectos);
-    final filtered = _applyDocFilters(allItems);
+    final filtered = _applyDocFilters(allItems)
+      ..sort((a, b) {
+        final da = a.fecha ?? DateTime(0);
+        final db = b.fecha ?? DateTime(0);
+        return _docSortAscending ? da.compareTo(db) : db.compareTo(da);
+      });
     final totalPages = (filtered.length / _pageSize).ceil();
     final pageStart = _docCurrentPage * _pageSize;
     final pageEnd = (pageStart + _pageSize).clamp(0, filtered.length);
@@ -2481,6 +2531,26 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
           ),
           const SizedBox(width: 6),
         ],
+        GestureDetector(
+          onTap: () => setState(() {
+            _docSortAscending = !_docSortAscending;
+            _docCurrentPage = 0;
+          }),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(color: Colors.grey.shade200),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Icon(
+              _docSortAscending ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
+              size: 15,
+              color: Colors.grey.shade600,
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
         docFilterButton,
       ],
     );
@@ -2729,12 +2799,14 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
     final modalidades = _cfgModalidades;
     final estados = _cfgEstados.map((e) => e.nombre).toList();
     final allProducts = _cfgProductos.map((p) => p.abreviatura).toList()..sort();
-    final instituciones = _proyectos
-        .map((p) => p.institucion)
-        .toSet()
-        .where((s) => s.isNotEmpty)
-        .toList()
-      ..sort();
+    final instSeen2 = <String>{};
+    final instituciones = <String>[];
+    for (final p in _proyectos) {
+      final norm = p.institucion.trim().toUpperCase();
+      if (norm.isEmpty) continue;
+      if (instSeen2.add(norm)) instituciones.add(norm);
+    }
+    instituciones.sort();
 
     showModalBottomSheet(
       context: context,
@@ -2904,7 +2976,7 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
                               hint: 'Institución',
                               value: _docFilterInstitucion,
                               items: instituciones,
-                              displayLabel: (s) => s.split('|').first.trim(),
+                              displayLabel: (s) => s,
                             ),
                           );
                           if (sel == '\x00') {
@@ -3512,6 +3584,153 @@ class _ProductosChipsCellState extends State<_ProductosChipsCell> {
 
 // ── Reclamos Carousel Card ─────────────────────────────────────────────────────
 
+// ── Skeleton loading ──────────────────────────────────────────────────────────
+
+class _SkeletonBox extends StatefulWidget {
+  final double? width;
+  final double height;
+  final double radius;
+  const _SkeletonBox({this.width, this.height = 16, this.radius = 8});
+
+  @override
+  State<_SkeletonBox> createState() => _SkeletonBoxState();
+}
+
+class _SkeletonBoxState extends State<_SkeletonBox>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 1100))
+      ..repeat(reverse: true);
+    _anim = CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _anim,
+      builder: (_, __) => Container(
+        width: widget.width,
+        height: widget.height,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(widget.radius),
+          color: Color.lerp(
+              const Color(0xFFEDF0F3), const Color(0xFFF7F9FB), _anim.value),
+        ),
+      ),
+    );
+  }
+}
+
+Widget _buildSkeletonDashboard(double hPad) {
+  const gap = SizedBox(width: 14);
+  const vGap = SizedBox(height: 14);
+
+  Widget skCard({double height = 100}) => Container(
+        height: height,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 6,
+                offset: const Offset(0, 2))
+          ],
+        ),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _SkeletonBox(width: 60, height: 10),
+            const SizedBox(height: 10),
+            _SkeletonBox(width: 120, height: 22, radius: 6),
+            const Spacer(),
+            _SkeletonBox(height: 8, radius: 4),
+          ],
+        ),
+      );
+
+  return Padding(
+    padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 48),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Tab bar placeholder
+        Container(
+          height: 44,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(children: [
+            Expanded(child: _SkeletonBox(height: 28, radius: 8)),
+            gap,
+            Expanded(child: _SkeletonBox(height: 28, radius: 8)),
+            gap,
+            Expanded(child: _SkeletonBox(height: 28, radius: 8)),
+          ]),
+        ),
+        const SizedBox(height: 20),
+        // KPI row: 4 cards
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (int i = 0; i < 4; i++) ...[
+                if (i > 0) gap,
+                Expanded(child: skCard(height: 100)),
+              ],
+            ],
+          ),
+        ),
+        vGap,
+        // Chart row: 2 cards
+        SizedBox(
+          height: 200,
+          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Expanded(child: skCard(height: 200)),
+            gap,
+            Expanded(child: skCard(height: 200)),
+          ]),
+        ),
+        const SizedBox(height: 20),
+        // List skeleton rows
+        for (int i = 0; i < 6; i++) ...[
+          if (i > 0) const SizedBox(height: 8),
+          Container(
+            height: 52,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(children: [
+              _SkeletonBox(width: 8, height: 8, radius: 4),
+              const SizedBox(width: 12),
+              Expanded(child: _SkeletonBox(height: 12)),
+              const SizedBox(width: 24),
+              _SkeletonBox(width: 60, height: 12),
+            ]),
+          ),
+        ],
+      ],
+    ),
+  );
+}
+
 // ── Shared KPI card shell ──────────────────────────────────────────────────────
 
 class _KpiCardShell extends StatefulWidget {
@@ -3940,6 +4159,1246 @@ class _ValorMensualCardState extends State<_ValorMensualCard> {
   }
 }
 
+// ── KPI Carousel — Mobile ────────────────────────────────────────────────────
+
+class _KpiCarouselMobile extends StatefulWidget {
+  final List<Widget> cards;
+  final Widget actionBadges;
+  const _KpiCarouselMobile({required this.cards, required this.actionBadges});
+
+  @override
+  State<_KpiCarouselMobile> createState() => _KpiCarouselMobileState();
+}
+
+class _KpiCarouselMobileState extends State<_KpiCarouselMobile> {
+  late final PageController _ctrl;
+  int _page = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = PageController(viewportFraction: 0.88);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const primaryColor = Color(0xFF6D28D9);
+    return Column(
+      children: [
+        SizedBox(
+          height: 200,
+          child: PageView.builder(
+            controller: _ctrl,
+            itemCount: widget.cards.length,
+            onPageChanged: (i) => setState(() => _page = i),
+            itemBuilder: (_, i) => Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: widget.cards[i],
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(widget.cards.length, (i) =>
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: i == _page ? 16 : 6,
+              height: 5,
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              decoration: BoxDecoration(
+                color: i == _page ? primaryColor : Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        widget.actionBadges,
+      ],
+    );
+  }
+}
+
+// ── Chart helpers ─────────────────────────────────────────────────────────────
+
+typedef _QData = ({String label, int year, int quarter, double value});
+
+List<_QData> _groupByQuarter(
+    List<Proyecto> proyectos, double Function(Proyecto) getValue,
+    {bool onlyWithOC = false}) {
+  final map = <(int, int), double>{};
+  for (final p in proyectos) {
+    if (onlyWithOC && p.idsOrdenesCompra.isEmpty) continue;
+    final fecha = p.fechaInicio ?? p.fechaCreacion;
+    if (fecha == null) continue;
+    final q = ((fecha.month - 1) ~/ 3) + 1;
+    final key = (fecha.year, q);
+    map[key] = (map[key] ?? 0) + getValue(p);
+  }
+  final entries = map.entries.toList()
+    ..sort((a, b) {
+      final yc = a.key.$1.compareTo(b.key.$1);
+      return yc != 0 ? yc : a.key.$2.compareTo(b.key.$2);
+    });
+  return entries
+      .map((e) => (
+            label: 'Q${e.key.$2}',
+            year: e.key.$1,
+            quarter: e.key.$2,
+            value: e.value,
+          ))
+      .toList();
+}
+
+/// Devuelve lista donde cada elemento es el año como String si cambió respecto
+/// al anterior (primera barra de ese año), o null si el año es el mismo.
+/// [abbreviated] usa formato corto: '24 en lugar de 2024.
+List<String?> _yearLabels(List<_QData> data, {bool abbreviated = false}) {
+  int? lastYear;
+  return data.map((d) {
+    if (d.year != lastYear) {
+      lastYear = d.year;
+      return abbreviated
+          ? "'${(d.year % 100).toString().padLeft(2, '0')}"
+          : d.year.toString();
+    }
+    return null;
+  }).toList();
+}
+
+/// Proyectos finalizados con OC que no tienen renovación (nueva OC de la misma
+/// institución con fechaInicio posterior). Se agrupa por quarter de fechaTermino.
+List<_QData> _churnByQuarter(List<Proyecto> proyectos) {
+  // Instituciones que tienen algún proyecto activo (con OC, no finalizado)
+  final renovadas = <String>{};
+  for (final p in proyectos) {
+    if (p.idsOrdenesCompra.isEmpty) continue;
+    if (p.estado == EstadoProyecto.finalizado) continue;
+    renovadas.add(p.institucion.trim().toLowerCase());
+  }
+
+  final map = <(int, int), double>{};
+  for (final p in proyectos) {
+    if (p.idsOrdenesCompra.isEmpty) continue;
+    if (p.estado != EstadoProyecto.finalizado) continue;
+    final fechaFin = p.fechaTermino;
+    if (fechaFin == null) continue;
+    final inst = p.institucion.trim().toLowerCase();
+
+    // Tiene renovación si hay otro proyecto con OC de la misma institución
+    // cuyo fechaInicio es posterior a la fecha de término de éste
+    final tieneRenovacion = renovadas.contains(inst) ||
+        proyectos.any((o) =>
+            o.id != p.id &&
+            o.idsOrdenesCompra.isNotEmpty &&
+            o.institucion.trim().toLowerCase() == inst &&
+            (o.fechaInicio ?? o.fechaCreacion) != null &&
+            (o.fechaInicio ?? o.fechaCreacion)!.isAfter(fechaFin));
+
+    // Período de gracia: 90 días desde fechaTermino antes de contar como churn
+    final graceDate = fechaFin.add(const Duration(days: 90));
+    if (graceDate.isAfter(DateTime.now())) continue;
+
+    // Encadenado explícitamente → no es churn
+    if (p.proyectoContinuacionId != null && p.proyectoContinuacionId!.isNotEmpty) continue;
+
+    if (!tieneRenovacion) {
+      final q = ((fechaFin.month - 1) ~/ 3) + 1;
+      final key = (fechaFin.year, q);
+      map[key] = (map[key] ?? 0) + 1;
+    }
+  }
+
+  final entries = map.entries.toList()
+    ..sort((a, b) {
+      final yc = a.key.$1.compareTo(b.key.$1);
+      return yc != 0 ? yc : a.key.$2.compareTo(b.key.$2);
+    });
+  return entries
+      .map((e) => (
+            label: 'Q${e.key.$2}',
+            year: e.key.$1,
+            quarter: e.key.$2,
+            value: e.value,
+          ))
+      .toList();
+}
+
+/// Une dos listas de _QData en un timeline unificado.
+/// Retorna labels, yearLabels, valores positivos y valores de churn alineados.
+({
+  List<String> labels,
+  List<String?> yearLabels,
+  List<double> positive,
+  List<double> churn,
+  List<(int, int)> keys,
+}) _mergeDivergingData(List<_QData> positiveData, List<_QData> churnData,
+    {bool abbreviated = false}) {
+  final keys = <(int, int)>{};
+  for (final d in [...positiveData, ...churnData]) {
+    keys.add((d.year, d.quarter));
+  }
+  final extremes = keys.toList()
+    ..sort((a, b) {
+      final yc = a.$1.compareTo(b.$1);
+      return yc != 0 ? yc : a.$2.compareTo(b.$2);
+    });
+
+  // Fill all intermediate quarters so gaps with 0 activity are visible
+  final sorted = <(int, int)>[];
+  if (extremes.isNotEmpty) {
+    var cur = extremes.first;
+    final last = extremes.last;
+    while (cur.$1 < last.$1 || (cur.$1 == last.$1 && cur.$2 <= last.$2)) {
+      sorted.add(cur);
+      cur = cur.$2 < 4 ? (cur.$1, cur.$2 + 1) : (cur.$1 + 1, 1);
+    }
+  }
+
+  final posMap = {for (final d in positiveData) (d.year, d.quarter): d.value};
+  final negMap = {for (final d in churnData) (d.year, d.quarter): d.value};
+
+  final qData = sorted
+      .map((k) => (label: 'Q${k.$2}', year: k.$1, quarter: k.$2, value: 0.0))
+      .toList();
+
+  return (
+    labels: sorted.map((k) => 'Q${k.$2}').toList(),
+    yearLabels: _yearLabels(qData, abbreviated: abbreviated),
+    positive: sorted.map((k) => posMap[k] ?? 0.0).toList(),
+    churn: sorted.map((k) => negMap[k] ?? 0.0).toList(),
+    keys: sorted,
+  );
+}
+
+/// Clientes nuevos por quarter.
+/// Cada institución se cuenta UNA sola vez, en el quarter de su PRIMERA OC.
+/// Proyectos posteriores de la misma institución no suman como cliente nuevo.
+List<_QData> _newClientsByQuarter(List<Proyecto> proyectos) {
+  // Para cada institución, encontrar la fecha del proyecto con OC más antiguo
+  final firstByInst = <String, DateTime>{};
+  for (final p in proyectos) {
+    if (p.idsOrdenesCompra.isEmpty) continue;
+    final fecha = p.fechaInicio ?? p.fechaCreacion;
+    if (fecha == null) continue;
+    final inst = p.institucion.trim().toLowerCase();
+    final existing = firstByInst[inst];
+    if (existing == null || fecha.isBefore(existing)) {
+      firstByInst[inst] = fecha;
+    }
+  }
+
+  final map = <(int, int), double>{};
+  for (final fecha in firstByInst.values) {
+    final q = ((fecha.month - 1) ~/ 3) + 1;
+    final key = (fecha.year, q);
+    map[key] = (map[key] ?? 0) + 1;
+  }
+
+  final entries = map.entries.toList()
+    ..sort((a, b) {
+      final yc = a.key.$1.compareTo(b.key.$1);
+      return yc != 0 ? yc : a.key.$2.compareTo(b.key.$2);
+    });
+  return entries
+      .map((e) => (
+            label: 'Q${e.key.$2}',
+            year: e.key.$1,
+            quarter: e.key.$2,
+            value: e.value,
+          ))
+      .toList();
+}
+
+// ── Clients chart card ────────────────────────────────────────────────────────
+
+class _ClientesChartCard extends StatefulWidget {
+  final List<Proyecto> proyectos;
+  final void Function(int year, int quarter, {bool onlyWithOC})? onQuarterTap;
+  const _ClientesChartCard({required this.proyectos, this.onQuarterTap});
+
+  @override
+  State<_ClientesChartCard> createState() => _ClientesChartCardState();
+}
+
+class _ClientesChartCardState extends State<_ClientesChartCard> {
+  bool _showLine = false;
+  static const _color = Color(0xFF0EA5E9);
+
+  @override
+  Widget build(BuildContext context) {
+    final data  = _newClientsByQuarter(widget.proyectos).where((d) => d.year >= 2021).toList();
+    final churn = _churnByQuarter(widget.proyectos).where((d) => d.year >= 2021).toList();
+    final merged = _mergeDivergingData(data, churn);
+
+    // Clientes activos netos por quarter:
+    // acumulado de (nuevos - bajas) → refleja la cartera real en cada momento
+    final netValues = <double>[];
+    double net = 0;
+    for (int i = 0; i < merged.positive.length; i++) {
+      final churnVal = i < merged.churn.length ? merged.churn[i] : 0.0;
+      net = (net + merged.positive[i] - churnVal).clamp(0, double.infinity);
+      netValues.add(net);
+    }
+
+    return _ChartCardShell(
+      title: _showLine ? 'Cartera Activa Neta' : 'Clientes Nuevos / Quarter',
+      icon: Icons.people_outline_rounded,
+      color: _color,
+      showLine: _showLine,
+      onToggle: () => setState(() => _showLine = !_showLine),
+      helpStep: _showLine ? HelpStepsStore.instance.steps[2] : HelpStepsStore.instance.steps[1],
+      child: merged.labels.isEmpty
+          ? _emptyChartWidget()
+          : _showLine
+              ? _LineChartWidget(
+                  labels: merged.labels,
+                  yearLabels: merged.yearLabels,
+                  values: netValues,
+                  color: _color,
+                  integerValues: true,
+                )
+              : _BarChartWidget(
+                  labels: merged.labels,
+                  yearLabels: merged.yearLabels,
+                  values: merged.positive,
+                  churnValues: merged.churn,
+                  color: _color,
+                  integerValues: true,
+                  onBarTap: widget.onQuarterTap == null ? null : (i) {
+                    final k = merged.keys[i];
+                    widget.onQuarterTap!(k.$1, k.$2, onlyWithOC: true);
+                  },
+                ),
+    );
+  }
+}
+
+// ── Facturación chart card ────────────────────────────────────────────────────
+
+class _FacturacionChartCard extends StatefulWidget {
+  final List<Proyecto> proyectos;
+  final void Function(int year, int quarter, {bool onlyWithOC})? onQuarterTap;
+  const _FacturacionChartCard({required this.proyectos, this.onQuarterTap});
+
+  @override
+  State<_FacturacionChartCard> createState() => _FacturacionChartCardState();
+}
+
+class _FacturacionChartCardState extends State<_FacturacionChartCard> {
+  int _view = 0; // 0=barras mensual, 1=línea acumulada, 2=total OC
+
+  static const _color = Color(0xFFA78BFA);
+  static const _colorOC = Color(0xFF10B981);
+
+  static String _fmt(double n) {
+    if (n >= 1000000) return '\$${(n / 1000000).toStringAsFixed(1)}M';
+    if (n >= 1000) return '\$${(n / 1000).toStringAsFixed(0)}K';
+    return '\$${n.toStringAsFixed(0)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dataMensual = _groupByQuarter(
+        widget.proyectos, (p) => p.valorMensual ?? 0)
+        .where((d) => d.year >= 2021).toList();
+    final dataOC = _groupByQuarter(
+        widget.proyectos, (p) => p.montoTotalOC ?? 0,
+        onlyWithOC: true).where((d) => d.value > 0).toList();
+    final yLabelsMensual = _yearLabels(dataMensual, abbreviated: true);
+    final yLabelsOC = _yearLabels(dataOC, abbreviated: true);
+
+    final cum = <double>[];
+    double s = 0;
+    for (final d in dataMensual) { s += d.value; cum.add(s); }
+
+    final (title, color, child) = switch (_view) {
+      1 => (
+          'Facturación Mensual Acumulada',
+          _color,
+          dataMensual.isEmpty
+              ? _emptyChartWidget()
+              : _LineChartWidget(
+                  labels: dataMensual.map((d) => d.label).toList(),
+                  yearLabels: yLabelsMensual,
+                  values: cum,
+                  color: _color,
+                  formatValue: _fmt,
+                ),
+        ),
+      2 => (
+          'Total Órdenes de Compra',
+          _colorOC,
+          dataOC.isEmpty
+              ? _emptyChartWidget()
+              : _BarChartWidget(
+                  labels: dataOC.map((d) => d.label).toList(),
+                  yearLabels: yLabelsOC,
+                  values: dataOC.map((d) => d.value).toList(),
+                  color: _colorOC,
+                  formatValue: _fmt,
+                  onBarTap: widget.onQuarterTap == null ? null : (i) {
+                    final d = dataOC[i];
+                    widget.onQuarterTap!(d.year, d.quarter, onlyWithOC: true);
+                  },
+                ),
+        ),
+      _ => (
+          'Monto Mensual / Quarter',
+          _color,
+          dataMensual.isEmpty
+              ? _emptyChartWidget()
+              : _BarChartWidget(
+                  labels: dataMensual.map((d) => d.label).toList(),
+                  yearLabels: yLabelsMensual,
+                  values: dataMensual.map((d) => d.value).toList(),
+                  color: _color,
+                  formatValue: _fmt,
+                  onBarTap: widget.onQuarterTap == null ? null : (i) {
+                    final d = dataMensual[i];
+                    widget.onQuarterTap!(d.year, d.quarter, onlyWithOC: false);
+                  },
+                ),
+        ),
+    };
+
+    final viewLabels = ['M', 'T', '∑ OC'];
+    final viewIcons = [Icons.bar_chart_rounded, Icons.show_chart_rounded, Icons.receipt_long_rounded];
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [BoxShadow(
+          color: Colors.black.withValues(alpha: 0.05),
+          blurRadius: 6,
+          offset: const Offset(0, 2),
+        )],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.show_chart_rounded, size: 14, color: color),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Row(children: [
+                  Flexible(child: Text(title,
+                      style: GoogleFonts.inter(
+                          fontSize: 11,
+                          color: Colors.grey.shade500,
+                          fontWeight: FontWeight.w500),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis)),
+                  HelpBadge(HelpStepsStore.instance.steps[3]),
+                ]),
+              ),
+              const SizedBox(width: 8),
+              // 3-option toggle
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: List.generate(3, (i) => GestureDetector(
+                  onTap: () => setState(() => _view = i),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                    margin: EdgeInsets.only(left: i > 0 ? 4 : 0),
+                    decoration: BoxDecoration(
+                      color: _view == i ? color.withValues(alpha: 0.12) : Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(viewIcons[i], size: 12,
+                            color: _view == i ? color : Colors.grey.shade500),
+                        const SizedBox(width: 3),
+                        Text(viewLabels[i],
+                            style: GoogleFonts.inter(
+                                fontSize: 10,
+                                color: _view == i ? color : Colors.grey.shade500,
+                                fontWeight: _view == i ? FontWeight.w600 : FontWeight.w400)),
+                      ],
+                    ),
+                  ),
+                )),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Expanded(child: child),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Chart card shell (for Clientes card) ─────────────────────────────────────
+
+class _ChartCardShell extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final Color color;
+  final bool showLine;
+  final VoidCallback onToggle;
+  final Widget child;
+  final WalkthroughStep? helpStep;
+
+  const _ChartCardShell({
+    required this.title,
+    required this.icon,
+    required this.color,
+    required this.showLine,
+    required this.onToggle,
+    required this.child,
+    this.helpStep,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [BoxShadow(
+          color: Colors.black.withValues(alpha: 0.05),
+          blurRadius: 6,
+          offset: const Offset(0, 2),
+        )],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, size: 14, color: color),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Row(
+                  children: [
+                    Flexible(child: Text(title,
+                        style: GoogleFonts.inter(
+                            fontSize: 11,
+                            color: Colors.grey.shade500,
+                            fontWeight: FontWeight.w500),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis)),
+                    if (helpStep != null) HelpBadge(helpStep!),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: onToggle,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        showLine ? Icons.bar_chart_rounded : Icons.show_chart_rounded,
+                        size: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        showLine ? 'Barras' : 'Tendencia',
+                        style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade600),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Expanded(child: child),
+        ],
+      ),
+    );
+  }
+}
+
+Widget _emptyChartWidget() => Center(
+      child: Text('Sin datos',
+          style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade400)),
+    );
+
+// ── Bar chart widget ──────────────────────────────────────────────────────────
+
+class _BarChartWidget extends StatefulWidget {
+  final List<String> labels;
+  /// Año a mostrar debajo del label cuando cambia (null = no mostrar)
+  final List<String?> yearLabels;
+  final List<double> values;
+  /// Valores de churn (bajas) — barras rojas hacia abajo; misma longitud que values
+  final List<double> churnValues;
+  final Color color;
+  final bool integerValues;
+  final String Function(double)? formatValue;
+  final void Function(int index)? onBarTap;
+
+  const _BarChartWidget({
+    required this.labels,
+    required this.yearLabels,
+    required this.values,
+    this.churnValues = const [],
+    required this.color,
+    this.integerValues = false,
+    this.formatValue,
+    this.onBarTap,
+  });
+
+  @override
+  State<_BarChartWidget> createState() => _BarChartWidgetState();
+}
+
+class _BarChartWidgetState extends State<_BarChartWidget> {
+  int? _hoveredIndex;
+
+  String _fmt(double v) {
+    if (widget.formatValue != null) return widget.formatValue!(v);
+    return widget.integerValues ? v.toInt().toString() : v.toStringAsFixed(1);
+  }
+
+  int? _indexAt(Offset local, Size size) {
+    if (widget.labels.isEmpty || size.width == 0) return null;
+    final slotW = size.width / widget.labels.length;
+    final i = (local.dx / slotW).floor();
+    if (i < 0 || i >= widget.labels.length) return null;
+    return i;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, constraints) {
+      final size = Size(constraints.maxWidth, constraints.maxHeight);
+      return MouseRegion(
+        cursor: widget.onBarTap != null
+            ? SystemMouseCursors.click
+            : SystemMouseCursors.basic,
+        onHover: (e) {
+          final idx = _indexAt(e.localPosition, size);
+          if (idx != _hoveredIndex) setState(() => _hoveredIndex = idx);
+        },
+        onExit: (_) => setState(() => _hoveredIndex = null),
+        child: GestureDetector(
+          onTapDown: (e) {
+            final idx = _indexAt(e.localPosition, size);
+            if (idx != null && widget.onBarTap != null) {
+              widget.onBarTap!(idx);
+            } else {
+              setState(() => _hoveredIndex = _hoveredIndex == idx ? null : idx);
+            }
+          },
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              CustomPaint(
+                painter: _BarChartPainter(
+                  labels: widget.labels,
+                  yearLabels: widget.yearLabels,
+                  values: widget.values,
+                  churnValues: widget.churnValues,
+                  color: widget.color,
+                  integerValues: widget.integerValues,
+                  formatValue: widget.formatValue,
+                  hoveredIndex: _hoveredIndex,
+                ),
+                child: const SizedBox.expand(),
+              ),
+              if (_hoveredIndex != null)
+                _BarTooltip(
+                  index: _hoveredIndex!,
+                  label: widget.labels[_hoveredIndex!],
+                  yearLabel: widget.yearLabels[_hoveredIndex!],
+                  valueText: _fmt(widget.values[_hoveredIndex!]),
+                  churnText: widget.churnValues.length > _hoveredIndex! &&
+                          widget.churnValues[_hoveredIndex!] > 0
+                      ? '-${_fmt(widget.churnValues[_hoveredIndex!])}'
+                      : null,
+                  color: widget.color,
+                  totalSlots: widget.labels.length,
+                  chartWidth: size.width,
+                ),
+            ],
+          ),
+        ),
+      );
+    });
+  }
+}
+
+class _BarTooltip extends StatelessWidget {
+  final int index;
+  final String label;
+  final String? yearLabel;
+  final String valueText;
+  final String? churnText;
+  final Color color;
+  final int totalSlots;
+  final double chartWidth;
+
+  const _BarTooltip({
+    required this.index,
+    required this.label,
+    required this.yearLabel,
+    required this.valueText,
+    this.churnText,
+    required this.color,
+    required this.totalSlots,
+    required this.chartWidth,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const tooltipW = 92.0;
+    final slotW = chartWidth / totalSlots;
+    final cx = slotW * index + slotW / 2;
+    final left = (cx - tooltipW / 2).clamp(0.0, chartWidth - tooltipW);
+    // Reconstruct full label: e.g. "Q2 · 2024"
+    final fullLabel = yearLabel != null ? '$label · $yearLabel' : label;
+
+    return Positioned(
+      left: left,
+      top: 0,
+      child: IgnorePointer(
+        child: Container(
+          width: tooltipW,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E293B),
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: [
+              BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.18),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3))
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(fullLabel,
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(
+                      fontSize: 10,
+                      color: Colors.white.withValues(alpha: 0.65))),
+              const SizedBox(height: 3),
+              Text(valueText,
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white)),
+              if (churnText != null) ...[
+                const SizedBox(height: 2),
+                Text(churnText!,
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.inter(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFFFCA5A5))),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BarChartPainter extends CustomPainter {
+  final List<String> labels;
+  final List<String?> yearLabels;
+  final List<double> values;
+  final List<double> churnValues;
+  final Color color;
+  final bool integerValues;
+  final String Function(double)? formatValue;
+  final int? hoveredIndex;
+
+  static const _churnColor = Color(0xFFEF4444);
+
+  const _BarChartPainter({
+    required this.labels,
+    required this.yearLabels,
+    required this.values,
+    this.churnValues = const [],
+    required this.color,
+    this.integerValues = false,
+    this.formatValue,
+    this.hoveredIndex,
+  });
+
+  void _drawCenteredText(Canvas canvas, String text, Offset center,
+      TextStyle style, double maxWidth) {
+    final tp = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textAlign: TextAlign.center,
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: maxWidth);
+    tp.paint(canvas, Offset(center.dx - tp.width / 2, center.dy));
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (labels.isEmpty || values.isEmpty) return;
+    const quarterH = 13.0;
+    const yearH = 12.0;
+    const axisH = quarterH + yearH;
+    const topPad = 4.0;
+    final totalH = size.height - axisH - topPad;
+
+    final maxPos = values.fold<double>(0, (m, v) => v > m ? v : m);
+    final maxNeg = churnValues.isEmpty
+        ? 0.0
+        : churnValues.fold<double>(0, (m, v) => v > m ? v : m);
+    if (maxPos <= 0 && maxNeg <= 0) return;
+
+    // Zero line splits chart area proportionally
+    final posRatio = maxNeg == 0 ? 1.0 : maxPos / (maxPos + maxNeg);
+    final posH = totalH * posRatio;  // height above zero
+    final negH = totalH - posH;       // height below zero
+    final zeroY = topPad + posH;
+
+    final n = labels.length;
+    final slotW = size.width / n;
+    final barW = slotW * 0.55;
+
+    final quarterStyle = TextStyle(
+        fontSize: 9, color: const Color(0xFF94A3B8), fontFamily: 'Inter');
+    final yearStyle = TextStyle(
+        fontSize: 8,
+        color: const Color(0xFFCBD5E1),
+        fontFamily: 'Inter',
+        fontWeight: FontWeight.w600);
+
+    // Zero line (only when churn exists)
+    if (maxNeg > 0) {
+      canvas.drawLine(
+        Offset(0, zeroY),
+        Offset(size.width, zeroY),
+        Paint()
+          ..color = const Color(0xFFE2E8F0)
+          ..strokeWidth = 1,
+      );
+    }
+
+    for (int i = 0; i < n; i++) {
+      final hovered = i == hoveredIndex;
+      final cx = slotW * i + slotW / 2;
+
+      // Positive bar (up from zero)
+      if (maxPos > 0) {
+        final bh = (values[i] / maxPos) * posH;
+        canvas.drawRRect(
+            RRect.fromRectAndRadius(
+                Rect.fromLTWH(cx - barW / 2, topPad, barW, posH),
+                const Radius.circular(4)),
+            Paint()
+              ..color = color.withValues(alpha: hovered ? 0.14 : 0.08)
+              ..style = PaintingStyle.fill);
+        if (bh > 0) {
+          canvas.drawRRect(
+              RRect.fromRectAndRadius(
+                  Rect.fromLTWH(cx - barW / 2, zeroY - bh, barW, bh),
+                  const Radius.circular(4)),
+              Paint()
+                ..color = hovered ? color.withValues(alpha: 0.85) : color
+                ..style = PaintingStyle.fill);
+        }
+      }
+
+      // Negative / churn bar (down from zero)
+      if (maxNeg > 0 && i < churnValues.length && churnValues[i] > 0) {
+        final bh = (churnValues[i] / maxNeg) * negH;
+        canvas.drawRRect(
+            RRect.fromRectAndRadius(
+                Rect.fromLTWH(cx - barW / 2, zeroY, barW, negH),
+                const Radius.circular(4)),
+            Paint()
+              ..color = _churnColor.withValues(alpha: hovered ? 0.14 : 0.07)
+              ..style = PaintingStyle.fill);
+        canvas.drawRRect(
+            RRect.fromRectAndRadius(
+                Rect.fromLTWH(cx - barW / 2, zeroY, barW, bh),
+                const Radius.circular(4)),
+            Paint()
+              ..color = hovered
+                  ? _churnColor.withValues(alpha: 0.85)
+                  : _churnColor
+              ..style = PaintingStyle.fill);
+      }
+
+      // Quarter label
+      _drawCenteredText(canvas, labels[i],
+          Offset(cx, size.height - axisH), quarterStyle, slotW);
+
+      // Year label (only on year change)
+      if (i < yearLabels.length && yearLabels[i] != null) {
+        _drawCenteredText(canvas, yearLabels[i]!,
+            Offset(cx, size.height - yearH), yearStyle, slotW * 2);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_BarChartPainter old) =>
+      old.values != values ||
+      old.churnValues != churnValues ||
+      old.color != color ||
+      old.labels != labels ||
+      old.yearLabels != yearLabels ||
+      old.hoveredIndex != hoveredIndex;
+}
+
+// ── Line chart widget ─────────────────────────────────────────────────────────
+
+// _LineChartWidget: StatefulWidget con hover. Sin labels en cada punto —
+// sólo muestra el último valor fijo y un tooltip flotante al hacer hover.
+class _LineChartWidget extends StatefulWidget {
+  final List<String> labels;
+  final List<String?> yearLabels;
+  final List<double> values;
+  final Color color;
+  final bool integerValues;
+  final String Function(double)? formatValue;
+
+  const _LineChartWidget({
+    required this.labels,
+    required this.yearLabels,
+    required this.values,
+    required this.color,
+    this.integerValues = false,
+    this.formatValue,
+  });
+
+  @override
+  State<_LineChartWidget> createState() => _LineChartWidgetState();
+}
+
+class _LineChartWidgetState extends State<_LineChartWidget> {
+  int? _hoveredIndex;
+
+  String _fmt(double v) {
+    if (widget.formatValue != null) return widget.formatValue!(v);
+    return widget.integerValues ? v.toInt().toString() : v.toStringAsFixed(1);
+  }
+
+  // Encuentra el índice del punto más cercano al X del mouse
+  int? _indexAt(Offset local, Size size) {
+    if (widget.values.isEmpty) return null;
+    final n = widget.values.length;
+    final stepX = n > 1 ? (size.width - 8) / (n - 1) : 0.0;
+    double minDist = double.infinity;
+    int? idx;
+    for (int i = 0; i < n; i++) {
+      final x = n > 1 ? 4.0 + i * stepX : size.width / 2;
+      final d = (local.dx - x).abs();
+      if (d < minDist) { minDist = d; idx = i; }
+    }
+    return idx;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, constraints) {
+      final size = Size(constraints.maxWidth, constraints.maxHeight);
+      return MouseRegion(
+        onHover: (e) {
+          final idx = _indexAt(e.localPosition, size);
+          if (idx != _hoveredIndex) setState(() => _hoveredIndex = idx);
+        },
+        onExit: (_) => setState(() => _hoveredIndex = null),
+        child: GestureDetector(
+          onTapDown: (e) {
+            final idx = _indexAt(e.localPosition, size);
+            setState(() => _hoveredIndex = _hoveredIndex == idx ? null : idx);
+          },
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              CustomPaint(
+                painter: _LineChartPainter(
+                  labels: widget.labels,
+                  yearLabels: widget.yearLabels,
+                  values: widget.values,
+                  color: widget.color,
+                  integerValues: widget.integerValues,
+                  formatValue: widget.formatValue,
+                  hoveredIndex: _hoveredIndex,
+                ),
+                child: const SizedBox.expand(),
+              ),
+              if (_hoveredIndex != null)
+                _LineTooltip(
+                  index: _hoveredIndex!,
+                  label: widget.labels[_hoveredIndex!],
+                  yearLabel: widget.yearLabels.length > _hoveredIndex!
+                      ? widget.yearLabels[_hoveredIndex!]
+                      : null,
+                  valueText: _fmt(widget.values[_hoveredIndex!]),
+                  color: widget.color,
+                  totalPoints: widget.values.length,
+                  chartWidth: size.width,
+                  chartHeight: size.height,
+                  values: widget.values,
+                ),
+            ],
+          ),
+        ),
+      );
+    });
+  }
+}
+
+class _LineTooltip extends StatelessWidget {
+  final int index;
+  final String label;
+  final String? yearLabel;
+  final String valueText;
+  final Color color;
+  final int totalPoints;
+  final double chartWidth;
+  final double chartHeight;
+  final List<double> values;
+
+  const _LineTooltip({
+    required this.index,
+    required this.label,
+    required this.yearLabel,
+    required this.valueText,
+    required this.color,
+    required this.totalPoints,
+    required this.chartWidth,
+    required this.chartHeight,
+    required this.values,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const quarterH = 13.0;
+    const yearH = 12.0;
+    const axisH = quarterH + yearH;
+    const topPad = 16.0;
+    final chartH = chartHeight - axisH - topPad;
+    final maxVal = values.fold<double>(0, (m, v) => v > m ? v : m);
+
+    final stepX = totalPoints > 1 ? (chartWidth - 8) / (totalPoints - 1) : 0.0;
+    final px = totalPoints > 1 ? 4.0 + index * stepX : chartWidth / 2;
+    final py = maxVal > 0 ? topPad + chartH * (1 - values[index] / maxVal) : topPad;
+
+    const tooltipW = 96.0;
+    const tooltipH = 52.0;
+    final left = (px - tooltipW / 2).clamp(0.0, chartWidth - tooltipW);
+    // Mostrar arriba del punto si hay espacio, abajo si no
+    final top = (py - tooltipH - 10) < 0 ? py + 12 : py - tooltipH - 8;
+    final fullLabel = yearLabel != null ? '$label · $yearLabel' : label;
+
+    return Positioned(
+      left: left,
+      top: top,
+      child: IgnorePointer(
+        child: Container(
+          width: tooltipW,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E293B),
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: [
+              BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.18),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3))
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(fullLabel,
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(
+                      fontSize: 10,
+                      color: Colors.white.withValues(alpha: 0.65))),
+              const SizedBox(height: 3),
+              Text(valueText,
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LineChartPainter extends CustomPainter {
+  final List<String> labels;
+  final List<String?> yearLabels;
+  final List<double> values;
+  final Color color;
+  final bool integerValues;
+  final String Function(double)? formatValue;
+  final int? hoveredIndex;
+
+  const _LineChartPainter({
+    required this.labels,
+    required this.yearLabels,
+    required this.values,
+    required this.color,
+    this.integerValues = false,
+    this.formatValue,
+    this.hoveredIndex,
+  });
+
+  String _fmt(double v) {
+    if (formatValue != null) return formatValue!(v);
+    return integerValues ? v.toInt().toString() : v.toStringAsFixed(1);
+  }
+
+  void _drawCenteredText(Canvas canvas, String text, Offset center,
+      TextStyle style, double maxWidth) {
+    final tp = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textAlign: TextAlign.center,
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: maxWidth);
+    tp.paint(canvas, Offset(center.dx - tp.width / 2, center.dy));
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (labels.isEmpty || values.isEmpty) return;
+    const quarterH = 13.0;
+    const yearH = 12.0;
+    const axisH = quarterH + yearH;
+    const topPad = 16.0;
+    final chartH = size.height - axisH - topPad;
+    final maxVal = values.fold<double>(0, (m, v) => v > m ? v : m);
+    if (maxVal <= 0) return;
+
+    final n = values.length;
+    final stepX = n > 1 ? (size.width - 8) / (n - 1) : 0.0;
+
+    final points = List.generate(n, (i) {
+      final x = n > 1 ? 4.0 + i * stepX : size.width / 2;
+      final y = topPad + chartH * (1 - values[i] / maxVal);
+      return Offset(x, y);
+    });
+
+    // Gradient fill
+    final fillPath = Path()..moveTo(points.first.dx, topPad + chartH);
+    for (final p in points) { fillPath.lineTo(p.dx, p.dy); }
+    fillPath..lineTo(points.last.dx, topPad + chartH)..close();
+    canvas.drawPath(
+        fillPath,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [color.withValues(alpha: 0.18), color.withValues(alpha: 0.01)],
+          ).createShader(Rect.fromLTWH(0, topPad, size.width, chartH))
+          ..style = PaintingStyle.fill);
+
+    // Smooth line
+    final linePath = Path()..moveTo(points.first.dx, points.first.dy);
+    for (int i = 1; i < points.length; i++) {
+      final cp1 = Offset((points[i - 1].dx + points[i].dx) / 2, points[i - 1].dy);
+      final cp2 = Offset((points[i - 1].dx + points[i].dx) / 2, points[i].dy);
+      linePath.cubicTo(cp1.dx, cp1.dy, cp2.dx, cp2.dy, points[i].dx, points[i].dy);
+    }
+    canvas.drawPath(linePath, Paint()
+      ..color = color..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0..strokeCap = StrokeCap.round);
+
+    // Eje X: mostrar label solo cada Nth punto para no saturar
+    // Siempre mostrar año cuando cambia; Q solo si hay espacio (n <= 8) o
+    // si es el primer punto del año
+    final quarterStyle = TextStyle(
+        fontSize: 9, color: const Color(0xFF94A3B8), fontFamily: 'Inter');
+    final yearStyle = TextStyle(
+        fontSize: 8, color: const Color(0xFFCBD5E1),
+        fontFamily: 'Inter', fontWeight: FontWeight.w600);
+    final valueStyle = TextStyle(
+        fontSize: 9, color: color, fontWeight: FontWeight.w600, fontFamily: 'Inter');
+
+    // Umbral: mostrar Q label solo cuando hay espacio suficiente (slotX >= 18px)
+    final showAllQ = stepX >= 18;
+
+    for (int i = 0; i < n; i++) {
+      final p = points[i];
+      final isHovered = i == hoveredIndex;
+      final isLast = i == n - 1;
+      final isYearChange = i < yearLabels.length && yearLabels[i] != null;
+
+      // Dot — más grande si está hovered
+      final dotR = isHovered ? 4.5 : 2.5;
+      canvas.drawCircle(p, dotR,
+          Paint()..color = Colors.white..style = PaintingStyle.fill);
+      canvas.drawCircle(p, dotR, Paint()
+        ..color = isHovered ? color : color.withValues(alpha: 0.7)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = isHovered ? 2.5 : 1.5);
+
+      // Valor: solo en el último punto (o si está hovered, lo maneja el tooltip)
+      if (isLast) {
+        _drawCenteredText(canvas, _fmt(values[i]),
+            Offset(p.dx, p.dy - 13), valueStyle, 60);
+      }
+
+      // Q label: solo si cabe o es cambio de año
+      if (showAllQ || isYearChange) {
+        _drawCenteredText(canvas, labels[i],
+            Offset(p.dx, size.height - axisH), quarterStyle, stepX.clamp(14, 50));
+      }
+
+      // Año: solo en cambio de año
+      if (isYearChange) {
+        _drawCenteredText(canvas, yearLabels[i]!,
+            Offset(p.dx, size.height - yearH), yearStyle, 60);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_LineChartPainter old) =>
+      old.values != values || old.color != color ||
+      old.labels != labels || old.yearLabels != yearLabels ||
+      old.hoveredIndex != hoveredIndex;
+}
+
 // ── Unified document item for Documentación tab ────────────────────────────────
 
 class _DocItem {
@@ -4005,14 +5464,62 @@ class _FilterSearchDialogState extends State<_FilterSearchDialog> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420, maxHeight: 520),
+        constraints: const BoxConstraints(maxWidth: 420, maxHeight: 540),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // Handle + header — same style as bottom sheets
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              padding: const EdgeInsets.fromLTRB(20, 12, 12, 0),
+              child: Column(
+                children: [
+                  Center(
+                    child: Container(
+                      width: 32, height: 3,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(children: [
+                    Expanded(
+                      child: Text(widget.hint,
+                          style: GoogleFonts.inter(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF1E293B))),
+                    ),
+                    if (widget.value != null)
+                      TextButton(
+                        onPressed: () => Navigator.pop(context, '\x00'),
+                        style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 8)),
+                        child: Text('Limpiar',
+                            style: GoogleFonts.inter(
+                                fontSize: 13, color: Colors.red.shade400)),
+                      ),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 20),
+                      onPressed: () => Navigator.pop(context),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      color: Colors.grey.shade500,
+                    ),
+                    const SizedBox(width: 4),
+                  ]),
+                  const SizedBox(height: 12),
+                  const Divider(height: 1),
+                ],
+              ),
+            ),
+            // Search input
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
               child: TextField(
                 controller: _ctrl,
                 autofocus: true,
@@ -4040,20 +5547,8 @@ class _FilterSearchDialogState extends State<_FilterSearchDialog> {
                 style: GoogleFonts.inter(fontSize: 13),
               ),
             ),
-            if (widget.value != null)
-              InkWell(
-                onTap: () => Navigator.pop(context, '\x00'),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Row(children: [
-                    Icon(Icons.clear, size: 14, color: Colors.red.shade400),
-                    const SizedBox(width: 8),
-                    Text('Limpiar filtro',
-                        style: GoogleFonts.inter(fontSize: 13, color: Colors.red.shade400)),
-                  ]),
-                ),
-              ),
             Divider(height: 1, color: Colors.grey.shade100),
+            // Results list
             Flexible(
               child: ListView.builder(
                 shrinkWrap: true,
@@ -4065,7 +5560,7 @@ class _FilterSearchDialogState extends State<_FilterSearchDialog> {
                   return InkWell(
                     onTap: () => Navigator.pop(context, item),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
                       color: isSelected
                           ? const Color(0xFF5B21B6).withValues(alpha: 0.05)
                           : null,
@@ -4088,6 +5583,7 @@ class _FilterSearchDialogState extends State<_FilterSearchDialog> {
                 },
               ),
             ),
+            const SizedBox(height: 8),
           ],
         ),
       ),

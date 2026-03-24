@@ -6,6 +6,7 @@ import '../app_shell.dart';
 import '../models/configuracion.dart';
 import '../services/config_service.dart';
 import 'app_breadcrumbs.dart';
+import 'walkthrough.dart';
 
 // re-export para usar en este archivo sin prefix
 typedef _Hex = String;
@@ -22,7 +23,9 @@ class ConfiguracionView extends StatefulWidget {
   State<ConfiguracionView> createState() => _ConfiguracionViewState();
 }
 
-class _ConfiguracionViewState extends State<ConfiguracionView> {
+class _ConfiguracionViewState extends State<ConfiguracionView>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
   ConfiguracionData? _data;
   // CAMBIO: Ahora es una lista de Strings para coincidir con el nuevo backend
   List<String> _tiposDocumentoList = [];
@@ -39,12 +42,14 @@ class _ConfiguracionViewState extends State<ConfiguracionView> {
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _cargar();
     _fetchTiposDocumento();
   }
 
   @override
   void dispose() {
+    _tabController.dispose();
     _addModalidadCtrl.dispose();
     super.dispose();
   }
@@ -311,53 +316,94 @@ class _ConfiguracionViewState extends State<ConfiguracionView> {
           body: Column(
             children: [
               _buildAppBar(hPad, isMobile),
+              // TabBar
+              Container(
+                color: Colors.white,
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 880),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: hPad),
+                      child: TabBar(
+                        controller: _tabController,
+                        labelStyle: GoogleFonts.inter(
+                            fontSize: 13, fontWeight: FontWeight.w600),
+                        unselectedLabelStyle: GoogleFonts.inter(
+                            fontSize: 13, fontWeight: FontWeight.w400),
+                        labelColor: _primaryColor,
+                        unselectedLabelColor: Colors.grey.shade400,
+                        indicatorColor: _primaryColor,
+                        indicatorSize: TabBarIndicatorSize.label,
+                        indicatorWeight: 2.5,
+                        dividerColor: Colors.grey.shade200,
+                        tabs: const [
+                          Tab(text: 'General'),
+                          Tab(text: 'Textos de ayuda'),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
               Expanded(
-                child: (_cargando || _loadingTiposDocumento)
-                    ? const Center(child: CircularProgressIndicator())
-                    : SingleChildScrollView(
-                        child: Center(
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 880),
-                            child: Padding(
-                              padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 48),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Configuración',
-                                    style: GoogleFonts.inter(
-                                      fontSize: isMobile ? 24 : 30,
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: -0.7,
-                                      color: const Color(0xFF1E293B),
-                                    ),
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    // ── Tab 1: Configuración general ──────────────────────
+                    (_cargando || _loadingTiposDocumento)
+                        ? const Center(child: CircularProgressIndicator())
+                        : SingleChildScrollView(
+                            child: Center(
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(maxWidth: 880),
+                                child: Padding(
+                                  padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 48),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Configuración',
+                                          style: GoogleFonts.inter(
+                                            fontSize: isMobile ? 24 : 30,
+                                            fontWeight: FontWeight.w800,
+                                            letterSpacing: -0.7,
+                                            color: const Color(0xFF1E293B),
+                                          )),
+                                      const SizedBox(height: 4),
+                                      Text('Administra los valores disponibles en el sistema',
+                                          style: GoogleFonts.inter(
+                                            fontSize: isMobile ? 13 : 14,
+                                            color: Colors.grey.shade500,
+                                          )),
+                                      const SizedBox(height: 24),
+                                      _sectionLabel('ESTADOS'),
+                                      _estadosCard(),
+                                      const SizedBox(height: 20),
+                                      _sectionLabel('MODALIDADES DE COMPRA'),
+                                      _modalidadesCard(),
+                                      const SizedBox(height: 20),
+                                      _sectionLabel('TIPOS DE DOCUMENTO'),
+                                      _tiposDocumentoCard(),
+                                      const SizedBox(height: 20),
+                                      _sectionLabel('PRODUCTOS'),
+                                      _productosCard(),
+                                    ],
                                   ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Administra los valores disponibles en el sistema',
-                                    style: GoogleFonts.inter(
-                                      fontSize: isMobile ? 13 : 14,
-                                      color: Colors.grey.shade500,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 24),
-                                  _sectionLabel('ESTADOS'),
-                                  _estadosCard(),
-                                  const SizedBox(height: 20),
-                                  _sectionLabel('MODALIDADES DE COMPRA'),
-                                  _modalidadesCard(),
-                                  const SizedBox(height: 20),
-                                  _sectionLabel('TIPOS DE DOCUMENTO'),
-                                  _tiposDocumentoCard(),
-                                  const SizedBox(height: 20),
-                                  _sectionLabel('PRODUCTOS'),
-                                  _productosCard(),
-                                ],
+                                ),
                               ),
                             ),
                           ),
+                    // ── Tab 2: Textos de ayuda ────────────────────────────
+                    Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 880),
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 0),
+                          child: const HelpTextsEditor(),
                         ),
                       ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),

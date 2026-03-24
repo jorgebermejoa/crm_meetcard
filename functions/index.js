@@ -7,6 +7,8 @@ const { logger } = require("firebase-functions");
 
 // --- IMPORTACIÓN PARA VERTEX AI (lazy init para evitar fallos de módulo en cold start) ---
 const { SearchServiceClient, DocumentServiceClient } = require('@google-cloud/discoveryengine');
+const { BigQuery } = require('@google-cloud/bigquery');
+const bigquery = new BigQuery({ projectId: 'licitaciones-prod' });
 let _discoveryClient = null;
 let _docClient = null;
 function getDiscoveryClient() {
@@ -1259,5 +1261,257 @@ exports.eliminarUsuario = onRequest({ cors: true, region: 'us-central1' }, async
     return res.json({ ok: true });
   } catch (e) {
     return res.status(400).json({ error: e.message });
+  }
+});
+
+// --- BigQuery proxy ---
+// POST body: { query: string, params?: any[] }
+// Requiere autenticación Firebase (header Authorization: Bearer <idToken>)
+exports.queryBigQuery = onRequest({ cors: true }, async (req, res) => {
+  if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
+
+  // Verificar token Firebase
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Token requerido' });
+  }
+  try {
+    await admin.auth().verifyIdToken(auth.slice(7));
+  } catch (_) {
+    return res.status(401).json({ error: 'Token inválido' });
+  }
+
+  const { query, params } = req.body;
+  if (!query || typeof query !== 'string') {
+    return res.status(400).json({ error: 'Campo "query" requerido' });
+  }
+
+  try {
+    const [rows] = await bigquery.query({
+      query,
+      params: params || [],
+      useLegacySql: false,
+    });
+    return res.json(rows);
+  } catch (e) {
+    logger.error('queryBigQuery error:', e.message);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// --- Análisis meses_publicado_ordendecompra vs proyectos ---
+// Cruza licitaciones-prod.sistema_compras.meses_publicado_ordendecompra con proyectos Firestore
+// GET /analizarMesesPublicadoOC
+exports.analizarMesesPublicadoOC = onRequest({
+  cors: true,
+  region: 'us-central1',
+  timeoutSeconds: 300,
+  memory: '512MiB',
+}, async (req, res) => {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Token requerido' });
+  try { await admin.auth().verifyIdToken(auth.slice(7)); }
+  catch (_) { return res.status(401).json({ error: 'Token inválido' }); }
+
+  try {
+    // 1. Obtener todos los registros de BigQuery
+    const [bqRows] = await bigquery.query({
+      query: `SELECT id_licitacion, id_oc, fecha_publicacion, fecha_envio_oc, dias_totales, meses_totales
+              FROM \`licitaciones-prod.sistema_compras.meses_publicado_ordendecompra\`
+              ORDER BY id_licitacion`,
+      useLegacySql: false,
+    });
+    logger.info(`meses_publicado_ordendecompra: ${bqRows.length} filas en BQ`);
+
+    // 2. Cargar proyectos desde Firestore
+    const snap = await admin.firestore().collection('proyectos').get();
+    const proyectos = snap.docs.map(d => ({ firestoreId: d.id, ...d.data() }));
+
+    // Índices rápidos por idLicitacion (normalizado)
+    const proyectoPorLicit = {};
+    for (const p of proyectos) {
+      if (p.idLicitacion) {
+        proyectoPorLicit[p.idLicitacion.trim().toUpperCase()] = p;
+      }
+    }
+
+    // 3. Cruzar
+    const enApp = [];
+    const fueraDeApp = [];
+
+    for (const row of bqRows) {
+      const licitKey = (row.id_licitacion ?? '').trim().toUpperCase();
+      const ocBQ = (row.id_oc ?? '').trim();
+      const proyecto = proyectoPorLicit[licitKey];
+
+      if (proyecto) {
+        const ocsEnApp = Array.isArray(proyecto.idsOrdenesCompra) ? proyecto.idsOrdenesCompra : [];
+        const ocRegistrada = ocsEnApp.map(o => o.trim().toUpperCase());
+        const ocBQKey = ocBQ.toUpperCase();
+        enApp.push({
+          id_licitacion: row.id_licitacion,
+          id_oc_bq: ocBQ,
+          fecha_publicacion: row.fecha_publicacion,
+          fecha_envio_oc: row.fecha_envio_oc,
+          dias_totales: row.dias_totales,
+          meses_totales: row.meses_totales,
+          proyectoId: proyecto.firestoreId,
+          institucion: proyecto.institucion ?? null,
+          oc_en_app: ocsEnApp,
+          oc_bq_registrada: ocRegistrada.includes(ocBQKey),
+        });
+      } else {
+        fueraDeApp.push({
+          id_licitacion: row.id_licitacion,
+          id_oc_bq: ocBQ,
+          fecha_publicacion: row.fecha_publicacion,
+          fecha_envio_oc: row.fecha_envio_oc,
+          dias_totales: row.dias_totales,
+          meses_totales: row.meses_totales,
+        });
+      }
+    }
+
+    const ocFaltante = enApp.filter(r => !r.oc_bq_registrada);
+
+    return res.json({
+      totalBQ: bqRows.length,
+      totalEnApp: enApp.length,
+      totalFueraDeApp: fueraDeApp.length,
+      totalConOCFaltante: ocFaltante.length,
+      enApp,
+      fueraDeApp,
+      ocFaltante,   // Proyectos presentes pero con OC de BQ no registrada en la app
+    });
+  } catch (e) {
+    logger.error('analizarMesesPublicadoOC error:', e.message);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// --- Análisis de clientes nuevos Meetcard ---
+// Cruza clientes_nuevos_meetcard (BQ) con proyectos (Firestore) vía MP API
+// GET /analizarClientesMeetcard
+// Requiere Authorization: Bearer <idToken>
+exports.analizarClientesMeetcard = onRequest({
+  cors: true,
+  region: 'us-central1',
+  timeoutSeconds: 540,
+  memory: '512MiB',
+}, async (req, res) => {
+  // Autenticación
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Token requerido' });
+  }
+  try {
+    await admin.auth().verifyIdToken(auth.slice(7));
+  } catch (_) {
+    return res.status(401).json({ error: 'Token inválido' });
+  }
+
+  try {
+    // 1. Obtener todos los id_oc_inicial desde BigQuery
+    const [bqRows] = await bigquery.query({
+      query: 'SELECT id_oc_inicial, nombre_institucion, nombre_proveedor FROM `licitaciones-prod.sistema_compras.clientes_nuevos_meetcard`',
+      useLegacySql: false,
+    });
+    logger.info(`Meetcard: ${bqRows.length} OCs en BigQuery`);
+
+    // 2. Obtener todos los proyectos de Firestore
+    const snap = await admin.firestore().collection('proyectos').get();
+    const proyectos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    // Construir índices para búsqueda rápida
+    const ocEnProyecto = new Set();      // id_oc en minúsculas
+    const licitEnProyecto = new Set();   // idLicitacion en minúsculas
+    const proyectoPorOC = {};            // ocId -> proyectoId
+    const proyectoPorLicit = {};         // licitId -> proyectoId
+
+    for (const p of proyectos) {
+      const ocs = Array.isArray(p.idsOrdenesCompra) ? p.idsOrdenesCompra : [];
+      for (const oc of ocs) {
+        const key = oc.trim().toLowerCase();
+        ocEnProyecto.add(key);
+        proyectoPorOC[key] = p.id;
+      }
+      if (p.idLicitacion) {
+        const key = p.idLicitacion.trim().toLowerCase();
+        licitEnProyecto.add(key);
+        proyectoPorLicit[key] = p.id;
+      }
+    }
+
+    // 3. Para cada OC de BQ, determinar si está en la app
+    const presentes = [];
+    const ausentes = [];
+
+    // Limitar concurrencia a 10 llamadas simultáneas a la API
+    const CONCURRENCY = 10;
+    for (let i = 0; i < bqRows.length; i += CONCURRENCY) {
+      const lote = bqRows.slice(i, i + CONCURRENCY);
+      await Promise.all(lote.map(async (row) => {
+        const ocId = row.id_oc_inicial?.toString().trim() ?? '';
+        if (!ocId) return;
+
+        const ocKey = ocId.toLowerCase();
+
+        // Verificar por OC directamente
+        if (ocEnProyecto.has(ocKey)) {
+          presentes.push({
+            id_oc_inicial: ocId,
+            nombre_institucion: row.nombre_institucion,
+            nombre_proveedor: row.nombre_proveedor,
+            match: 'oc',
+            proyectoId: proyectoPorOC[ocKey],
+          });
+          return;
+        }
+
+        // Si no está por OC, consultar la API para obtener CodigoLicitacion
+        let codigoLicitacion = null;
+        try {
+          const url = `${OC_BASE_URL}?codigo=${encodeURIComponent(ocId)}&ticket=${OC_TICKET}`;
+          const resp = await axios.get(url, { timeout: 15000 });
+          const listado = resp.data?.Listado ?? [];
+          if (listado.length > 0) {
+            codigoLicitacion = listado[0]?.CodigoLicitacion?.trim() ?? null;
+          }
+        } catch (e) {
+          logger.warn(`Error consultando OC ${ocId}: ${e.message}`);
+        }
+
+        const licitKey = codigoLicitacion?.toLowerCase() ?? null;
+
+        if (licitKey && licitEnProyecto.has(licitKey)) {
+          presentes.push({
+            id_oc_inicial: ocId,
+            nombre_institucion: row.nombre_institucion,
+            nombre_proveedor: row.nombre_proveedor,
+            match: 'licitacion',
+            codigoLicitacion,
+            proyectoId: proyectoPorLicit[licitKey],
+          });
+        } else {
+          ausentes.push({
+            id_oc_inicial: ocId,
+            nombre_institucion: row.nombre_institucion,
+            nombre_proveedor: row.nombre_proveedor,
+            codigoLicitacion: codigoLicitacion ?? null,
+          });
+        }
+      }));
+    }
+
+    return res.json({
+      totalMeetcard: bqRows.length,
+      totalPresentes: presentes.length,
+      totalAusentes: ausentes.length,
+      presentes,
+      ausentes,
+    });
+  } catch (e) {
+    logger.error('analizarClientesMeetcard error:', e.message);
+    return res.status(500).json({ error: e.message });
   }
 });
