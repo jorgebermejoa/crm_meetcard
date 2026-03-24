@@ -68,73 +68,20 @@ class LicitacionesTable extends StatefulWidget {
 }
 
 class _LicitacionesTableState extends State<LicitacionesTable> {
-  static const _pageSize = 10;
-  int _currentPage = 0;
-
-  static const _primary = Color(0xFF5B21B6);
-
-  @override
-  void didUpdateWidget(covariant LicitacionesTable old) {
-    super.didUpdateWidget(old);
-    if (old.licitaciones != widget.licitaciones) _currentPage = 0;
-  }
-
   @override
   Widget build(BuildContext context) {
-    final all = widget.licitaciones;
-    final total = all.length;
-    final pages = (total / _pageSize).ceil().clamp(1, 9999);
-    if (_currentPage >= pages) _currentPage = pages - 1;
-
-    final start = _currentPage * _pageSize;
-    final end = (start + _pageSize).clamp(0, total);
-    final items = total > 0 ? all.sublist(start, end) : <LicitacionUI>[];
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ...items.map((l) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _LicitacionCard(
-                lic: l,
-                isSelected: widget.selected?['id'] == l.id,
-                onTap: widget.onSelected != null
-                    ? () => widget.onSelected!(l.rawData)
-                    : null,
-              ),
-            )),
-        if (pages > 1) _pagination(start + 1, end, total, pages),
-      ],
-    );
-  }
-
-  Widget _pagination(int from, int to, int total, int pages) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          Text('$from–$to de $total',
-              style: GoogleFonts.inter(
-                  fontSize: 12, color: Colors.grey.shade500)),
-          const SizedBox(width: 8),
-          _pageBtn(Icons.chevron_left, _currentPage > 0,
-              () => setState(() => _currentPage--)),
-          _pageBtn(Icons.chevron_right, _currentPage < pages - 1,
-              () => setState(() => _currentPage++)),
-        ],
-      ),
-    );
-  }
-
-  Widget _pageBtn(IconData icon, bool enabled, VoidCallback onTap) {
-    return IconButton(
-      icon: Icon(icon, size: 18),
-      onPressed: enabled ? onTap : null,
-      color: _primary,
-      disabledColor: Colors.grey.shade300,
-      padding: EdgeInsets.zero,
-      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+      children: widget.licitaciones.map((l) => Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _LicitacionCard(
+              lic: l,
+              isSelected: widget.selected?['id'] == l.id,
+              onTap: widget.onSelected != null
+                  ? () => widget.onSelected!(l.rawData)
+                  : null,
+            ),
+          )).toList(),
     );
   }
 }

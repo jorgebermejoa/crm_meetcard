@@ -37,6 +37,7 @@ class _HomeViewState extends State<HomeView>
   Map<String, dynamic>? _stats;
   bool _cargandoResumen = true;
   String? _errorResumen;
+  bool _disparandoIngesta = false;
 
   @override
   void initState() {
@@ -101,6 +102,36 @@ class _HomeViewState extends State<HomeView>
       if (mounted) setState(() { _stats = data; _cargandoResumen = false; });
     } catch (e) {
       if (mounted) setState(() { _errorResumen = e.toString(); _cargandoResumen = false; });
+    }
+  }
+
+  Future<void> _dispararIngesta() async {
+    if (_disparandoIngesta) return;
+    setState(() => _disparandoIngesta = true);
+    try {
+      final resp = await http
+          .get(Uri.parse('https://us-central1-licitaciones-prod.cloudfunctions.net/dispararIngestaOCDS'))
+          .timeout(const Duration(seconds: 560));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+          resp.statusCode == 200 ? 'Ingesta completada. Actualizando estadísticas…' : 'Error ${resp.statusCode}',
+          style: GoogleFonts.inter(fontSize: 13),
+        ),
+        backgroundColor: resp.statusCode == 200 ? const Color(0xFF10B981) : Colors.redAccent,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ));
+      if (resp.statusCode == 200) { await _cargarResumen(forceRefresh: true); }
+    } catch (e) {
+      if (mounted) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Error: $e', style: GoogleFonts.inter(fontSize: 13)),
+        backgroundColor: Colors.redAccent,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      )); }
+    } finally {
+      if (mounted) setState(() => _disparandoIngesta = false);
     }
   }
 
@@ -391,6 +422,45 @@ class _HomeViewState extends State<HomeView>
         _buildTIHero(stats, isMobile),
         const SizedBox(height: 24),
         _buildCategoriasSection(stats, isMobile),
+        const SizedBox(height: 24),
+        // ── Ingesta manual ────────────────────────────────────────────────
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.shade100),
+          ),
+          child: Row(children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: _primaryColor.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.cloud_download_outlined, size: 18, color: _primaryColor),
+            ),
+            const SizedBox(width: 12),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Buscar nuevas licitaciones',
+                  style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B))),
+              Text('Consulta la API OCDS y agrega licitaciones del mes actual',
+                  style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500)),
+            ])),
+            const SizedBox(width: 12),
+            _disparandoIngesta
+                ? const SizedBox(width: 20, height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: _primaryColor))
+                : TextButton(
+                    onPressed: _dispararIngesta,
+                    style: TextButton.styleFrom(
+                      foregroundColor: _primaryColor,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    ),
+                    child: Text('Actualizar', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                  ),
+          ]),
+        ),
       ],
     );
   }

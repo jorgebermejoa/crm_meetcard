@@ -46,6 +46,24 @@ async function indexarEnDiscoveryEngine(documentos) {
 // Inicializar Firebase
 admin.initializeApp();
 
+// ── API Call Logger ────────────────────────────────────────────────────────────
+// Escribe una entrada en `api_logs`; no bloquea — los errores se ignoran.
+async function _logApiCall(db, { funcion, tipo, id, estado, statusCode, ms }) {
+  try {
+    await db.collection('api_logs').add({
+      funcion,
+      tipo,
+      id: id ?? null,
+      estado,
+      statusCode: statusCode ?? null,
+      ms: ms ?? null,
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (e) {
+    logger.warn('_logApiCall error:', e.message);
+  }
+}
+
 // Constantes
 const BATCH_SIZE = 1000;
 const BATCH_SIZE_DETAILS = 200;
@@ -699,17 +717,22 @@ exports.buscarLicitacionPorId = onRequest({
   const id = req.query.id;
   if (!id) return res.status(400).json({ error: "Falta el parámetro 'id'" });
 
+  const db = admin.firestore();
+  const t0 = Date.now();
   try {
     const type = req.query.type === 'award' ? 'award' : 'tender';
     const url = `${BASE_URL}/${type}/${id}`;
     const response = await axios.get(url, { timeout: API_TIMEOUT });
+    _logApiCall(db, { funcion: 'buscarLicitacionPorId', tipo: 'licitacion', id, estado: 'ok', statusCode: 200, ms: Date.now() - t0 });
     res.status(200).json(response.data);
   } catch (error) {
     if (error.response) {
       logger.error(`Error buscando licitación ${id}: status ${error.response.status}`);
+      _logApiCall(db, { funcion: 'buscarLicitacionPorId', tipo: 'licitacion', id, estado: 'error', statusCode: error.response.status, ms: Date.now() - t0 });
       res.status(error.response.status).json({ error: `Error ${error.response.status} al consultar la API` });
     } else {
       logger.error(`Error buscando licitación ${id}:`, error.message);
+      _logApiCall(db, { funcion: 'buscarLicitacionPorId', tipo: 'licitacion', id, estado: 'error', statusCode: 500, ms: Date.now() - t0 });
       res.status(500).json({ error: "Error interno al consultar la licitación" });
     }
   }
@@ -728,6 +751,8 @@ exports.buscarOrdenCompra = onRequest({
   const id = req.query.id;
   if (!id) return res.status(400).json({ error: "Falta el parámetro 'id'" });
 
+  const db = admin.firestore();
+  const t0 = Date.now();
   try {
     const url = `${OC_BASE_URL}?codigo=${encodeURIComponent(id)}&ticket=${OC_TICKET}`;
     const response = await axios.get(url, { timeout: 20000 });
@@ -736,15 +761,19 @@ exports.buscarOrdenCompra = onRequest({
     // La API devuelve { Listado: [...], Cantidad: N }
     const listado = data?.Listado ?? [];
     if (!listado.length) {
+      _logApiCall(db, { funcion: 'buscarOrdenCompra', tipo: 'oc', id, estado: 'not_found', statusCode: 404, ms: Date.now() - t0 });
       return res.status(404).json({ error: 'No se encontró la orden de compra' });
     }
+    _logApiCall(db, { funcion: 'buscarOrdenCompra', tipo: 'oc', id, estado: 'ok', statusCode: 200, ms: Date.now() - t0 });
     return res.json(listado[0]); // Devolver el primer (único) resultado
   } catch (error) {
     if (error.response) {
       logger.error(`Error buscando OC ${id}: status ${error.response.status}`);
+      _logApiCall(db, { funcion: 'buscarOrdenCompra', tipo: 'oc', id, estado: 'error', statusCode: error.response.status, ms: Date.now() - t0 });
       return res.status(error.response.status).json({ error: `Error ${error.response.status}` });
     }
     logger.error(`Error buscando OC ${id}:`, error.message);
+    _logApiCall(db, { funcion: 'buscarOrdenCompra', tipo: 'oc', id, estado: 'error', statusCode: 500, ms: Date.now() - t0 });
     return res.status(500).json({ error: error.message });
   }
 });
@@ -762,6 +791,8 @@ exports.obtenerDetalleConvenioMarco = onRequest({
   // Extract ID from URL path segment /id/{id}/
   const match = url.match(/\/id\/([^\/\?#]+)/);
   const id = match ? match[1] : 'Desconocido';
+  const db = admin.firestore();
+  const t0 = Date.now();
 
   try {
     const response = await axios.get(url, {
@@ -889,13 +920,16 @@ exports.obtenerDetalleConvenioMarco = onRequest({
       data.titulo = $('title').text().trim().replace(/\s+/g, ' ');
     }
 
+    _logApiCall(db, { funcion: 'obtenerDetalleConvenioMarco', tipo: 'convenio', id, estado: 'ok', statusCode: 200, ms: Date.now() - t0 });
     return res.json(data);
   } catch (error) {
     if (error.response) {
       logger.error(`Error obteniendo CM ${url}: status ${error.response.status}`);
+      _logApiCall(db, { funcion: 'obtenerDetalleConvenioMarco', tipo: 'convenio', id, estado: 'error', statusCode: error.response.status, ms: Date.now() - t0 });
       return res.json({ id, url, titulo: '', comprador: '', convenioMarco: '', estado: '', campos: [], fetchError: `Error ${error.response.status}` });
     }
     logger.error(`Error obteniendo CM ${url}:`, error.message);
+    _logApiCall(db, { funcion: 'obtenerDetalleConvenioMarco', tipo: 'convenio', id, estado: 'error', statusCode: 500, ms: Date.now() - t0 });
     return res.json({ id, url, titulo: '', comprador: '', convenioMarco: '', estado: '', campos: [], fetchError: error.message });
   }
 });
@@ -1483,6 +1517,7 @@ exports.analizarClientesMeetcard = onRequest({
 
         const licitKey = codigoLicitacion?.toLowerCase() ?? null;
 
+
         if (licitKey && licitEnProyecto.has(licitKey)) {
           presentes.push({
             id_oc_inicial: ocId,
@@ -1514,4 +1549,203 @@ exports.analizarClientesMeetcard = onRequest({
     logger.error('analizarClientesMeetcard error:', e.message);
     return res.status(500).json({ error: e.message });
   }
+});
+
+// --- CLOUD FUNCTION: Refresh nocturno de caché de proyectos ---
+// Corre a las 5 AM UTC (2 AM Santiago) después de la ingesta de licitaciones.
+// Para cada proyecto revisa si el caché de licitación/OC existe y está vigente;
+// si no, lo re-fetcha directamente desde las APIs de Mercado Público.
+const MP_API_LICIT_URL = 'https://api.mercadopublico.cl/servicios/v1/publico/licitaciones.json';
+const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 días
+const CONCURRENCY = 5; // peticiones simultáneas máx. al API externo
+
+exports.refrescarCacheExterno = onSchedule({
+  schedule: '0 5 * * *',   // 5 AM UTC = 2 AM Santiago
+  region: 'us-central1',
+  timeoutSeconds: 540,
+  memory: '512MiB',
+}, async () => {
+  const db = admin.firestore();
+  const now = new Date();
+  const stats = { licitaciones: 0, oc: 0, omitidas: 0, errores: 0 };
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  function isFresh(snap) {
+    if (!snap.exists) return false;
+    const fetchedAt = snap.data()?.fetchedAt?.toDate?.();
+    return fetchedAt ? (now - fetchedAt) < CACHE_TTL_MS : false;
+  }
+
+  // Guarda en Firestore sin lanzar excepción
+  async function saveCache(ref, data) {
+    await ref.set({ data, fetchedAt: admin.firestore.FieldValue.serverTimestamp() });
+  }
+
+  // Fetch OCDS (tender o award) con fallback a MP API REST
+  async function refreshLicitacion(cacheRef, idLicitacion, modalidad) {
+    const ocdsSnap = await cacheRef.doc('ocds').get();
+
+    // Ya existe caché fresco con releases → skip
+    if (isFresh(ocdsSnap) && (ocdsSnap.data()?.data?.releases ?? []).length > 0) {
+      stats.omitidas++; return;
+    }
+
+    const useAward = modalidad === 'Convenio Marco' || modalidad === 'Trato Directo';
+    const type = useAward ? 'award' : 'tender';
+
+    // 1. Intentar OCDS
+    try {
+      const resp = await axios.get(
+        `${BASE_URL}/${type}/${encodeURIComponent(idLicitacion)}`,
+        { timeout: 20000 }
+      );
+      if (resp.status === 200 && resp.data) {
+        await saveCache(cacheRef.doc('ocds'), resp.data);
+        stats.licitaciones++;
+        // Si releases vacío, también refrescar fallback MP API
+        if ((resp.data?.releases ?? []).length === 0) {
+          await refreshMpApi(cacheRef, idLicitacion);
+        }
+        return;
+      }
+    } catch (e) {
+      if (e.response?.status === 404) { stats.omitidas++; return; }
+      logger.warn(`refrescarCache OCDS ${idLicitacion}: ${e.message}`);
+    }
+
+    // 2. Fallback: MP API REST
+    await refreshMpApi(cacheRef, idLicitacion);
+    stats.errores++;
+  }
+
+  async function refreshMpApi(cacheRef, idLicitacion) {
+    const snap = await cacheRef.doc('mp_api').get();
+    if (isFresh(snap)) return;
+    try {
+      const resp = await axios.get(
+        `${MP_API_LICIT_URL}?codigo=${encodeURIComponent(idLicitacion)}&ticket=${OC_TICKET}`,
+        { timeout: 15000 }
+      );
+      if (resp.status === 200 && (resp.data?.Listado ?? []).length > 0) {
+        await saveCache(cacheRef.doc('mp_api'), resp.data);
+      }
+    } catch (e) {
+      logger.warn(`refrescarCache MP API ${idLicitacion}: ${e.message}`);
+    }
+  }
+
+  async function refreshOc(cacheRef, ocId) {
+    const cacheKey = `oc_${ocId}`;
+    const snap = await cacheRef.doc(cacheKey).get();
+    if (isFresh(snap)) { stats.omitidas++; return; }
+    try {
+      const resp = await axios.get(
+        `${OC_BASE_URL}?codigo=${encodeURIComponent(ocId)}&ticket=${OC_TICKET}`,
+        { timeout: 20000 }
+      );
+      const listado = resp.data?.Listado ?? [];
+      if (listado.length > 0) {
+        await saveCache(cacheRef.doc(cacheKey), listado[0]);
+        stats.oc++;
+      } else {
+        stats.omitidas++;
+      }
+    } catch (e) {
+      if (e.response?.status === 404) { stats.omitidas++; return; }
+      logger.warn(`refrescarCache OC ${ocId}: ${e.message}`);
+      stats.errores++;
+    }
+  }
+
+  // ── Main ─────────────────────────────────────────────────────────────────
+
+  const proySnap = await db.collection('proyectos').get();
+  logger.info(`refrescarCacheExterno: ${proySnap.size} proyectos`);
+
+  const tasks = [];
+  for (const doc of proySnap.docs) {
+    const p = doc.data();
+    const cacheRef = db.collection('proyectos').doc(doc.id).collection('cache');
+
+    if (p.idLicitacion) {
+      tasks.push(() => refreshLicitacion(cacheRef, p.idLicitacion, p.modalidadCompra ?? ''));
+    }
+    if (Array.isArray(p.idsOrdenesCompra)) {
+      for (const ocId of p.idsOrdenesCompra) {
+        if (ocId) tasks.push(() => refreshOc(cacheRef, ocId));
+      }
+    }
+  }
+
+  logger.info(`refrescarCacheExterno: ${tasks.length} entradas a revisar`);
+
+  // Ejecutar con concurrencia limitada para no saturar el API externo
+  for (let i = 0; i < tasks.length; i += CONCURRENCY) {
+    await Promise.allSettled(tasks.slice(i, i + CONCURRENCY).map(fn => fn()));
+  }
+
+  logger.info(
+    `refrescarCacheExterno completado — licitaciones: ${stats.licitaciones}, ` +
+    `OC: ${stats.oc}, omitidas: ${stats.omitidas}, errores: ${stats.errores}`
+  );
+  await _logApiCall(admin.firestore(), {
+    funcion: 'refrescarCacheExterno',
+    tipo: 'cache_refresh',
+    id: `${proySnap.size} proyectos — ${stats.licitaciones} licit, ${stats.oc} OC, ${stats.omitidas} omitidas, ${stats.errores} errores`,
+    estado: stats.errores === 0 ? 'ok' : 'error',
+    statusCode: null,
+    ms: null,
+  });
+});
+
+// --- CLOUD FUNCTION: Ingesta manual bajo demanda ---
+exports.dispararIngestaOCDS = onRequest({
+  cors: true,
+  region: 'us-central1',
+  timeoutSeconds: 540,
+  memory: '1GiB',
+}, async (req, res) => {
+  const db = admin.firestore();
+  const now = new Date();
+  const months = [
+    { year: now.getFullYear(), month: String(now.getMonth() + 1).padStart(2, '0') },
+    { year: now.getFullYear(), month: String(now.getMonth()).padStart(2, '0') },
+  ];
+  try {
+    for (const { year, month } of months) {
+      await processMonth(db, year, month);
+    }
+    res.json({ ok: true, mensaje: 'Ingesta completada para los últimos 2 meses.' });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// --- CLOUD FUNCTION: Historial de consultas a APIs externas ---
+exports.obtenerHistorialApi = onRequest({
+  cors: true,
+  region: 'us-central1',
+  timeoutSeconds: 15,
+  memory: '256MiB',
+}, async (req, res) => {
+  const db = admin.firestore();
+  const limit = Math.min(parseInt(req.query.limit ?? '100'), 200);
+  const snap = await db.collection('api_logs')
+    .orderBy('timestamp', 'desc')
+    .limit(limit)
+    .get();
+  const logs = snap.docs.map(d => {
+    const data = d.data();
+    return {
+      funcion: data.funcion,
+      tipo: data.tipo,
+      id: data.id,
+      estado: data.estado,
+      statusCode: data.statusCode ?? null,
+      ms: data.ms ?? null,
+      timestamp: data.timestamp?.toDate?.()?.toISOString() ?? null,
+    };
+  });
+  res.json({ logs });
 });

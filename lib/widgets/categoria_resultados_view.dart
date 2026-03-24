@@ -6,6 +6,53 @@ import 'package:google_fonts/google_fonts.dart';
 import 'licitaciones_table.dart';
 import 'detalle_licitacion.dart';
 
+// ── Skeleton shimmer ──────────────────────────────────────────────────────────
+class _Shimmer extends StatefulWidget {
+  final double width;
+  final double height;
+  final double radius;
+  const _Shimmer({required this.width, required this.height, this.radius = 6});
+
+  @override
+  State<_Shimmer> createState() => _ShimmerState();
+}
+
+class _ShimmerState extends State<_Shimmer> with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))
+      ..repeat(reverse: true);
+    _anim = Tween<double>(begin: 0.3, end: 0.9).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _anim,
+      builder: (_, __) => Container(
+        width: widget.width,
+        height: widget.height,
+        decoration: BoxDecoration(
+          color: Color.fromRGBO(203, 213, 225, _anim.value),
+          borderRadius: BorderRadius.circular(widget.radius),
+        ),
+      ),
+    );
+  }
+}
+
 class CategoriaResultadosView extends StatefulWidget {
   final String prefix;
   final String nombre;
@@ -35,11 +82,70 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
   bool _soloAbiertas = false;
   DateTimeRange? _rangoPublicacion;
   DateTimeRange? _rangoCierre;
+  String _busqueda = '';
+  final _searchCtrl = TextEditingController();
+  bool _disparandoIngesta = false;
 
   @override
   void initState() {
     super.initState();
     _cargarTodo();
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _dispararIngesta() async {
+    if (_disparandoIngesta) return;
+    setState(() => _disparandoIngesta = true);
+    try {
+      final resp = await http
+          .get(Uri.parse(
+              'https://us-central1-licitaciones-prod.cloudfunctions.net/dispararIngestaOCDS'))
+          .timeout(const Duration(seconds: 560));
+      if (resp.statusCode == 200) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Ingesta completada. Recargando…',
+                  style: GoogleFonts.inter(fontSize: 13)),
+              backgroundColor: const Color(0xFF10B981),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          );
+          _cargarTodo();
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error ${resp.statusCode}',
+                  style: GoogleFonts.inter(fontSize: 13)),
+              backgroundColor: Colors.redAccent,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e', style: GoogleFonts.inter(fontSize: 13)),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _disparandoIngesta = false);
+    }
   }
 
   Future<void> _cargarTodo() async {
@@ -81,6 +187,7 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
   }
 
   List<LicitacionUI> get _filtradas {
+    final q = _busqueda.toLowerCase().trim();
     return _todas.where((l) {
       if (_soloAbiertas && !l.esVigente) return false;
       if (_rangoPublicacion != null) {
@@ -94,6 +201,13 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
         if (d == null) return false;
         if (d.isBefore(_rangoCierre!.start)) return false;
         if (d.isAfter(_rangoCierre!.end.add(const Duration(days: 1)))) return false;
+      }
+      if (q.isNotEmpty) {
+        final comprador = l.rawData['comprador']?.toString().toLowerCase() ?? '';
+        if (!l.id.toLowerCase().contains(q) &&
+            !l.titulo.toLowerCase().contains(q) &&
+            !l.descripcion.toLowerCase().contains(q) &&
+            !comprador.contains(q)) { return false; }
       }
       return true;
     }).toList();
@@ -166,13 +280,39 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.of(context).pop(),
         ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: _disparandoIngesta
+                ? const SizedBox(
+                    width: 36, height: 36,
+                    child: Center(child: SizedBox(width: 18, height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: _primaryColor))))
+                : Tooltip(
+                    message: 'Buscar nuevas licitaciones',
+                    child: IconButton(
+                      onPressed: _dispararIngesta,
+                      icon: const Icon(Icons.cloud_download_outlined, size: 20),
+                      color: _primaryColor,
+                    ),
+                  ),
+          ),
+        ],
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(widget.nombre,
                 style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w600)),
-            Text('${_fmt(widget.total)} licitaciones en la base de datos',
-                style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500)),
+            _cargando && _todas.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.only(top: 3),
+                    child: _Shimmer(width: 160, height: 10),
+                  )
+                : Text(
+                    _cargando
+                        ? '${_fmt(_todas.length)} cargados…'
+                        : '${_fmt(_todas.length)} licitaciones encontradas',
+                    style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500)),
           ],
         ),
       ),
@@ -191,6 +331,40 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // ── Search bar ────────────────────────────────────────
+                      TextField(
+                        controller: _searchCtrl,
+                        onChanged: (v) => setState(() { _busqueda = v; _clientPagina = 0; }),
+                        style: GoogleFonts.inter(fontSize: 13),
+                        decoration: InputDecoration(
+                          hintText: 'Buscar por ID, título, organismo o descripción…',
+                          hintStyle: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400),
+                          prefixIcon: Icon(Icons.search, size: 18, color: Colors.grey.shade400),
+                          suffixIcon: _busqueda.isNotEmpty
+                              ? IconButton(
+                                  icon: Icon(Icons.close, size: 16, color: Colors.grey.shade400),
+                                  onPressed: () => setState(() { _busqueda = ''; _searchCtrl.clear(); _clientPagina = 0; }),
+                                )
+                              : null,
+                          isDense: true,
+                          filled: true,
+                          fillColor: Colors.white,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(color: Colors.grey.shade200),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(color: Colors.grey.shade200),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(color: _primaryColor, width: 1.5),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
                       // ── Filter row ────────────────────────────────────────
                       _buildFilterRow(abiertas, cerradas, isMobile),
                       const SizedBox(height: 16),
@@ -216,6 +390,37 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
                             }
                           },
                         ),
+                      // ── Skeleton (cargando más) ────────────────────────────
+                      if (_cargando && _todas.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Column(children: List.generate(3, (_) => Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                                  const _Shimmer(width: 100, height: 10),
+                                  const _Shimmer(width: 52, height: 20, radius: 20),
+                                ]),
+                                const SizedBox(height: 12),
+                                const _Shimmer(width: double.infinity, height: 11),
+                                const SizedBox(height: 6),
+                                const _Shimmer(width: 200, height: 11),
+                                const SizedBox(height: 14),
+                                Row(children: const [
+                                  _Shimmer(width: 80, height: 9),
+                                  SizedBox(width: 16),
+                                  _Shimmer(width: 80, height: 9),
+                                ]),
+                              ]),
+                            ),
+                          ))),
+                        ),
                       // ── Pagination ────────────────────────────────────────
                       if (filtradas.isNotEmpty && totalPages > 1)
                         Padding(
@@ -235,18 +440,6 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
                                   _clientPagina < totalPages - 1,
                                   () => setState(() => _clientPagina++)),
                             ],
-                          ),
-                        ),
-                      if (_cargando && _todas.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Center(
-                            child: Row(mainAxisSize: MainAxisSize.min, children: [
-                              SizedBox(width: 14, height: 14,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.grey.shade400)),
-                              const SizedBox(width: 8),
-                              Text('Cargando más...', style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade400)),
-                            ]),
                           ),
                         ),
                     ],
@@ -296,15 +489,18 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
                       : const Color(0xFF10B981),
                   shape: BoxShape.circle)),
           const SizedBox(width: 6),
-          Text(
-            _soloAbiertas
-                ? 'Solo abiertas ($abiertas)'
-                : 'Todas (${_todas.length})',
-            style: GoogleFonts.inter(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: _soloAbiertas ? Colors.white : Colors.grey.shade700),
-          ),
+          if (_cargando && _todas.isEmpty)
+            const _Shimmer(width: 60, height: 10)
+          else
+            Text(
+              _soloAbiertas
+                  ? 'Solo abiertas ($abiertas)'
+                  : 'Todas (${_todas.length})',
+              style: GoogleFonts.inter(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: _soloAbiertas ? Colors.white : Colors.grey.shade700),
+            ),
         ]),
       ),
     );

@@ -42,7 +42,7 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _cargar();
     _fetchTiposDocumento();
   }
@@ -339,6 +339,7 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
                         tabs: const [
                           Tab(text: 'General'),
                           Tab(text: 'Textos de ayuda'),
+                          Tab(text: 'Sistema'),
                         ],
                       ),
                     ),
@@ -399,6 +400,18 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
                         child: Padding(
                           padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 0),
                           child: const HelpTextsEditor(),
+                        ),
+                      ),
+                    ),
+                    // ── Tab 3: Sistema ────────────────────────────────────
+                    SingleChildScrollView(
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 880),
+                          child: Padding(
+                            padding: EdgeInsets.fromLTRB(hPad, 20, hPad, 48),
+                            child: const _SistemaTab(),
+                          ),
                         ),
                       ),
                     ),
@@ -1728,6 +1741,307 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
   }
 }
 
+// ── Sistema Tab ───────────────────────────────────────────────────────────────
+
+class _SistemaTab extends StatelessWidget {
+  const _SistemaTab();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text('Funciones del Sistema',
+                  style: GoogleFonts.inter(
+                      fontSize: 17, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
+            ),
+            TextButton.icon(
+              onPressed: () => showModalBottomSheet(
+                context: context,
+                isScrollControlled: true,
+                backgroundColor: Colors.transparent,
+                builder: (_) => const _HistorialApiSheet(),  // sin filtro = todos
+              ),
+              icon: const Icon(Icons.history_rounded, size: 16),
+              label: Text('Historial', style: GoogleFonts.inter(fontSize: 13)),
+              style: TextButton.styleFrom(foregroundColor: _primaryColor),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Automatizaciones y servicios Cloud Functions que mantienen los datos actualizados.',
+          style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade500),
+        ),
+        const SizedBox(height: 20),
+        _sectionHeader('Automáticas — se ejecutan en horario programado'),
+        const SizedBox(height: 10),
+        _fnCard(context,
+          icon: Icons.download_rounded,
+          iconColor: const Color(0xFF0EA5E9),
+          name: 'obtenerLicitacionesOCDS',
+          badge: '2:00 AM UTC · diaria',
+          badgeColor: const Color(0xFF0EA5E9),
+          description:
+              'Ingesta masiva de licitaciones publicadas en Mercado Público. '
+              'Descarga los últimos 2 meses desde la API OCDS y guarda los registros '
+              'base en `licitaciones_activas` con estado `procesado: false` para que '
+              '`procesarLotesDeLicitaciones` los enriquezca.',
+        ),
+        _fnCard(context,
+          icon: Icons.sync_rounded,
+          iconColor: const Color(0xFF8B5CF6),
+          name: 'procesarLotesDeLicitaciones',
+          badge: 'cada 2 min',
+          badgeColor: const Color(0xFF8B5CF6),
+          description:
+              'Lee hasta 200 licitaciones pendientes (`procesado: false`) y consulta '
+              'el detalle completo OCDS por cada una. Extrae título, descripción e ítems, '
+              'genera el campo `texto_busqueda` e indexa el documento en Discovery Engine '
+              'para búsqueda semántica. Marca `procesado: true` al finalizar.',
+        ),
+        _fnCard(context,
+          icon: Icons.bar_chart_rounded,
+          iconColor: const Color(0xFF10B981),
+          name: 'calcularEstadisticasDiario',
+          badge: '6:00 AM UTC · diaria',
+          badgeColor: const Color(0xFF10B981),
+          description:
+              'Recalcula las estadísticas mensuales de compras públicas. '
+              'Itera `licitaciones_ocds` del mes actual, extrae prefijos UNSPSC '
+              'de los ítems, agrupa por categoría (top 12) y actualiza el documento '
+              '`_stats/resumen` que alimenta los KPIs del panel de inicio.',
+        ),
+        _fnCard(context,
+          icon: Icons.cloud_sync_rounded,
+          iconColor: const Color(0xFFF59E0B),
+          name: 'refrescarCacheExterno',
+          badge: '5:00 AM UTC · diaria',
+          badgeColor: const Color(0xFFF59E0B),
+          description:
+              'Actualiza el caché nocturno de proyectos. Para cada proyecto revisa si '
+              'el detalle de licitación (`cache/ocds`, `cache/mp_api`) y las órdenes de '
+              'compra (`cache/oc_*`) están presentes y vigentes (< 30 días). '
+              'Re-fetcha los que falten directamente desde las APIs de Mercado Público '
+              'con concurrencia de 5 para no provocar errores 503.',
+        ),
+        const SizedBox(height: 20),
+        _sectionHeader('Bajo demanda — llamadas por la aplicación'),
+        const SizedBox(height: 10),
+        _fnCard(context,
+          icon: Icons.search_rounded,
+          iconColor: const Color(0xFF6366F1),
+          name: 'buscarLicitacionPorId',
+          badge: 'HTTP · GET',
+          badgeColor: const Color(0xFF6366F1),
+          description:
+              'Consulta el detalle OCDS de una licitación por su código. '
+              'Parámetros: `id` (código), `type` (tender/award). '
+              'Usado al abrir el panel de detalle de un proyecto con licitación pública o trato directo.',
+        ),
+        _fnCard(context,
+          icon: Icons.receipt_long_rounded,
+          iconColor: const Color(0xFF6366F1),
+          name: 'buscarOrdenCompra',
+          badge: 'HTTP · GET',
+          badgeColor: const Color(0xFF6366F1),
+          description:
+              'Consulta el detalle de una orden de compra por su código. '
+              'Retorna el primer resultado del Listado de la API REST de Mercado Público. '
+              'Usado en la pestaña Órdenes de Compra del detalle de proyecto.',
+        ),
+        _fnCard(context,
+          icon: Icons.link_rounded,
+          iconColor: const Color(0xFF6366F1),
+          name: 'obtenerDetalleConvenioMarco',
+          badge: 'HTTP · GET',
+          badgeColor: const Color(0xFF6366F1),
+          description:
+              'Hace scraping de la página de un Convenio Marco en Mercado Público. '
+              'Extrae título, comprador, estado y campos estructurados usando Cheerio. '
+              'Usado al abrir proyectos con modalidad Convenio Marco.',
+        ),
+        _fnCard(context,
+          icon: Icons.cached_rounded,
+          iconColor: const Color(0xFF64748B),
+          name: 'obtenerCacheExterno / guardarCacheExterno',
+          badge: 'HTTP · GET / POST',
+          badgeColor: const Color(0xFF64748B),
+          description:
+              'Lee y escribe el caché de datos externos en la subcolección '
+              '`proyectos/{id}/cache/{tipo}`. Los tipos posibles son: `ocds`, `mp_api`, '
+              '`oc_{código}` y `convenio`. El caché evita llamadas repetidas a APIs externas '
+              'y es la fuente primaria antes de consultar Mercado Público.',
+        ),
+        _fnCard(context,
+          icon: Icons.settings_rounded,
+          iconColor: const Color(0xFF64748B),
+          name: 'obtenerConfiguracion / guardarConfiguracion',
+          badge: 'HTTP · GET / POST',
+          badgeColor: const Color(0xFF64748B),
+          description:
+              'Lee y actualiza el documento de configuración global de la app '
+              '(`configuracion/global` en Firestore). Incluye estados, modalidades, '
+              'productos y tipos de documento disponibles en los formularios.',
+        ),
+        _fnCard(context,
+          icon: Icons.folder_rounded,
+          iconColor: const Color(0xFF64748B),
+          name: 'obtenerProyectos',
+          badge: 'HTTP · GET',
+          badgeColor: const Color(0xFF64748B),
+          description:
+              'Retorna la lista completa de proyectos del usuario autenticado '
+              'desde Firestore. Convierte Timestamps a ISO strings para compatibilidad '
+              'con el cliente Flutter. Resultados cacheados en memoria en el cliente.',
+        ),
+        _fnCard(context,
+          icon: Icons.analytics_rounded,
+          iconColor: const Color(0xFF0EA5E9),
+          name: 'analizarClientesMeetcard',
+          badge: 'HTTP · GET',
+          badgeColor: const Color(0xFF0EA5E9),
+          description:
+              'Consulta BigQuery para cruzar las órdenes de compra del sistema con '
+              'los proyectos registrados. Identifica clientes nuevos (ausentes) y '
+              'presentes, útil para análisis de cartera y detección de oportunidades.',
+        ),
+        _fnCard(context,
+          icon: Icons.person_add_rounded,
+          iconColor: const Color(0xFF64748B),
+          name: 'crearUsuario',
+          badge: 'HTTP · POST · Admin',
+          badgeColor: const Color(0xFF64748B),
+          description:
+              'Crea un nuevo usuario en Firebase Auth con email `@meetcard.cl`. '
+              'Solo puede ser llamada por usuarios con rol `admin`. '
+              'Verifica el token del llamador y su rol en Firestore antes de proceder.',
+        ),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8FAFC),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.grey.shade200),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.info_outline_rounded, size: 15, color: Colors.grey.shade400),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Las funciones automáticas se despliegan en Cloud Functions us-central1. '
+                  'Los logs están disponibles en Google Cloud Console → Cloud Functions.',
+                  style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _sectionHeader(String text) => Padding(
+        padding: const EdgeInsets.only(bottom: 2),
+        child: Text(text,
+            style: GoogleFonts.inter(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade400,
+                letterSpacing: 0.4)),
+      );
+
+  Widget _fnCard(BuildContext context, {
+    required IconData icon,
+    required Color iconColor,
+    required String name,
+    required String badge,
+    required Color badgeColor,
+    required String description,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: () => showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => _HistorialApiSheet(funcion: name),
+      ),
+      child: Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.grey.shade100),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 4,
+              offset: const Offset(0, 1))
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 16, color: iconColor),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(name,
+                          style: GoogleFonts.inter(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: const Color(0xFF1E293B))),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: badgeColor.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(badge,
+                          style: GoogleFonts.inter(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: badgeColor)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 5),
+                Text(description,
+                    style: GoogleFonts.inter(
+                        fontSize: 12.5,
+                        color: Colors.grey.shade600,
+                        height: 1.5)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),   // Container
+    );   // InkWell
+  }
+}
+
 InputDecoration _inputDecor(String hint) => InputDecoration(
   hintText: hint,
   hintStyle: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400),
@@ -1830,6 +2144,241 @@ class _AddRowState extends State<_AddRow> {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Bottom sheet: historial de consultas a APIs externas
+// ---------------------------------------------------------------------------
+class _HistorialApiSheet extends StatefulWidget {
+  final String? funcion;
+  const _HistorialApiSheet({this.funcion});
+
+  @override
+  State<_HistorialApiSheet> createState() => _HistorialApiSheetState();
+}
+
+class _HistorialApiSheetState extends State<_HistorialApiSheet> {
+  bool _loading = true;
+  List<Map<String, dynamic>> _logs = [];
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+  }
+
+  Future<void> _fetch() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final uri = Uri.parse('$_cfBase/obtenerHistorialApi?limit=200');
+      final res = await http.get(uri);
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        final all = List<Map<String, dynamic>>.from(data['logs'] ?? []);
+        setState(() {
+          _logs = widget.funcion != null
+              ? all.where((l) => l['funcion'] == widget.funcion).toList()
+              : all;
+          _loading = false;
+        });
+      } else {
+        setState(() {
+          _error = 'Error ${res.statusCode}';
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  Color _estadoColor(String? estado) {
+    switch (estado) {
+      case 'ok':
+        return const Color(0xFF16A34A);
+      case 'error':
+        return const Color(0xFFDC2626);
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _fmtFecha(String? iso) {
+    if (iso == null) return '—';
+    try {
+      final dt = DateTime.parse(iso).toLocal();
+      return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year} '
+          '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    } catch (_) {
+      return iso;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            children: [
+              Container(
+                margin: const EdgeInsets.only(top: 12, bottom: 4),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 12, 8),
+                child: Row(
+                  children: [
+                    const Icon(Icons.history_rounded, size: 20, color: _primaryColor),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.funcion != null ? 'Historial' : 'Historial de API',
+                            style: GoogleFonts.inter(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
+                                color: const Color(0xFF1E293B)),
+                          ),
+                          if (widget.funcion != null)
+                            Text(
+                              widget.funcion!,
+                              style: GoogleFonts.inter(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade500),
+                            ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: _fetch,
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
+                      color: Colors.grey.shade500,
+                      tooltip: 'Actualizar',
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close, size: 18),
+                      color: Colors.grey.shade500,
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _error != null
+                        ? Center(
+                            child: Text(_error!,
+                                style: GoogleFonts.inter(
+                                    color: Colors.red, fontSize: 13)))
+                        : _logs.isEmpty
+                            ? Center(
+                                child: Text('Sin registros',
+                                    style: GoogleFonts.inter(
+                                        color: Colors.grey, fontSize: 14)))
+                            : ListView.separated(
+                                controller: scrollController,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 8),
+                                itemCount: _logs.length,
+                                separatorBuilder: (_, __) =>
+                                    const Divider(height: 1),
+                                itemBuilder: (_, i) {
+                                  final log = _logs[i];
+                                  final estado = log['estado'] as String?;
+                                  final ms = log['ms'] as int?;
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 10),
+                                    child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Container(
+                                          width: 8,
+                                          height: 8,
+                                          margin: const EdgeInsets.only(
+                                              top: 4, right: 10),
+                                          decoration: BoxDecoration(
+                                            color: _estadoColor(estado),
+                                            shape: BoxShape.circle,
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                log['funcion'] ?? '—',
+                                                style: GoogleFonts.inter(
+                                                    fontSize: 13,
+                                                    fontWeight:
+                                                        FontWeight.w600,
+                                                    color: const Color(
+                                                        0xFF1E293B)),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                [
+                                                  if (log['tipo'] != null)
+                                                    log['tipo'],
+                                                  if (log['id'] != null)
+                                                    'ID: ${log['id']}',
+                                                  if (log['statusCode'] != null)
+                                                    'HTTP ${log['statusCode']}',
+                                                  if (ms != null) '${ms}ms',
+                                                ].join(' · '),
+                                                style: GoogleFonts.inter(
+                                                    fontSize: 12,
+                                                    color: Colors.grey.shade500),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          _fmtFecha(log['timestamp'] as String?),
+                                          style: GoogleFonts.inter(
+                                              fontSize: 11,
+                                              color: Colors.grey.shade400),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

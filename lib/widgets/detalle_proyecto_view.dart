@@ -91,8 +91,11 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
   int get _tabCount => _tabs.length;
 
   void _rebuildTabController() {
+    final prevIndex = _tabController.index;
     _tabController.dispose();
     _tabController = TabController(length: _tabCount, vsync: this);
+    final safeIndex = prevIndex.clamp(0, _tabCount - 1);
+    if (safeIndex > 0) _tabController.index = safeIndex;
     setState(() {});
   }
 
@@ -142,7 +145,7 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
   Future<void> _cargarOcds({bool forceRefresh = false}) async {
     setState(() { _cargandoOcds = true; _errorOcds = null; });
     final idLic = _proyecto.idLicitacion!;
-    // 1. Try cache
+    // 1. Try cache (máx 3 días)
     if (!forceRefresh) {
       try {
         final cResp = await http.get(Uri.parse(
@@ -151,18 +154,26 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
         if (cResp.statusCode == 200) {
           final c = json.decode(cResp.body);
           if (c != null && c['data'] != null) {
-            if (mounted) {
-              setState(() {
-                _ocdsData = c['data'];
-                _ocdsLastFetch = c['fetchedAt']?.toString();
-                _cargandoOcds = false;
-              });
-              _sincronizarFechasDesdeOcds();
+            final fetchedAt = c['fetchedAt'] != null
+                ? DateTime.tryParse(c['fetchedAt'].toString())
+                : null;
+            final edad = fetchedAt != null
+                ? DateTime.now().difference(fetchedAt)
+                : const Duration(days: 999);
+            if (edad.inHours < 24) {
+              if (mounted) {
+                setState(() {
+                  _ocdsData = c['data'];
+                  _ocdsLastFetch = c['fetchedAt']?.toString();
+                  _cargandoOcds = false;
+                });
+                _sincronizarFechasDesdeOcds();
+              }
+              // Si releases vacío en caché, intentar mp_api como complemento
+              final releases = (c['data']['releases'] as List?) ?? [];
+              if (releases.isEmpty) await _tryLoadMpApiCache();
+              return;
             }
-            // Si releases vacío en caché, intentar mp_api como complemento
-            final releases = (c['data']['releases'] as List?) ?? [];
-            if (releases.isEmpty) await _tryLoadMpApiCache();
-            return;
           }
         }
       } catch (_) {}
@@ -306,7 +317,7 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
 
   Future<Map<String, dynamic>?> _cargarUnaOc(String id, {bool forceRefresh = false}) async {
     final cacheKey = 'oc_$id';
-    // 1. Try cache
+    // 1. Try cache (máx 3 días)
     if (!forceRefresh) {
       try {
         final cResp = await http.get(Uri.parse(
@@ -315,8 +326,16 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
         if (cResp.statusCode == 200) {
           final c = json.decode(cResp.body);
           if (c != null && c['data'] != null) {
-            if (mounted) setState(() => _ocLastFetchMap[id] = c['fetchedAt']?.toString());
-            return c['data'] as Map<String, dynamic>;
+            final fetchedAt = c['fetchedAt'] != null
+                ? DateTime.tryParse(c['fetchedAt'].toString())
+                : null;
+            final edad = fetchedAt != null
+                ? DateTime.now().difference(fetchedAt)
+                : const Duration(days: 999);
+            if (edad.inHours < 24) {
+              if (mounted) setState(() => _ocLastFetchMap[id] = c['fetchedAt']?.toString());
+              return c['data'] as Map<String, dynamic>;
+            }
           }
         }
       } catch (_) {}
@@ -353,7 +372,7 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
   Future<void> _cargarConvenio({bool forceRefresh = false}) async {
     setState(() { _cargandoConvenio = true; _errorConvenio = null; });
     final url = _proyecto.urlConvenioMarco!;
-    // 1. Try cache
+    // 1. Try cache (máx 3 días)
     if (!forceRefresh) {
       try {
         final cResp = await http.get(Uri.parse(
@@ -362,15 +381,23 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
         if (cResp.statusCode == 200) {
           final c = json.decode(cResp.body);
           if (c != null && c['data'] != null) {
-            if (mounted) {
-              setState(() {
-                _convenioData = c['data'];
-                _convenioLastFetch = c['fetchedAt']?.toString();
-                _cargandoConvenio = false;
-              });
-              _sincronizarFechasDesdeConvenio();
+            final fetchedAt = c['fetchedAt'] != null
+                ? DateTime.tryParse(c['fetchedAt'].toString())
+                : null;
+            final edad = fetchedAt != null
+                ? DateTime.now().difference(fetchedAt)
+                : const Duration(days: 999);
+            if (edad.inHours < 24) {
+              if (mounted) {
+                setState(() {
+                  _convenioData = c['data'];
+                  _convenioLastFetch = c['fetchedAt']?.toString();
+                  _cargandoConvenio = false;
+                });
+                _sincronizarFechasDesdeConvenio();
+              }
+              return;
             }
-            return;
           }
         }
       } catch (_) {}
@@ -625,7 +652,7 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
     );
   }
 
-  Widget _refreshBar(String? lastFetch, VoidCallback onRefresh) {
+  Widget _refreshBar(String? lastFetch, VoidCallback onRefresh, {bool loading = false}) {
     String label = 'Datos externos';
     if (lastFetch != null) {
       try {
@@ -645,14 +672,19 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
         Expanded(child: Text(label,
             style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade400))),
         InkWell(
-          onTap: onRefresh,
+          onTap: loading ? null : onRefresh,
           borderRadius: BorderRadius.circular(6),
           child: Padding(
             padding: const EdgeInsets.all(4),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.refresh, size: 14, color: _primaryColor.withValues(alpha: 0.7)),
+              loading
+                  ? SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 1.5, color: _primaryColor.withValues(alpha: 0.7)))
+                  : Icon(Icons.refresh, size: 14, color: _primaryColor.withValues(alpha: 0.7)),
               const SizedBox(width: 4),
-              Text('Actualizar', style: GoogleFonts.inter(fontSize: 12, color: _primaryColor.withValues(alpha: 0.7), fontWeight: FontWeight.w500)),
+              Text(
+                loading ? 'Actualizando...' : 'Actualizar',
+                style: GoogleFonts.inter(fontSize: 12, color: _primaryColor.withValues(alpha: 0.7), fontWeight: FontWeight.w500),
+              ),
             ]),
           ),
         ),
@@ -2817,7 +2849,7 @@ $convenioHtml
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _refreshBar(_ocdsLastFetch, () => _cargarOcds(forceRefresh: true)),
+        _refreshBar(_ocdsLastFetch, () => _cargarOcds(forceRefresh: true), loading: _cargandoOcds),
         const SizedBox(height: 12),
         _ocdsHero(tender),
         const SizedBox(height: 16),
@@ -2897,7 +2929,7 @@ $convenioHtml
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _refreshBar(_convenioLastFetch, () => _cargarConvenio(forceRefresh: true)),
+        _refreshBar(_convenioLastFetch, () => _cargarConvenio(forceRefresh: true), loading: _cargandoConvenio),
         const SizedBox(height: 12),
 
         // Hero card
@@ -3716,7 +3748,7 @@ $convenioHtml
         // Refresh bar
         Container(
           color: _bgColor.withValues(alpha: 0.6),
-          child: _refreshBar(_ocLastFetchMap[ocId], () => _recargarUnaOc(ocId)),
+          child: _refreshBar(_ocLastFetchMap[ocId], () => _recargarUnaOc(ocId), loading: _cargandoOc),
         ),
 
         // Header: código + estado

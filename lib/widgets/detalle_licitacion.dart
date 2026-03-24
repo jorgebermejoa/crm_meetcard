@@ -305,30 +305,91 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
 
   // ── Panel Información ──────────────────────────────────────────────────────
 
+  /// Normaliza `tender`: en Firestore puede llegar como List o Map.
+  Map<String, dynamic> _tender(Map<String, dynamic> raw) {
+    final t = raw['tender'];
+    if (t is Map) return t.cast<String, dynamic>();
+    if (t is List && t.isNotEmpty && t.first is Map) {
+      return (t.first as Map).cast<String, dynamic>();
+    }
+    return {};
+  }
+
+  /// Convierte Timestamp Firestore `{_seconds, _nanoseconds}` o ISO string a DateTime?.
+  DateTime? _toDate(dynamic v) {
+    if (v == null) return null;
+    if (v is Map) {
+      final s = v['_seconds'] ?? v['seconds'];
+      if (s != null) return DateTime.fromMillisecondsSinceEpoch((s as num).toInt() * 1000);
+    }
+    if (v is String && v.isNotEmpty) return DateTime.tryParse(v);
+    return null;
+  }
+
+  String _fmtDate(dynamic v) {
+    final dt = _toDate(v);
+    if (dt == null) return 'S/F';
+    return '${dt.day.toString().padLeft(2, '0')}-${dt.month.toString().padLeft(2, '0')}-${dt.year}';
+  }
+
   Widget _panelInformacion() {
     final raw = widget.rawData;
-    final tender = (raw['tender'] as Map?)?.cast<String, dynamic>() ?? {};
-    final buyer = (raw['buyer'] as Map?)?.cast<String, dynamic>() ??
-        (tender['procuringEntity'] as Map?)?.cast<String, dynamic>() ??
-        {};
-    final value = (tender['value'] as Map?)?.cast<String, dynamic>() ?? {};
-    final items =
-        (tender['items'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-    final tenderPeriod =
-        (tender['tenderPeriod'] as Map?)?.cast<String, dynamic>() ?? {};
+    final tender = _tender(raw);
 
-    final descripcion = raw['descripcion'] ??
-        tender['description'] ??
-        'Sin descripción';
-    final monto = raw['monto'] ?? _formatMonto(value['amount'], value['currency']);
-    final fechaPub = raw['fechaPublicacion'] ?? '';
-    final fechaCierre = raw['fechaCierre'] ??
-        tenderPeriod['endDate']?.toString().substring(0, 10) ??
-        '';
-    final compradorFull = raw['comprador'] ??
-        buyer['name'] ??
-        tender['procuringEntity']?['name'] ??
-        '';
+    // buyer: nivel raíz o dentro de parties
+    Map<String, dynamic> buyer = {};
+    if (raw['buyer'] is Map) {
+      buyer = (raw['buyer'] as Map).cast<String, dynamic>();
+    } else {
+      final parties = (raw['parties'] as List?) ?? [];
+      for (final p in parties) {
+        if (p is Map) {
+          final roles = p['roles'];
+          if (roles is List && (roles.contains('buyer') || roles.contains('procuringEntity'))) {
+            buyer = p.cast<String, dynamic>();
+            break;
+          }
+        }
+      }
+    }
+
+    final value = tender['value'] is Map
+        ? (tender['value'] as Map).cast<String, dynamic>()
+        : <String, dynamic>{};
+    final tenderPeriod = tender['tenderPeriod'] is Map
+        ? (tender['tenderPeriod'] as Map).cast<String, dynamic>()
+        : <String, dynamic>{};
+    final enquiryPeriod = tender['enquiryPeriod'] is Map
+        ? (tender['enquiryPeriod'] as Map).cast<String, dynamic>()
+        : <String, dynamic>{};
+    final items = tender['items'] is List
+        ? (tender['items'] as List).whereType<Map>().map((e) => e.cast<String, dynamic>()).toList()
+        : <Map<String, dynamic>>[];
+    final awards = raw['awards'] is List
+        ? (raw['awards'] as List).whereType<Map>().map((e) => e.cast<String, dynamic>()).toList()
+        : <Map<String, dynamic>>[];
+    final contracts = raw['contracts'] is List
+        ? (raw['contracts'] as List).whereType<Map>().map((e) => e.cast<String, dynamic>()).toList()
+        : <Map<String, dynamic>>[];
+
+    final descripcion = raw['descripcion']?.toString().isNotEmpty == true
+        ? raw['descripcion'].toString()
+        : (tender['description']?.toString().isNotEmpty == true ? tender['description'].toString() : 'Sin descripción');
+    final monto = raw['monto']?.toString().isNotEmpty == true && raw['monto'] != 'S/M'
+        ? raw['monto'].toString()
+        : _formatMonto(value['amount'], value['currency']);
+    final fechaPub = raw['fechaPublicacion']?.toString().isNotEmpty == true && raw['fechaPublicacion'] != 'S/F'
+        ? raw['fechaPublicacion'].toString()
+        : _fmtDate(tenderPeriod['startDate'] ?? raw['date']);
+    final fechaCierreRaw = tenderPeriod['endDate'];
+    final fechaCierre = raw['fechaCierre']?.toString().isNotEmpty == true && raw['fechaCierre'] != 'S/F'
+        ? raw['fechaCierre'].toString()
+        : _fmtDate(fechaCierreRaw);
+    final compradorFull = raw['comprador']?.toString().isNotEmpty == true
+        ? raw['comprador'].toString()
+        : (buyer['name'] ?? tender['procuringEntity']?['name'] ?? '').toString();
+
+    final vigente = LicitacionUI('', '', '', '', fechaCierre).esVigente;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
@@ -338,75 +399,78 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
           // Descripción
           _sectionCard(children: [
             _label('DESCRIPCIÓN DEL PROCESO'),
-            Text(
-              descripcion.toString(),
-              style: GoogleFonts.inter(
-                  fontSize: 12,
-                  height: 1.6,
-                  color: const Color(0xFF334155)),
-            ),
+            Text(descripcion,
+                style: GoogleFonts.inter(fontSize: 12, height: 1.6, color: const Color(0xFF334155))),
           ]),
           const SizedBox(height: 10),
 
-          // Entidad
-          if (compradorFull.toString().isNotEmpty)
+          // Entidad compradora
+          if (compradorFull.isNotEmpty)
             _sectionCard(children: [
               _label('ENTIDAD COMPRADORA'),
-              Text(
-                compradorFull.toString(),
-                style: GoogleFonts.inter(
-                    fontSize: 13, fontWeight: FontWeight.w600),
-              ),
-              if (buyer['id'] != null) ...[
+              Text(compradorFull,
+                  style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+              if ((buyer['identifier']?['id'] ?? buyer['id']) != null) ...[
                 const SizedBox(height: 3),
-                Text('RUT: ${buyer['id']}',
-                    style: GoogleFonts.inter(
-                        fontSize: 11, color: Colors.grey.shade500)),
+                Text('RUT: ${buyer['identifier']?['id'] ?? buyer['id']}',
+                    style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500)),
+              ],
+              if (buyer['address'] is Map) ...[
+                const SizedBox(height: 3),
+                Text(_fmtAddress(buyer['address'] as Map),
+                    style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500)),
               ],
             ]),
-          if (compradorFull.toString().isNotEmpty) const SizedBox(height: 10),
+          if (compradorFull.isNotEmpty) const SizedBox(height: 10),
 
-          // Fechas + Monto
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: _sectionCard(children: [
-                  _label('PUBLICACIÓN'),
-                  Text(fechaPub,
-                      style: GoogleFonts.inter(
-                          fontSize: 13, fontWeight: FontWeight.w600)),
-                ]),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _sectionCard(children: [
-                  _label('CIERRE'),
-                  Text(
-                    fechaCierre,
-                    style: GoogleFonts.inter(
+          // Fechas
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(child: _sectionCard(children: [
+              _label('PUBLICACIÓN'),
+              Text(fechaPub,
+                  style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+            ])),
+            const SizedBox(width: 8),
+            Expanded(child: _sectionCard(children: [
+              _label('CIERRE'),
+              Text(fechaCierre,
+                  style: GoogleFonts.inter(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
-                      color: LicitacionUI('', '', '', '', fechaCierre).esVigente
-                          ? const Color(0xFF1E293B)
-                          : Colors.redAccent,
-                    ),
-                  ),
-                ]),
-              ),
-            ],
-          ),
+                      color: vigente ? const Color(0xFF1E293B) : Colors.redAccent)),
+            ])),
+          ]),
           const SizedBox(height: 10),
+
+          // Consultas
+          if (enquiryPeriod['endDate'] != null) ...[
+            _sectionCard(children: [
+              _label('PERÍODO DE CONSULTAS'),
+              Row(children: [
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('Inicio', style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
+                  Text(_fmtDate(enquiryPeriod['startDate']),
+                      style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
+                ])),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('Fin', style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
+                  Text(_fmtDate(enquiryPeriod['endDate']),
+                      style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
+                ])),
+              ]),
+            ]),
+            const SizedBox(height: 10),
+          ],
 
           // Monto estimado
           _sectionCard(children: [
             _label('MONTO ESTIMADO'),
             Text(
-              monto?.toString().isNotEmpty == true ? monto.toString() : 'S/M',
+              monto?.isNotEmpty == true ? monto! : 'S/M',
               style: GoogleFonts.inter(
                 fontSize: 22,
                 fontWeight: FontWeight.w800,
-                color: (monto == null || monto == 'S/M')
+                color: (monto == null || monto.isEmpty || monto == 'S/M')
                     ? Colors.grey.shade400
                     : const Color(0xFF059669),
                 letterSpacing: -0.5,
@@ -414,44 +478,126 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
             ),
             if (value['currency'] != null)
               Text(value['currency'].toString(),
-                  style: GoogleFonts.inter(
-                      fontSize: 11, color: Colors.grey.shade400)),
+                  style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
           ]),
           const SizedBox(height: 10),
 
           // Detalles técnicos
           _sectionCard(children: [
             _label('DETALLES'),
-            _infoRow('Categoría',
-                tender['mainProcurementCategory']?.toString() ?? 'N/A'),
-            _infoRow('Estado', tender['status']?.toString() ?? 'N/A'),
-            _infoRow('Método',
-                tender['procurementMethod']?.toString() ?? 'N/A'),
-            if (tender['procurementMethodDetails'] != null)
-              _infoRow('Modalidad',
-                  tender['procurementMethodDetails'].toString()),
+            if (_val(tender['mainProcurementCategory']) != null)
+              _infoRow('Categoría', _val(tender['mainProcurementCategory'])!),
+            if (_val(tender['status']) != null)
+              _infoRow('Estado', _val(tender['status'])!),
+            if (_val(tender['procurementMethod']) != null)
+              _infoRow('Método', _val(tender['procurementMethod'])!),
+            if (_val(tender['procurementMethodDetails']) != null)
+              _infoRow('Modalidad', _val(tender['procurementMethodDetails'])!),
+            if (_val(tender['procurementMethodRationale']) != null)
+              _infoRow('Justificación', _val(tender['procurementMethodRationale'])!),
             if (tender['numberOfTenderers'] != null)
-              _infoRow(
-                  'Nº Oferentes', tender['numberOfTenderers'].toString()),
+              _infoRow('Nº Oferentes', tender['numberOfTenderers'].toString()),
+            if (_val(tender['submissionMethod']?.toString()) != null)
+              _infoRow('Presentación', tender['submissionMethod'].toString()),
+            if (_val(raw['ocid']) != null)
+              _infoRow('OCID', _val(raw['ocid'])!),
           ]),
 
-          // Items
+          // Ítems
           if (items.isNotEmpty) ...[
             const SizedBox(height: 10),
             _sectionCard(children: [
               _label('ÍTEMS (${items.length})'),
-              ...items.take(8).map((it) => _itemRow(it)),
-              if (items.length > 8)
+              ...items.take(10).map((it) => _itemRow(it)),
+              if (items.length > 10)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
-                  child: Text('+ ${items.length - 8} más…',
-                      style: GoogleFonts.inter(
-                          fontSize: 11, color: Colors.grey.shade400)),
+                  child: Text('+ ${items.length - 10} más…',
+                      style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
                 ),
+            ]),
+          ],
+
+          // Adjudicaciones
+          if (awards.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _sectionCard(children: [
+              _label('ADJUDICACIONES (${awards.length})'),
+              ...awards.map((a) => _awardRow(a)),
+            ]),
+          ],
+
+          // Contratos
+          if (contracts.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _sectionCard(children: [
+              _label('CONTRATOS (${contracts.length})'),
+              ...contracts.map((c) => _contractRow(c)),
             ]),
           ],
         ],
       ),
+    );
+  }
+
+  String? _val(dynamic v) {
+    if (v == null) return null;
+    final s = v.toString().trim();
+    return s.isEmpty ? null : s;
+  }
+
+  String _fmtAddress(Map addr) {
+    final parts = [addr['streetAddress'], addr['locality'], addr['region'], addr['countryName']]
+        .whereType<String>().where((s) => s.isNotEmpty).toList();
+    return parts.join(', ');
+  }
+
+  Widget _awardRow(Map<String, dynamic> award) {
+    final suppliers = (award['suppliers'] as List?)
+        ?.whereType<Map>()
+        .map((s) => s['name']?.toString() ?? '')
+        .where((s) => s.isNotEmpty)
+        .join(', ') ?? '';
+    final value = award['value'] is Map ? (award['value'] as Map) : null;
+    final monto = value != null ? _formatMonto(value['amount'], value['currency']) : null;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Container(width: 6, height: 6, margin: const EdgeInsets.only(top: 4, right: 8),
+            decoration: const BoxDecoration(color: Color(0xFF10B981), shape: BoxShape.circle)),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if (suppliers.isNotEmpty)
+            Text(suppliers,
+                style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF334155))),
+          if (monto != null)
+            Text(monto, style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF059669), fontWeight: FontWeight.w600)),
+          if (_val(award['status']) != null)
+            Text('Estado: ${award['status']}',
+                style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
+        ])),
+      ]),
+    );
+  }
+
+  Widget _contractRow(Map<String, dynamic> contract) {
+    final value = contract['value'] is Map ? (contract['value'] as Map) : null;
+    final monto = value != null ? _formatMonto(value['amount'], value['currency']) : null;
+    final inicio = _fmtDate(contract['period'] is Map ? (contract['period'] as Map)['startDate'] : null);
+    final fin = _fmtDate(contract['period'] is Map ? (contract['period'] as Map)['endDate'] : null);
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (_val(contract['id']) != null)
+          Text('Contrato ${contract['id']}',
+              style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
+        if (monto != null)
+          Text(monto, style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF059669), fontWeight: FontWeight.w600)),
+        if (inicio != 'S/F' || fin != 'S/F')
+          Text('$inicio → $fin', style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
+        if (_val(contract['status']) != null)
+          Text('Estado: ${contract['status']}',
+              style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
+      ]),
     );
   }
 

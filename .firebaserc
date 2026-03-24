@@ -3,5 +3,12 @@
     "default": "licitaciones-prod"
   },
   "targets": {},
-  "etags": {}
+  "etags": {
+    "licitaciones-prod": {
+      "extensionInstances": {
+        "firestore-bigquery-export-licitaciones": "6b8e5b9183ed167cfd5474007abe9100ad11f3e92ff763dbcc8b372ac4f0b945",
+        "firestore-bigquery-export-proyectos": "51fd0c2d7b297ccd218e63b39188050534ec1e21c6fa3ac318b12bb243fe5e82"
+      }
+    }
+  }
 }

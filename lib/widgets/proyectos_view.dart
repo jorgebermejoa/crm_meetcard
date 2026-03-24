@@ -47,7 +47,7 @@ class _ProyectosViewState extends State<ProyectosView>
   String? _error;
 
   // Gantt mode: 'contrato' | 'ruta' | 'postulacion'
-  String _ganttMode = 'contrato';
+  String _ganttMode = 'postulacion';
   // Expanded rows (postulación mode — show milestones)
   final Set<String> _ganttExpandedRows = {};
   // Window override (null = auto-fit data range)
@@ -64,6 +64,8 @@ class _ProyectosViewState extends State<ProyectosView>
   int? _filterQuarterYear;
   int? _filterQuarterQ;
   bool _filterQuarterOnlyWithOC = false;
+  bool _filterQuarterIsChurn = false;
+  bool _filterQuarterOnlyIngresos = false; // solo vigente/xVencer/finalizado (gráfico Monto Mensual)
 
   // Pagination — Proyectos tab
   int _currentPage = 0;
@@ -222,6 +224,18 @@ class _ProyectosViewState extends State<ProyectosView>
   }
 
   List<Proyecto> _applyFilters(List<Proyecto> all) {
+    // Pre-compute active institutions set for churn renewal check (O(n) once)
+    final renovadas = (_filterQuarterYear != null &&
+            _filterQuarterQ != null &&
+            _filterQuarterIsChurn)
+        ? all
+            .where((o) =>
+                o.idsOrdenesCompra.isNotEmpty &&
+                o.estado != EstadoProyecto.finalizado)
+            .map((o) => o.institucion.trim().toLowerCase())
+            .toSet()
+        : null;
+
     return all.where((p) {
       if (_filterInstitucion != null && _filterInstitucion!.isNotEmpty) {
         if (!p.institucion
@@ -257,11 +271,37 @@ class _ProyectosViewState extends State<ProyectosView>
         if (!ft.isAfter(now) || !ft.isBefore(limite)) return false;
       }
       if (_filterQuarterYear != null && _filterQuarterQ != null) {
-        if (_filterQuarterOnlyWithOC && p.idsOrdenesCompra.isEmpty) return false;
-        final fecha = p.fechaInicio ?? p.fechaCreacion;
-        if (fecha == null) return false;
-        final q = ((fecha.month - 1) ~/ 3) + 1;
-        if (fecha.year != _filterQuarterYear || q != _filterQuarterQ) return false;
+        if (_filterQuarterIsChurn) {
+          // Show projects that count as churn for this quarter
+          if (p.idsOrdenesCompra.isEmpty) return false;
+          if (p.estado != EstadoProyecto.finalizado) return false;
+          final fechaFin = p.fechaTermino;
+          if (fechaFin == null) return false;
+          final q = ((fechaFin.month - 1) ~/ 3) + 1;
+          if (fechaFin.year != _filterQuarterYear || q != _filterQuarterQ) return false;
+          final graceDate = fechaFin.add(const Duration(days: 90));
+          if (graceDate.isAfter(DateTime.now())) return false;
+          if (p.proyectoContinuacionId != null && p.proyectoContinuacionId!.isNotEmpty) return false;
+          final inst = p.institucion.trim().toLowerCase();
+          final tieneRenovacion = renovadas!.contains(inst) ||
+              all.any((o) =>
+                  o.id != p.id &&
+                  o.idsOrdenesCompra.isNotEmpty &&
+                  o.institucion.trim().toLowerCase() == inst &&
+                  (o.fechaInicio ?? o.fechaCreacion) != null &&
+                  (o.fechaInicio ?? o.fechaCreacion)!.isAfter(fechaFin));
+          if (tieneRenovacion) return false;
+        } else {
+          if (_filterQuarterOnlyWithOC && p.idsOrdenesCompra.isEmpty) return false;
+          if (_filterQuarterOnlyIngresos &&
+              p.estado != EstadoProyecto.vigente &&
+              p.estado != EstadoProyecto.xVencer &&
+              p.estado != EstadoProyecto.finalizado) { return false; }
+          final fecha = p.fechaInicio ?? p.fechaCreacion;
+          if (fecha == null) return false;
+          final q = ((fecha.month - 1) ~/ 3) + 1;
+          if (fecha.year != _filterQuarterYear || q != _filterQuarterQ) return false;
+        }
       }
       return true;
     }).toList();
@@ -595,11 +635,26 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
     _tabController.animateTo(1);
   }
 
-  void _goToQuarterFiltered(int year, int quarter, {bool onlyWithOC = false}) {
+  void _goToQuarterFiltered(int year, int quarter,
+      {bool onlyWithOC = false, bool onlyIngresos = false}) {
     setState(() {
       _filterQuarterYear = year;
       _filterQuarterQ = quarter;
       _filterQuarterOnlyWithOC = onlyWithOC;
+      _filterQuarterIsChurn = false;
+      _filterQuarterOnlyIngresos = onlyIngresos;
+      _currentPage = 0;
+    });
+    _tabController.animateTo(1);
+  }
+
+  void _goToChurnQuarterFiltered(int year, int quarter) {
+    setState(() {
+      _filterQuarterYear = year;
+      _filterQuarterQ = quarter;
+      _filterQuarterOnlyWithOC = false;
+      _filterQuarterIsChurn = true;
+      _filterQuarterOnlyIngresos = false;
       _currentPage = 0;
     });
     _tabController.animateTo(1);
@@ -616,13 +671,14 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
     final chartCards = [
       _ClientesChartCard(
         proyectos: proyectos,
-        onQuarterTap: (y, q, {bool onlyWithOC = false}) =>
-            _goToQuarterFiltered(y, q, onlyWithOC: onlyWithOC),
+        onQuarterTap: (y, q, {bool onlyWithOC = false, bool onlyIngresos = false}) =>
+            _goToQuarterFiltered(y, q, onlyWithOC: onlyWithOC, onlyIngresos: onlyIngresos),
+        onChurnQuarterTap: (y, q) => _goToChurnQuarterFiltered(y, q),
       ),
       _FacturacionChartCard(
         proyectos: proyectos,
-        onQuarterTap: (y, q, {bool onlyWithOC = false}) =>
-            _goToQuarterFiltered(y, q, onlyWithOC: onlyWithOC),
+        onQuarterTap: (y, q, {bool onlyWithOC = false, bool onlyIngresos = false}) =>
+            _goToQuarterFiltered(y, q, onlyWithOC: onlyWithOC, onlyIngresos: onlyIngresos),
       ),
     ];
 
@@ -646,7 +702,8 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
 
     if (isMobile) {
       return _KpiCarouselMobile(
-        cards: [...kpiCards, ...chartCards],
+        kpiCards: kpiCards,
+        chartCards: chartCards,
         actionBadges: actionBadges(),
       );
     }
@@ -1737,7 +1794,7 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
             )
           : null,
       body: LayoutBuilder(builder: (context, constraints) {
-        final isMobile = constraints.maxWidth < 700;
+        final isMobile = constraints.maxWidth < 900;
         final hPad = isMobile ? 20.0 : 32.0;
 
         return _cargando
@@ -1963,11 +2020,16 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
         _activeChip('Vencer: $_filterVencer',
             () => setState(() { _filterVencer = null; _currentPage = 0; })),
       if (_filterQuarterYear != null && _filterQuarterQ != null)
-        _activeChip('Q$_filterQuarterQ · $_filterQuarterYear',
+        _activeChip(
+            _filterQuarterIsChurn
+                ? 'Pérdidas Q$_filterQuarterQ · $_filterQuarterYear'
+                : 'Q$_filterQuarterQ · $_filterQuarterYear',
             () => setState(() {
               _filterQuarterYear = null;
               _filterQuarterQ = null;
               _filterQuarterOnlyWithOC = false;
+              _filterQuarterIsChurn = false;
+              _filterQuarterOnlyIngresos = false;
               _currentPage = 0;
             })),
     ];
@@ -3812,7 +3874,7 @@ class _KpiCardShellState extends State<_KpiCardShell>
         },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.all(18),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(12),
@@ -3844,9 +3906,9 @@ class _KpiCardShellState extends State<_KpiCardShell>
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             widget.value,
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             // Bottom row: dots (left) + Apple-style arrow (right, hover only)
             GestureDetector(
               behavior: HitTestBehavior.opaque,
@@ -4111,11 +4173,18 @@ class _ValorMensualCardState extends State<_ValorMensualCard> {
   ];
 
   static String _fmt(double n) {
-    final digits = n.toInt().toString();
-    final buf = StringBuffer();
-    for (int i = 0; i < digits.length; i++) {
-      if (i > 0 && (digits.length - i) % 3 == 0) buf.write('.');
-      buf.write(digits[i]);
+    if (n >= 1000000) return '\$${(n / 1000000).toStringAsFixed(1)}M';
+    if (n >= 1000) return '\$${(n / 1000).toStringAsFixed(0)}K';
+    return '\$${n.toInt()}';
+  }
+
+  static String _fmtFull(double n) {
+    final str = n.toInt().toString();
+    final buf = StringBuffer('\$');
+    final len = str.length;
+    for (int i = 0; i < len; i++) {
+      if (i > 0 && (len - i) % 3 == 0) buf.write('.');
+      buf.write(str[i]);
     }
     return buf.toString();
   }
@@ -4140,13 +4209,17 @@ class _ValorMensualCardState extends State<_ValorMensualCard> {
             borderRadius: BorderRadius.circular(8)),
         child: Icon(Icons.attach_money, size: 15, color: color),
       ),
-      value: Text(
-        total > 0 ? '\$ ${_fmt(total)}' : '—',
-        style: GoogleFonts.inter(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            letterSpacing: -0.5,
-            color: const Color(0xFF1E293B)),
+      value: Tooltip(
+        message: total > 0 ? _fmtFull(total) : '',
+        preferBelow: false,
+        child: Text(
+          total > 0 ? _fmt(total) : '—',
+          style: GoogleFonts.inter(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              letterSpacing: -0.5,
+              color: const Color(0xFF1E293B)),
+        ),
       ),
       pageCount: _pages.length,
       currentIndex: _idx,
@@ -4162,9 +4235,10 @@ class _ValorMensualCardState extends State<_ValorMensualCard> {
 // ── KPI Carousel — Mobile ────────────────────────────────────────────────────
 
 class _KpiCarouselMobile extends StatefulWidget {
-  final List<Widget> cards;
+  final List<Widget> kpiCards;
+  final List<Widget> chartCards;
   final Widget actionBadges;
-  const _KpiCarouselMobile({required this.cards, required this.actionBadges});
+  const _KpiCarouselMobile({required this.kpiCards, required this.chartCards, required this.actionBadges});
 
   @override
   State<_KpiCarouselMobile> createState() => _KpiCarouselMobileState();
@@ -4177,7 +4251,7 @@ class _KpiCarouselMobileState extends State<_KpiCarouselMobile> {
   @override
   void initState() {
     super.initState();
-    _ctrl = PageController(viewportFraction: 0.88);
+    _ctrl = PageController();
   }
 
   @override
@@ -4186,27 +4260,110 @@ class _KpiCarouselMobileState extends State<_KpiCarouselMobile> {
     super.dispose();
   }
 
+  int get _kpiPages => (widget.kpiCards.length / 2).ceil();
+  int get _totalPages => _kpiPages + widget.chartCards.length;
+
+  Widget _buildPage(int pageIndex) {
+    if (pageIndex < _kpiPages) {
+      final i = pageIndex * 2;
+      final first = widget.kpiCards[i];
+      final second = i + 1 < widget.kpiCards.length ? widget.kpiCards[i + 1] : null;
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: first),
+          const SizedBox(width: 10),
+          Expanded(child: second ?? const SizedBox()),
+        ],
+      );
+    } else {
+      return widget.chartCards[pageIndex - _kpiPages];
+    }
+  }
+
+  void _goTo(int page) {
+    _ctrl.animateToPage(page,
+        duration: const Duration(milliseconds: 280), curve: Curves.easeInOut);
+  }
+
   @override
   Widget build(BuildContext context) {
     const primaryColor = Color(0xFF6D28D9);
+    final total = _totalPages;
     return Column(
       children: [
         SizedBox(
           height: 200,
-          child: PageView.builder(
-            controller: _ctrl,
-            itemCount: widget.cards.length,
-            onPageChanged: (i) => setState(() => _page = i),
-            itemBuilder: (_, i) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6),
-              child: widget.cards[i],
-            ),
+          child: Stack(
+            children: [
+              PageView.builder(
+                controller: _ctrl,
+                itemCount: total,
+                onPageChanged: (i) => setState(() => _page = i),
+                itemBuilder: (_, i) => Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: _buildPage(i),
+                ),
+              ),
+              if (_page > 0)
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  child: Center(
+                    child: GestureDetector(
+                      onTap: () => _goTo(_page - 1),
+                      child: Container(
+                        margin: const EdgeInsets.only(left: 4),
+                        padding: const EdgeInsets.all(5),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.92),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.10),
+                                blurRadius: 6)
+                          ],
+                        ),
+                        child: const Icon(Icons.chevron_left_rounded,
+                            size: 20, color: primaryColor),
+                      ),
+                    ),
+                  ),
+                ),
+              if (_page < total - 1)
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  bottom: 0,
+                  child: Center(
+                    child: GestureDetector(
+                      onTap: () => _goTo(_page + 1),
+                      child: Container(
+                        margin: const EdgeInsets.only(right: 4),
+                        padding: const EdgeInsets.all(5),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.92),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.10),
+                                blurRadius: 6)
+                          ],
+                        ),
+                        child: const Icon(Icons.chevron_right_rounded,
+                            size: 20, color: primaryColor),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
         const SizedBox(height: 10),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(widget.cards.length, (i) =>
+          children: List.generate(total, (i) =>
             AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               width: i == _page ? 16 : 6,
@@ -4421,8 +4578,9 @@ List<_QData> _newClientsByQuarter(List<Proyecto> proyectos) {
 
 class _ClientesChartCard extends StatefulWidget {
   final List<Proyecto> proyectos;
-  final void Function(int year, int quarter, {bool onlyWithOC})? onQuarterTap;
-  const _ClientesChartCard({required this.proyectos, this.onQuarterTap});
+  final void Function(int year, int quarter, {bool onlyWithOC, bool onlyIngresos})? onQuarterTap;
+  final void Function(int year, int quarter)? onChurnQuarterTap;
+  const _ClientesChartCard({required this.proyectos, this.onQuarterTap, this.onChurnQuarterTap});
 
   @override
   State<_ClientesChartCard> createState() => _ClientesChartCardState();
@@ -4476,6 +4634,10 @@ class _ClientesChartCardState extends State<_ClientesChartCard> {
                     final k = merged.keys[i];
                     widget.onQuarterTap!(k.$1, k.$2, onlyWithOC: true);
                   },
+                  onChurnBarTap: widget.onChurnQuarterTap == null ? null : (i) {
+                    final k = merged.keys[i];
+                    widget.onChurnQuarterTap!(k.$1, k.$2);
+                  },
                 ),
     );
   }
@@ -4485,7 +4647,7 @@ class _ClientesChartCardState extends State<_ClientesChartCard> {
 
 class _FacturacionChartCard extends StatefulWidget {
   final List<Proyecto> proyectos;
-  final void Function(int year, int quarter, {bool onlyWithOC})? onQuarterTap;
+  final void Function(int year, int quarter, {bool onlyWithOC, bool onlyIngresos})? onQuarterTap;
   const _FacturacionChartCard({required this.proyectos, this.onQuarterTap});
 
   @override
@@ -4507,7 +4669,11 @@ class _FacturacionChartCardState extends State<_FacturacionChartCard> {
   @override
   Widget build(BuildContext context) {
     final dataMensual = _groupByQuarter(
-        widget.proyectos, (p) => p.valorMensual ?? 0)
+        widget.proyectos.where((p) =>
+            p.estado == EstadoProyecto.vigente ||
+            p.estado == EstadoProyecto.xVencer ||
+            p.estado == EstadoProyecto.finalizado).toList(),
+        (p) => p.valorMensual ?? 0)
         .where((d) => d.year >= 2021).toList();
     final dataOC = _groupByQuarter(
         widget.proyectos, (p) => p.montoTotalOC ?? 0,
@@ -4563,7 +4729,7 @@ class _FacturacionChartCardState extends State<_FacturacionChartCard> {
                   formatValue: _fmt,
                   onBarTap: widget.onQuarterTap == null ? null : (i) {
                     final d = dataMensual[i];
-                    widget.onQuarterTap!(d.year, d.quarter, onlyWithOC: false);
+                    widget.onQuarterTap!(d.year, d.quarter, onlyWithOC: false, onlyIngresos: true);
                   },
                 ),
         ),
@@ -4765,6 +4931,7 @@ class _BarChartWidget extends StatefulWidget {
   final bool integerValues;
   final String Function(double)? formatValue;
   final void Function(int index)? onBarTap;
+  final void Function(int index)? onChurnBarTap;
 
   const _BarChartWidget({
     required this.labels,
@@ -4775,6 +4942,7 @@ class _BarChartWidget extends StatefulWidget {
     this.integerValues = false,
     this.formatValue,
     this.onBarTap,
+    this.onChurnBarTap,
   });
 
   @override
@@ -4797,12 +4965,25 @@ class _BarChartWidgetState extends State<_BarChartWidget> {
     return i;
   }
 
+  bool _isChurnZone(Offset local, Size size) {
+    if (widget.churnValues.isEmpty) return false;
+    const topPad = 4.0;
+    const axisH = 13.0 + 12.0;
+    final totalH = size.height - axisH - topPad;
+    final maxPos = widget.values.fold<double>(0, (m, v) => v > m ? v : m);
+    final maxNeg = widget.churnValues.fold<double>(0, (m, v) => v > m ? v : m);
+    if (maxNeg <= 0) return false;
+    final posRatio = maxPos <= 0 ? 0.0 : maxPos / (maxPos + maxNeg);
+    final zeroY = topPad + totalH * posRatio;
+    return local.dy > zeroY;
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, constraints) {
       final size = Size(constraints.maxWidth, constraints.maxHeight);
       return MouseRegion(
-        cursor: widget.onBarTap != null
+        cursor: (widget.onBarTap != null || widget.onChurnBarTap != null)
             ? SystemMouseCursors.click
             : SystemMouseCursors.basic,
         onHover: (e) {
@@ -4813,10 +4994,18 @@ class _BarChartWidgetState extends State<_BarChartWidget> {
         child: GestureDetector(
           onTapDown: (e) {
             final idx = _indexAt(e.localPosition, size);
-            if (idx != null && widget.onBarTap != null) {
-              widget.onBarTap!(idx);
-            } else {
-              setState(() => _hoveredIndex = _hoveredIndex == idx ? null : idx);
+            if (idx != null) {
+              final isChurn = _isChurnZone(e.localPosition, size);
+              if (isChurn &&
+                  widget.onChurnBarTap != null &&
+                  idx < widget.churnValues.length &&
+                  widget.churnValues[idx] > 0) {
+                widget.onChurnBarTap!(idx);
+              } else if (widget.onBarTap != null) {
+                widget.onBarTap!(idx);
+              } else {
+                setState(() => _hoveredIndex = _hoveredIndex == idx ? null : idx);
+              }
             }
           },
           child: Stack(

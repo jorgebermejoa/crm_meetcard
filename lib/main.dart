@@ -53,12 +53,12 @@ final _rootNavigatorKey = GlobalKey<NavigatorState>();
 
 final _router = GoRouter(
   navigatorKey: _rootNavigatorKey,
-  initialLocation: '/',
+  initialLocation: '/proyectos',
   redirect: (context, state) {
     final user = FirebaseAuth.instance.currentUser;
     final isLogin = state.uri.path == '/login';
     if (user == null && !isLogin) return '/login';
-    if (user != null && isLogin) return '/';
+    if (user != null && isLogin) return '/proyectos';
     return null;
   },
   refreshListenable: _AuthNotifier(),
