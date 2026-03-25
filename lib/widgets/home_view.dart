@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../app_shell.dart';
 import '../services/resumen_service.dart';
@@ -39,6 +42,10 @@ class _HomeViewState extends State<HomeView>
   String? _errorResumen;
   bool _disparandoIngesta = false;
 
+  // Firestore real-time listeners para ingesta y procesamiento
+  StreamSubscription<DocumentSnapshot>? _ingestaSub;
+  StreamSubscription<DocumentSnapshot>? _procesamientoSub;
+
   @override
   void initState() {
     super.initState();
@@ -49,10 +56,61 @@ class _HomeViewState extends State<HomeView>
       }
     });
     _cargarResumen();
+    _suscribirStatsEnTiempoReal();
+  }
+
+  void _suscribirStatsEnTiempoReal() {
+    final db = FirebaseFirestore.instance;
+    _ingestaSub = db.collection('_stats').doc('ingesta').snapshots().listen((snap) {
+      if (!mounted || !snap.exists || _stats == null) return;
+      final d = snap.data()!;
+      final ts = (d['fecha'] as Timestamp?)?.toDate();
+      final fecha = ts == null ? null : _fmtChile(ts);
+      setState(() {
+        _stats = {
+          ..._stats!,
+          'ingesta': {
+            'estado': d['estado'],
+            'fecha': fecha,
+            'encoladas': d['encoladas'],
+            'error': d['error'],
+          },
+        };
+      });
+    });
+    _procesamientoSub = db.collection('_stats').doc('procesamiento').snapshots().listen((snap) {
+      if (!mounted || !snap.exists || _stats == null) return;
+      final d = snap.data()!;
+      final ts = (d['fecha'] as Timestamp?)?.toDate();
+      final fecha = ts == null ? null : _fmtChile(ts);
+      setState(() {
+        _stats = {
+          ..._stats!,
+          'procesamiento': {
+            'estado': d['estado'],
+            'fecha': fecha,
+            'procesadas': d['procesadas'],
+            'error': d['error'],
+          },
+        };
+      });
+    });
+  }
+
+  String _fmtChile(DateTime dt) {
+    final local = dt.toLocal();
+    final d = local.day.toString().padLeft(2, '0');
+    final m = local.month.toString().padLeft(2, '0');
+    final y = local.year;
+    final h = local.hour.toString().padLeft(2, '0');
+    final min = local.minute.toString().padLeft(2, '0');
+    return '$d-$m-$y, $h:$min';
   }
 
   @override
   void dispose() {
+    _ingestaSub?.cancel();
+    _procesamientoSub?.cancel();
     _tabController.dispose();
     super.dispose();
   }
@@ -63,8 +121,12 @@ class _HomeViewState extends State<HomeView>
     if (query.isEmpty) return;
     setState(() => _cargandoBusqueda = true);
     try {
-      final resp = await http.get(Uri.parse(
-          'https://us-central1-licitaciones-prod.cloudfunctions.net/buscarLicitacionesAI?q=${Uri.encodeComponent(query)}'));
+      final user = FirebaseAuth.instance.currentUser;
+      final token = await user?.getIdToken() ?? '';
+      final resp = await http.get(
+          Uri.parse(
+              'https://us-central1-licitaciones-prod.cloudfunctions.net/buscarLicitacionesAI?q=${Uri.encodeComponent(query)}'),
+          headers: {'Authorization': 'Bearer $token'});
       if (resp.statusCode == 200) {
         final decoded = json.decode(resp.body);
         final List<dynamic> data = decoded is List

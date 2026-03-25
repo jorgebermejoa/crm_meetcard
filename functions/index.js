@@ -136,25 +136,31 @@ async function processMonth(db, year, month) {
       break;
     }
 
-    const bulkWriter = db.bulkWriter();
     const collectionRef = db.collection("licitaciones_activas");
 
-    for (const licitacion of data) {
-      const codigoExterno = extractCodigoExterno(licitacion.ocid);
-      if (!codigoExterno) continue;
+    // Verificar existencia en paralelo — no resetear docs ya procesados
+    const codigos = data
+      .map(l => extractCodigoExterno(l.ocid))
+      .filter(Boolean);
+    const snaps = await Promise.all(codigos.map(c => collectionRef.doc(c).get()));
 
-      const docRef = collectionRef.doc(codigoExterno);
-      bulkWriter.set(docRef, {
-        ocid: licitacion.ocid || null,
-        codigoExterno,
+    const bulkWriter = db.bulkWriter();
+    let nuevos = 0;
+    for (let i = 0; i < codigos.length; i++) {
+      if (snaps[i].exists) continue;   // ya existe, no sobreescribir
+      const ocid = data[i]?.ocid || null;
+      bulkWriter.set(collectionRef.doc(codigos[i]), {
+        ocid,
+        codigoExterno: codigos[i],
         procesado: false,
         error: false,
         fuente: 'ocds',
         fechaEncolado: admin.firestore.FieldValue.serverTimestamp(),
-      }, { merge: true });
+      });
+      nuevos++;
     }
     await bulkWriter.close();
-    totalAgregados += data.length;
+    totalAgregados += nuevos;
     hasMore = data.length === BATCH_SIZE;
     offset += BATCH_SIZE;
   }
@@ -359,6 +365,7 @@ exports.buscarLicitacionesAI = onRequest({
   timeoutSeconds: 30,
   memory: "512MiB"
 }, async (req, res) => {
+  if (!await _verifyToken(req, res)) return;
   const query = req.query.q;
   if (!query) return res.status(400).send("Falta el parámetro 'q'");
 
@@ -414,7 +421,10 @@ exports.buscarLicitacionesAI = onRequest({
               }
               const d = new Date(ms);
               if (isNaN(d.getTime())) return "S/F";
-              return `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
+              return d.toLocaleDateString('es-CL', {
+                  day: '2-digit', month: '2-digit', year: 'numeric',
+                  timeZone: 'America/Santiago',
+              });
           } catch(e) { return "S/F"; }
       };
 
@@ -455,7 +465,13 @@ exports.buscarLicitacionesAI = onRequest({
                   monto:            tender?.value?.amount
                       ? new Intl.NumberFormat('es-CL').format(tender.value.amount) : 'S/M',
                   comprador,
-                  rawData: data,
+                  rawData: {
+                      id,
+                      tender,
+                      parties: data.parties,
+                      buyer: data.buyer,
+                      date: data.date,
+                  },
               };
           });
 
@@ -521,15 +537,14 @@ exports.obtenerResumen = onRequest({
     ]);
 
     const cache = statsDoc.exists ? statsDoc.data() : null;
-    const ultimaActualizacion = new Date().toLocaleDateString('es-CL', {
+    const _fmtChile = (date) => date.toLocaleDateString('es-CL', {
       day: '2-digit', month: '2-digit', year: 'numeric',
       hour: '2-digit', minute: '2-digit',
+      timeZone: 'America/Santiago',
     });
+    const ultimaActualizacion = _fmtChile(new Date());
 
-    const _fmtTs = (ts) => ts?.toDate?.()?.toLocaleDateString('es-CL', {
-      day: '2-digit', month: '2-digit', year: 'numeric',
-      hour: '2-digit', minute: '2-digit',
-    }) ?? null;
+    const _fmtTs = (ts) => ts?.toDate?.() ? _fmtChile(ts.toDate()) : null;
 
     const ingesta = ingestaDoc.exists ? ingestaDoc.data() : null;
     const procesamiento = procesamientoDoc.exists ? procesamientoDoc.data() : null;
@@ -2461,8 +2476,8 @@ exports.ingestarLicitacionesNativas = onSchedule({
   let response;
   try {
     response = await axios.get(
-      `${MP_API_LICIT_URL}?fecha=${fecha}&estado=5&ticket=${OC_TICKET}`,
-      { timeout: API_TIMEOUT }
+      `${MP_API_LICIT_URL}?fecha=${fecha}&ticket=${OC_TICKET}`,
+      { timeout: 30000 }
     );
   } catch (e) {
     logger.error(`ingestarLicitacionesNativas: error API — ${e.message}`);
@@ -2483,7 +2498,7 @@ exports.ingestarLicitacionesNativas = onSchedule({
   logger.info(`ingestarLicitacionesNativas: ${encoladas} nuevas encoladas`);
 });
 
-// --- HTTP: Backfill de los últimos 15 días (ejecución única para cubrir lag inicial) ---
+// --- HTTP: Backfill de los últimos 30 días (ejecución única para cubrir lag OCDS) ---
 // Llamar con: POST /backfillLicitaciones15Dias  (no requiere body)
 exports.backfillLicitaciones15Dias = onRequest({
   cors: false,
@@ -2494,7 +2509,7 @@ exports.backfillLicitaciones15Dias = onRequest({
   const db = admin.firestore();
   const resumen = [];
 
-  for (let diasAtras = 1; diasAtras <= 15; diasAtras++) {
+  for (let diasAtras = 1; diasAtras <= 30; diasAtras++) {
     const d = new Date();
     d.setUTCDate(d.getUTCDate() - diasAtras);
     const dd   = String(d.getUTCDate()).padStart(2, '0');
@@ -2504,8 +2519,8 @@ exports.backfillLicitaciones15Dias = onRequest({
 
     try {
       const response = await axios.get(
-        `${MP_API_LICIT_URL}?fecha=${fecha}&estado=5&ticket=${OC_TICKET}`,
-        { timeout: API_TIMEOUT }
+        `${MP_API_LICIT_URL}?fecha=${fecha}&ticket=${OC_TICKET}`,
+        { timeout: 30000 }
       );
       const licitaciones = response.data?.Listado ?? [];
       const encoladas = await encolarLicitacionesNativas(db, fecha, licitaciones);
@@ -2525,4 +2540,102 @@ exports.backfillLicitaciones15Dias = onRequest({
   });
 
   res.json({ ok: true, totalEncoladas, resumen });
+});
+
+// --- CLOUD FUNCTION: Inteligencia de Licitación ---
+// Combina ganador histórico, permanencia del proveedor y predicción próxima compra.
+// GET /obtenerInteligenciaLicitacion?id=XXX&comprador_nombre=YYY
+// Caché Firestore 7 días.
+exports.obtenerInteligenciaLicitacion = onRequest({ cors: true, memory: '512MiB' }, async (req, res) => {
+  if (req.method !== 'GET') return res.status(405).send('Method Not Allowed');
+  const { id, comprador_nombre } = req.query;
+  if (!id) return res.status(400).json({ error: 'id requerido' });
+
+  const db = admin.firestore();
+  const cacheId = `intel_lic_${id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+  const cached = await _readCache(db, cacheId, TTL_7D);
+  if (cached) return res.json({ ...cached, fromCache: true });
+
+  try {
+    // 1. Buscar OCs adjudicadas para esta licitación (referencias + ganador)
+    const [ocsRows] = await bigquery.query({
+      query: `SELECT NombreProveedor, rut_proveedor, RutUnidadCompra,
+                     CAST(monto_calculado_oc AS STRING) AS monto_calculado_oc,
+                     FechaEnvio, CodigoLicitacion, Estado
+              FROM \`licitaciones-prod.sistema_compras.tab_gestion_universal\`
+              WHERE CodigoLicitacion = @id
+              ORDER BY FechaEnvio DESC LIMIT 10`,
+      params: { id },
+      useLegacySql: false,
+    });
+
+    const ganador = ocsRows[0] ?? null;
+    const rutProveedor = ganador?.rut_proveedor ?? null;
+    const rutOrganismo = ganador?.RutUnidadCompra ?? null;
+
+    // 2. Permanencia del ganador con este organismo (si existe)
+    let permanenciaRow = null;
+    if (rutProveedor && rutOrganismo) {
+      const [permRows] = await bigquery.query({
+        query: `SELECT proveedor_nombre, cliente_nombre, permanencia_anios, cantidad_oc_emitidas
+                FROM \`licitaciones-prod.ordenes_historicas.analisis_permanencia_proveedor\`
+                WHERE proveedor_rut = @rutProveedor AND cliente_nombre LIKE @compradorLike
+                ORDER BY permanencia_meses DESC LIMIT 1`,
+        params: {
+          rutProveedor,
+          compradorLike: comprador_nombre ? `%${comprador_nombre.substring(0, 30)}%` : '%',
+        },
+        useLegacySql: false,
+      });
+      permanenciaRow = permRows[0] ?? null;
+    }
+
+    // 3. Predicción próxima compra del organismo (primera categoría relevante)
+    let prediccionRow = null;
+    if (rutOrganismo) {
+      const [predRows] = await bigquery.query({
+        query: `SELECT Categoria_Nombre_Referencia,
+                       CAST(Proxima_Compra_Estimada AS STRING) AS proxima
+                FROM \`licitaciones-prod.ordenes_historicas.frecuencia_compra_prediccion_CATEGORIA\`
+                WHERE Cliente_RUT = @rutOrganismo
+                ORDER BY Proxima_Compra_Estimada ASC LIMIT 1`,
+        params: { rutOrganismo },
+        useLegacySql: false,
+      });
+      prediccionRow = predRows[0] ?? null;
+    }
+
+    // 4. Construir estrategia heurística
+    const anios = permanenciaRow?.permanencia_anios ?? 0;
+    const Nivel_Prioridad = anios > 3 ? 'Alta' : anios > 1 ? 'Media' : 'Baja';
+    const Accion_Tactica = anios > 3
+      ? 'Evaluar propuesta diferenciada para desplazar proveedor arraigado'
+      : anios > 1
+        ? 'Presentar oferta competitiva con énfasis en precio y plazo'
+        : 'Participar activamente, organismo sin proveedor consolidado';
+    const Argumento_Semantico = ganador
+      ? `Proveedor histórico: ${ganador.NombreProveedor}. ` +
+        (anios > 0 ? `Lleva ${anios.toFixed ? anios.toFixed(1) : anios} años con este organismo.` : '')
+      : 'Sin historial de adjudicaciones registrado para esta licitación.';
+
+    const estrategia = { Nivel_Prioridad, Accion_Tactica, Argumento_Semantico };
+    const permanencia = permanenciaRow
+      ? { proveedor_nombre: permanenciaRow.proveedor_nombre, anios: permanenciaRow.permanencia_anios }
+      : ganador
+        ? { proveedor_nombre: ganador.NombreProveedor, anios: 0 }
+        : null;
+    const prediccion = prediccionRow ?? null;
+    const referencias = ocsRows.map(r => ({
+      titulo: r.CodigoLicitacion,
+      ganador: r.NombreProveedor,
+      monto_adjudicado: r.monto_calculado_oc,
+    }));
+
+    const payload = { estrategia, permanencia, prediccion, referencias };
+    await _writeCache(db, cacheId, payload);
+    return res.json({ ...payload, fromCache: false });
+  } catch (e) {
+    logger.error('obtenerInteligenciaLicitacion error:', e.message);
+    return res.status(500).json({ error: e.message });
+  }
 });
