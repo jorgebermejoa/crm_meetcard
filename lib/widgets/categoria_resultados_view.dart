@@ -54,7 +54,7 @@ class _ShimmerState extends State<_Shimmer> with SingleTickerProviderStateMixin 
 }
 
 class CategoriaResultadosView extends StatefulWidget {
-  final String prefix;
+  final String prefix;          // uno o varios separados por coma: "43,81"
   final String nombre;
   final int total;
 

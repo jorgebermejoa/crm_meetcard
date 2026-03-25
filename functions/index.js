@@ -389,7 +389,7 @@ exports.buscarLicitacionesAI = onRequest({
       const [deResults] = await getDiscoveryClient().search({
           servingConfig,
           query,
-          pageSize: 15,
+          pageSize: 25,
       });
 
       const ids = deResults
@@ -409,10 +409,7 @@ exports.buscarLicitacionesAI = onRequest({
           ids.map(id => db.collection('licitaciones_ocds').doc(id).get())
       );
 
-      // 3. Tokens léxicos de la query (sin acentos, sin stopwords)
-      const tokens = tokenizarQuery(query);
-
-      // 4. Formatear y filtrar por relevancia léxica
+      // 3. Formatear resultados (sin filtro léxico — Discovery Engine es semántico)
       const toMs = (n) => n > 1e13 ? Math.round(n / 1000) : n > 1e10 ? n : n * 1000;
 
       const formatDate = (raw) => {
@@ -438,18 +435,7 @@ exports.buscarLicitacionesAI = onRequest({
       };
 
       const resultados = snapshots
-          .filter(snap => {
-              if (!snap.exists) return false;
-              if (!tokens.length) return true;
-              // Filtro léxico: al menos un token debe aparecer en el texto del doc
-              const data = snap.data();
-              let tender = data.tender;
-              if (Array.isArray(tender)) tender = tender[0];
-              const texto = [tender?.title, tender?.description, data.texto_busqueda]
-                  .filter(Boolean).join(' ')
-                  .toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-              return tokens.some(t => texto.includes(t));
-          })
+          .filter(snap => snap.exists)
           .map(snap => {
               const data = snap.data();
               const id   = snap.id;
@@ -740,11 +726,13 @@ exports.obtenerLicitacionesPorCategoria = onRequest({
   timeoutSeconds: 30,
   memory: "512MiB",
 }, async (req, res) => {
-  const prefix = req.query.prefix;
+  const prefixParam = req.query.prefix;
   const limite = Math.min(parseInt(req.query.limit) || 20, 50);
   const cursorId = req.query.cursor;
 
-  if (!prefix) return res.status(400).send("Falta el parámetro 'prefix'");
+  if (!prefixParam) return res.status(400).send("Falta el parámetro 'prefix'");
+  // Soporta prefix=43 o prefix=43,81
+  const prefixes = prefixParam.split(',').map(p => p.trim()).filter(Boolean);
 
   const db = admin.firestore();
   const toMs = (n) => n > 1e13 ? Math.round(n / 1000) : n > 1e10 ? n : n * 1000;
@@ -766,9 +754,9 @@ exports.obtenerLicitacionesPorCategoria = onRequest({
   };
 
   try {
+    const whereOp = prefixes.length === 1 ? 'array-contains' : 'array-contains-any';
     let q = db.collection('licitaciones_ocds')
-      .where('_unspsc_prefixes', 'array-contains', prefix)
-      .orderBy('date', 'desc')
+      .where('_unspsc_prefixes', whereOp, prefixes.length === 1 ? prefixes[0] : prefixes)
       .limit(limite);
 
     if (cursorId) {

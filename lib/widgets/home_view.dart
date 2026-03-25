@@ -723,7 +723,7 @@ class _HomeViewState extends State<HomeView>
     return GestureDetector(
       onTap: () => Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => CategoriaResultadosView(
-          prefix: '43',
+          prefix: '43,81',
           nombre: 'Tecnología de la Información',
           total: (tiCount as num).toInt(),
         ),
