@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:js_interop';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:web/web.dart' as web;
 import 'package:go_router/go_router.dart';
@@ -9,6 +10,7 @@ import 'package:http/http.dart' as http;
 import '../app_shell.dart';
 import '../models/configuracion.dart';
 import '../models/proyecto.dart';
+import '../services/bigquery_service.dart';
 import '../services/config_service.dart';
 import '../services/proyectos_service.dart';
 import '../services/upload_service.dart';
@@ -61,6 +63,18 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
 
   List<Map<String, dynamic>> _historial = [];
 
+  // ─── Análisis BQ ──────────────────────────────────────────────────────────
+  bool _analisisCargando = false;
+  String? _analisisError;
+  List<Map<String, dynamic>> _competidores = [];
+  List<Map<String, dynamic>> _ganadorOcs = [];
+  List<Map<String, dynamic>> _historialGanador = [];
+  List<Map<String, dynamic>> _permanenciaGanador = [];
+  List<Map<String, dynamic>> _predicciones = [];
+  String? _rutGanador;
+  String? _nombreGanador;
+  String? _rutOrganismo;
+
   List<String> _modalidades = ['Licitación Pública', 'Convenio Marco', 'Trato Directo', 'Otro'];
   List<String> _productosOpciones = [];
   List<String> _tiposDocumento = ['Contrato', 'Orden de Compra', 'Acta de Evaluación', 'Otro'];
@@ -83,6 +97,8 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
         const Tab(text: 'Detalle'),
       if (_proyecto.idsOrdenesCompra.isNotEmpty)
         const Tab(text: 'Orden de Compra'),
+      if (_proyecto.idLicitacion?.isNotEmpty == true)
+        const Tab(text: 'Análisis'),
       const Tab(text: 'Certificados'),
       const Tab(text: 'Reclamos'),
     ];
@@ -255,13 +271,14 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
       if (mounted) setState(() => _ocDataList = List.from(results));
     }
     if (mounted) setState(() => _cargandoOc = false);
-    // Calcular y guardar montoTotalOC si aún no está registrado
-    if (_proyecto.montoTotalOC == null && results.any((oc) => oc != null)) {
-      _calcularYGuardarMontoTotalOC(results);
+    // Siempre convertir UF→CLP para el render, luego guardar total si no existe
+    if (results.any((oc) => oc != null)) {
+      _resolverConversionUFyCLP(results);
     }
   }
 
-  Future<void> _calcularYGuardarMontoTotalOC(List<Map<String, dynamic>?> ocs) async {
+  /// Convierte UF→CLP en cada OC que lo requiera (siempre) y guarda montoTotalOC si aún no existe.
+  Future<void> _resolverConversionUFyCLP(List<Map<String, dynamic>?> ocs) async {
     double total = 0;
     for (final oc in ocs) {
       if (oc == null) continue;
@@ -275,12 +292,18 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
         final fechaStr = oc['Fechas']?['FechaCreacion']?.toString();
         final fecha = (fechaStr != null ? DateTime.tryParse(fechaStr) : null) ?? DateTime.now();
         final uf = await _getUFValue(fecha);
-        total += raw * (uf > 0 ? uf : 1);
+        final clp = raw * (uf > 0 ? uf : 1);
+        oc['_ufValueDia'] = uf;
+        oc['_totalCLP'] = clp;
+        total += clp;
       } else {
         total += raw;
       }
     }
-    if (total == 0) return;
+    // Refrescar UI con valores UF convertidos
+    if (mounted) setState(() => _ocDataList = List.from(ocs));
+    // Guardar montoTotalOC solo si aún no estaba registrado
+    if (total == 0 || _proyecto.montoTotalOC != null) return;
     try {
       await http.post(
         Uri.parse('$_baseUrl/actualizarProyecto'),
@@ -1660,6 +1683,7 @@ $convenioHtml
         _buildTabOcds(isMobile),
       if (_proyecto.urlConvenioMarco?.isNotEmpty == true) _buildTabDetalle(isMobile),
       if (_proyecto.idsOrdenesCompra.isNotEmpty) _buildTabOc(isMobile),
+      if (_proyecto.idLicitacion?.isNotEmpty == true) _buildTabAnalisis(isMobile),
       _buildTabCertificados(isMobile),
       _buildTabReclamos(isMobile),
     ];
@@ -1674,8 +1698,8 @@ $convenioHtml
             ),
             child: TabBar(
               controller: _tabController,
-              isScrollable: false,
-              tabAlignment: TabAlignment.fill,
+              isScrollable: true,
+              tabAlignment: TabAlignment.center,
               overlayColor: WidgetStateProperty.all(Colors.transparent),
               labelStyle: GoogleFonts.inter(
                   fontSize: 13, fontWeight: FontWeight.w600),
@@ -3672,6 +3696,33 @@ $convenioHtml
     );
   }
 
+  Widget _ocMontoRow({
+    required String label,
+    required String valor,
+    required bool esTotal,
+    Widget? labelSuffix,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(children: [
+        Text(label,
+            style: GoogleFonts.inter(
+              fontSize: esTotal ? 13 : 12,
+              fontWeight: esTotal ? FontWeight.w600 : FontWeight.w400,
+              color: esTotal ? const Color(0xFF1E293B) : Colors.grey.shade500,
+            )),
+        if (labelSuffix != null) ...[const SizedBox(width: 6), labelSuffix],
+        const Spacer(),
+        Text(valor,
+            style: GoogleFonts.inter(
+              fontSize: esTotal ? 15 : 13,
+              fontWeight: esTotal ? FontWeight.w800 : FontWeight.w500,
+              color: esTotal ? _primaryColor : const Color(0xFF1E293B),
+            )),
+      ]),
+    );
+  }
+
   Color _ocEstadoColor(String estado) {
     final e = estado.toLowerCase();
     if (e.contains('acept')) return const Color(0xFF16A34A);
@@ -3701,6 +3752,8 @@ $convenioHtml
             const SizedBox(height: 3),
             Text('\$ ${_fmt(totalAcum.toInt())}',
                 style: GoogleFonts.inter(fontSize: 22, fontWeight: FontWeight.w800, color: _primaryColor, letterSpacing: -0.5)),
+            Text('CLP · UF convertida al día de emisión',
+                style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
           ])),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -3735,6 +3788,11 @@ $convenioHtml
     final pctIva = oc['PorcentajeIva'];
     final impuestos = oc['Impuestos'];
     final financiamiento = oc['Financiamiento']?.toString() ?? '';
+    final moneda = (oc['_moneda']?.toString().isNotEmpty == true
+            ? oc['_moneda'] : oc['Moneda'])?.toString() ?? 'CLP';
+    final esUF = moneda == 'UF';
+    final ufDia = esUF ? (oc['_ufValueDia'] as num?)?.toDouble() : null;
+    final totalCLP = esUF ? (oc['_totalCLP'] as num?)?.toDouble() : null;
 
     final fechaEnvioVal = fechas['FechaEnvio'] != null
         ? _fmtDateStr(fechas['FechaEnvio'].toString()) : null;
@@ -3839,29 +3897,55 @@ $convenioHtml
 
         const Divider(height: 1),
 
-        // Montos en fila
+        // Montos — layout contable: label izquierda, valor derecha, apilados
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-          child: Row(children: [
-            if (neto != null)
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('NETO', style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400, fontWeight: FontWeight.w500, letterSpacing: 0.4)),
-                const SizedBox(height: 4),
-                Text('\$ ${_fmt((neto as num).toInt())}', style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B))),
-              ])),
-            if (impuestos != null)
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(pctIva != null ? 'IVA ${(pctIva as num).toInt()}%' : 'IMPUESTO',
-                    style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400, fontWeight: FontWeight.w500, letterSpacing: 0.4)),
-                const SizedBox(height: 4),
-                Text('\$ ${_fmt((impuestos as num).toInt())}', style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B))),
-              ])),
-            if (total != null)
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('TOTAL', style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400, fontWeight: FontWeight.w600, letterSpacing: 0.4)),
-                const SizedBox(height: 4),
-                Text('\$ ${_fmt((total as num).toInt())}', style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w800, color: _primaryColor)),
-              ])),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          child: Column(children: [
+            if (neto != null) _ocMontoRow(
+              label: 'Neto',
+              valor: esUF ? '${(neto as num).toStringAsFixed(2)} UF' : '\$ ${_fmt((neto as num).toInt())}',
+              esTotal: false,
+            ),
+            if (impuestos != null) _ocMontoRow(
+              label: pctIva != null ? 'IVA ${(pctIva as num).toInt()}%' : 'Impuesto',
+              valor: esUF ? '${(impuestos as num).toStringAsFixed(2)} UF' : '\$ ${_fmt((impuestos as num).toInt())}',
+              esTotal: false,
+            ),
+            if (neto != null || impuestos != null)
+              Divider(height: 12, color: Colors.grey.shade100),
+            if (total != null) _ocMontoRow(
+              label: esUF ? 'Total  ' : 'Total',
+              labelSuffix: esUF
+                  ? Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text('UF', style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.w700, color: const Color(0xFFB45309))),
+                    )
+                  : null,
+              valor: esUF ? '${(total as num).toStringAsFixed(2)} UF' : '\$ ${_fmt((total as num).toInt())}',
+              esTotal: true,
+            ),
+            if (esUF && totalCLP != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(children: [
+                  const Spacer(),
+                  Text('≈ \$ ${_fmt(totalCLP.toInt())} CLP',
+                      style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.w500)),
+                ]),
+              ),
+            if (esUF && ufDia != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(children: [
+                  const Spacer(),
+                  Text('UF al día de emisión: \$ ${_fmt(ufDia.toInt())}',
+                      style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
+                ]),
+              ),
           ]),
         ),
 
@@ -4021,6 +4105,227 @@ $convenioHtml
   // ─── TAB CERTIFICADOS ─────────────────────────────────────────────────────
 
   String _genId() => DateTime.now().millisecondsSinceEpoch.toString();
+
+  // ─── TAB ANÁLISIS ──────────────────────────────────────────────────────────
+
+  void _abrirFichaProveedor(BuildContext context, String rut, String nombre) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => _FichaProveedorSheet(rut: rut, nombre: nombre),
+    );
+  }
+
+  void _abrirFichaOrganismo(BuildContext context, String rut, String nombre) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => _FichaOrganismoSheet(rut: rut, nombre: nombre),
+    );
+  }
+
+  Future<void> _cargarAnalisis({bool forceRefresh = false}) async {
+    if (_analisisCargando) return;
+    if (mounted) setState(() { _analisisCargando = true; _analisisError = null; });
+
+    final idLic = _proyecto.idLicitacion!;
+    final db = FirebaseFirestore.instance;
+    final cacheDoc = db.collection('analisis_licitacion').doc(idLic);
+
+    try {
+      // ── Fast path: leer desde Firestore caché ──────────────────────────────
+      if (!forceRefresh) {
+        final snap = await cacheDoc.get();
+        if (snap.exists) {
+          final d = snap.data()!;
+          final fetchedAt = (d['fetchedAt'] as Timestamp?)?.toDate();
+          final age = fetchedAt != null ? DateTime.now().difference(fetchedAt) : null;
+          if (age != null && age.inDays < 7) {
+            _aplicarAnalisis(d);
+            return;
+          }
+        }
+      }
+
+      // ── Consulta BigQuery (primera vez o refresco) ─────────────────────────
+      final bq = BigQueryService.instance;
+      final results = await Future.wait([
+        bq.obtenerCompetidoresLicitacion(idLic),
+        bq.obtenerGanadorLicitacion(idLic),
+      ]);
+      final competidores = results[0];
+      final ganadorOcs   = results[1];
+
+      String? rutGanador, nombreGanador, rutOrganismo;
+      if (ganadorOcs.isNotEmpty) {
+        final p = ganadorOcs.first;
+        rutGanador    = p['rut_proveedor']?.toString();
+        nombreGanador = p['NombreProveedor']?.toString();
+        rutOrganismo  = p['RutUnidadCompra']?.toString();
+      }
+
+      List<Map<String, dynamic>> historialOcs = [], permanencia = [], predicciones = [];
+      final futures = <Future>[];
+      if (rutGanador != null) {
+        futures.add(bq.obtenerHistorialGanador(rutGanador, rutOrganismo: rutOrganismo).then((r) {
+          historialOcs = (r['ocs'] as List).cast<Map<String, dynamic>>();
+          permanencia  = (r['permanencia'] as List).cast<Map<String, dynamic>>();
+        }));
+      }
+      if (rutOrganismo != null) {
+        futures.add(bq.obtenerPrediccionOrganismo(rutOrganismo).then((r) { predicciones = r; }));
+      }
+      if (futures.isNotEmpty) await Future.wait(futures);
+
+      // ── Guardar caché + snapshot de historial ─────────────────────────────
+      final payload = {
+        'competidores':    competidores,
+        'ganadorOcs':      ganadorOcs,
+        'historialGanador': historialOcs,
+        'permanencia':     permanencia,
+        'predicciones':    predicciones,
+        'rutGanador':      rutGanador,
+        'nombreGanador':   nombreGanador,
+        'rutOrganismo':    rutOrganismo,
+        'fetchedAt':       FieldValue.serverTimestamp(),
+      };
+      try {
+        await cacheDoc.set(payload);
+        // Snapshot para historial de tendencias (sin fetchedAt genérico)
+        await cacheDoc.collection('historial').add({
+          'fechaConsulta':      FieldValue.serverTimestamp(),
+          'totalCompetidores':  competidores.length,
+          'rutGanador':         rutGanador,
+          'nombreGanador':      nombreGanador,
+          'rutOrganismo':       rutOrganismo,
+          'montoAdjudicado':    ganadorOcs.isNotEmpty ? ganadorOcs.first['monto_calculado_oc']?.toString() : null,
+          'totalOcsHistorial':  historialOcs.length,
+          'totalPredicciones':  predicciones.length,
+          // Snapshot ligero de competidores para análisis de tendencia
+          'competidoresSnapshot': competidores.map((c) => {
+            'rut':    c['rut_competidor'],
+            'nombre': c['nombre_competidor'],
+            'monto':  c['monto_ofertado']?.toString(),
+          }).toList(),
+        });
+      } catch (cacheErr) {
+        // No bloquear si Firestore falla al guardar
+        debugPrint('analisis cache write error: $cacheErr');
+      }
+
+      _aplicarAnalisis({
+        'competidores': competidores, 'ganadorOcs': ganadorOcs,
+        'historialGanador': historialOcs, 'permanencia': permanencia,
+        'predicciones': predicciones, 'rutGanador': rutGanador,
+        'nombreGanador': nombreGanador, 'rutOrganismo': rutOrganismo,
+      });
+    } catch (e) {
+      if (mounted) setState(() { _analisisError = e.toString(); _analisisCargando = false; });
+    }
+  }
+
+  /// Aplica los datos de análisis (desde caché o BQ) al estado de la vista.
+  void _aplicarAnalisis(Map<String, dynamic> d) {
+    if (!mounted) return;
+    setState(() {
+      _competidores       = (d['competidores']     as List? ?? []).cast<Map<String, dynamic>>();
+      _ganadorOcs         = (d['ganadorOcs']        as List? ?? []).cast<Map<String, dynamic>>();
+      _historialGanador   = (d['historialGanador']  as List? ?? []).cast<Map<String, dynamic>>();
+      _permanenciaGanador = (d['permanencia']       as List? ?? []).cast<Map<String, dynamic>>();
+      _predicciones       = (d['predicciones']      as List? ?? []).cast<Map<String, dynamic>>();
+      _rutGanador         = d['rutGanador']    as String?;
+      _nombreGanador      = d['nombreGanador'] as String?;
+      _rutOrganismo       = d['rutOrganismo']  as String?;
+      _analisisCargando   = false;
+    });
+  }
+
+  Widget _buildTabAnalisis(bool isMobile) {
+    final loaded = _competidores.isNotEmpty || _ganadorOcs.isNotEmpty || _predicciones.isNotEmpty;
+
+    if (!loaded && !_analisisCargando) {
+      return _AnalisisEmptyState(onCargar: _cargarAnalisis);
+    }
+    if (_analisisCargando) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 60),
+        child: Center(child: CircularProgressIndicator(color: Color(0xFF5B21B6))),
+      );
+    }
+    if (_analisisError != null) {
+      return Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(children: [
+          Text('Error al cargar análisis:', style: GoogleFonts.inter(fontSize: 13, color: Colors.red.shade400)),
+          const SizedBox(height: 4),
+          Text(_analisisError!, style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500)),
+          const SizedBox(height: 12),
+          TextButton(onPressed: _cargarAnalisis, child: const Text('Reintentar')),
+        ]),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Sección A: Competidores
+        if (_competidores.isNotEmpty)
+          _AnalisisCompetidoresCard(
+            competidores: _competidores,
+            rutGanador: _rutGanador,
+            ganadorOcs: _ganadorOcs,
+            proyectoTieneOC: _proyecto.idsOrdenesCompra.isNotEmpty,
+            onVerFichaProveedor: (rut, nombre) => _abrirFichaProveedor(context, rut, nombre),
+          ),
+        if (_competidores.isNotEmpty) const SizedBox(height: 14),
+
+        // Sección B: Ganador + historial
+        if (_ganadorOcs.isNotEmpty)
+          _AnalisisGanadorCard(
+            ganadorOcs: _ganadorOcs,
+            historialOcs: _historialGanador,
+            permanencia: _permanenciaGanador,
+            nombreGanador: _nombreGanador,
+            rutGanador: _rutGanador,
+            rutOrganismo: _rutOrganismo,
+            proyectoTieneOC: _proyecto.idsOrdenesCompra.isNotEmpty,
+            onVerFichaProveedor: (rut, nombre) => _abrirFichaProveedor(context, rut, nombre),
+            onVerFichaOrganismo: (rut, nombre) => _abrirFichaOrganismo(context, rut, nombre),
+          ),
+        if (_ganadorOcs.isNotEmpty) const SizedBox(height: 14),
+
+        // Sección C: Predicción próxima compra
+        if (_predicciones.isNotEmpty)
+          _AnalisisPrediccionCard(predicciones: _predicciones, rutOrganismo: _rutOrganismo),
+        if (_predicciones.isNotEmpty) const SizedBox(height: 14),
+
+        if (_competidores.isEmpty && _ganadorOcs.isEmpty && _predicciones.isEmpty)
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Text('Sin datos disponibles para esta licitación en BigQuery.',
+                style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400)),
+          ),
+
+        // Botón actualizar
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: _analisisCargando ? null : () => _cargarAnalisis(forceRefresh: true),
+            icon: const Icon(Icons.refresh, size: 15),
+            label: Text('Actualizar análisis', style: GoogleFonts.inter(fontSize: 12)),
+            style: TextButton.styleFrom(foregroundColor: _primaryColor),
+          ),
+        ),
+        const SizedBox(height: 24),
+      ],
+    );
+  }
 
   Widget _buildTabCertificados(bool isMobile) {
     final certs = _proyecto.certificados;
@@ -5726,4 +6031,869 @@ class _EncadenarDialogState extends State<_EncadenarDialog> {
       ),
     );
   }
+}
+
+// ── ANÁLISIS: Estado vacío ──────────────────────────────────────────────────
+
+class _AnalisisEmptyState extends StatelessWidget {
+  final VoidCallback onCargar;
+  const _AnalisisEmptyState({required this.onCargar});
+  static const _primary = Color(0xFF5B21B6);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)],
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _primary.withValues(alpha: 0.08),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.analytics_outlined, size: 32, color: _primary),
+          ),
+          const SizedBox(height: 16),
+          Text('Análisis de inteligencia competitiva',
+              style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
+          const SizedBox(height: 8),
+          Text('Consulta BigQuery para obtener competidores, ganador,\nhistorial del organismo y predicción de próxima compra.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500, height: 1.5)),
+          const SizedBox(height: 20),
+          ElevatedButton.icon(
+            onPressed: onCargar,
+            icon: const Icon(Icons.query_stats, size: 16),
+            label: Text('Cargar análisis', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _primary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── ANÁLISIS: Competidores ──────────────────────────────────────────────────
+
+class _AnalisisCompetidoresCard extends StatelessWidget {
+  final List<Map<String, dynamic>> competidores;
+  final String? rutGanador;
+  final List<Map<String, dynamic>> ganadorOcs;
+  final bool proyectoTieneOC;
+  final void Function(String rut, String nombre)? onVerFichaProveedor;
+
+  const _AnalisisCompetidoresCard({
+    required this.competidores,
+    required this.rutGanador,
+    required this.ganadorOcs,
+    required this.proyectoTieneOC,
+    this.onVerFichaProveedor,
+  });
+
+  static const _primary = Color(0xFF5B21B6);
+
+  String _fmtMonto(dynamic v) {
+    if (v == null) return '—';
+    final n = (v is num) ? v.toDouble() : double.tryParse(v.toString()) ?? 0;
+    if (n >= 1000000000) return '\$${(n / 1000000000).toStringAsFixed(1)}B';
+    if (n >= 1000000) return '\$${(n / 1000000).toStringAsFixed(1)}M';
+    if (n >= 1000) return '\$${(n / 1000).toStringAsFixed(0)}K';
+    return '\$${n.toStringAsFixed(0)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final montos = competidores
+        .map((c) => (c['monto_ofertado'] is num) ? (c['monto_ofertado'] as num).toDouble() : 0.0)
+        .where((m) => m > 0)
+        .toList();
+    final minMonto = montos.isNotEmpty ? montos.reduce((a, b) => a < b ? a : b) : 0.0;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(color: _primary.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(8)),
+                  child: const Icon(Icons.groups_outlined, size: 16, color: _primary),
+                ),
+                const SizedBox(width: 10),
+                Text('Competidores (${competidores.length})',
+                    style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
+                if (proyectoTieneOC) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text('Ganado', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w600, color: const Color(0xFF10B981))),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          // Header tabla
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Expanded(flex: 3, child: Text('Competidor', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey.shade400))),
+                SizedBox(width: 90, child: Text('Monto ofertado', textAlign: TextAlign.right, style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey.shade400))),
+                const SizedBox(width: 8),
+                SizedBox(width: 60, child: Text('Rol', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey.shade400))),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: competidores.length,
+            separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey.shade100),
+            itemBuilder: (_, i) {
+              final c = competidores[i];
+              final rut = c['rut_competidor']?.toString() ?? '';
+              final esGanador = rutGanador != null && rut == rutGanador;
+              final monto = (c['monto_ofertado'] is num) ? (c['monto_ofertado'] as num).toDouble() : 0.0;
+              final esMenor = monto > 0 && monto == minMonto;
+              return InkWell(
+                onTap: rut.isNotEmpty && onVerFichaProveedor != null
+                    ? () => onVerFichaProveedor!(rut, c['nombre_competidor']?.toString() ?? rut)
+                    : null,
+                child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(c['nombre_competidor']?.toString() ?? '—',
+                              style: GoogleFonts.inter(
+                                  fontSize: 12,
+                                  fontWeight: esGanador ? FontWeight.w700 : FontWeight.w500,
+                                  color: esGanador ? _primary : const Color(0xFF1E293B)),
+                              maxLines: 2, overflow: TextOverflow.ellipsis),
+                          if (rut.isNotEmpty)
+                            Text('RUT $rut · toca para ver ficha', style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
+                        ],
+                      ),
+                    ),
+                    SizedBox(
+                      width: 90,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          if (esMenor) const Icon(Icons.arrow_downward, size: 12, color: Color(0xFF10B981)),
+                          Text(_fmtMonto(c['monto_ofertado']),
+                              style: GoogleFonts.inter(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: esMenor ? const Color(0xFF10B981) : const Color(0xFF1E293B))),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 60,
+                      child: Text(c['quien_oferta']?.toString() ?? '—',
+                          style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade500),
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ),
+                  ],
+                ),
+              ));
+            },
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+}
+
+// ── ANÁLISIS: Ganador + historial ───────────────────────────────────────────
+
+class _AnalisisGanadorCard extends StatelessWidget {
+  final List<Map<String, dynamic>> ganadorOcs;
+  final List<Map<String, dynamic>> historialOcs;
+  final List<Map<String, dynamic>> permanencia;
+  final String? nombreGanador;
+  final String? rutGanador;
+  final String? rutOrganismo;
+  final bool proyectoTieneOC;
+  final void Function(String rut, String nombre)? onVerFichaProveedor;
+  final void Function(String rut, String nombre)? onVerFichaOrganismo;
+
+  const _AnalisisGanadorCard({
+    required this.ganadorOcs,
+    required this.historialOcs,
+    required this.permanencia,
+    required this.nombreGanador,
+    required this.rutGanador,
+    required this.rutOrganismo,
+    required this.proyectoTieneOC,
+    this.onVerFichaProveedor,
+    this.onVerFichaOrganismo,
+  });
+
+  static const _primary = Color(0xFF5B21B6);
+
+  String _fmtMonto(dynamic v) {
+    if (v == null) return '—';
+    final n = (v is num) ? v.toDouble() : double.tryParse(v.toString()) ?? 0;
+    if (n >= 1000000000) return '\$${(n / 1000000000).toStringAsFixed(1)}B';
+    if (n >= 1000000) return '\$${(n / 1000000).toStringAsFixed(1)}M';
+    if (n >= 1000) return '\$${(n / 1000).toStringAsFixed(0)}K';
+    return '\$${n.toStringAsFixed(0)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final primera = ganadorOcs.first;
+    final montoAdj = primera['monto_calculado_oc'];
+    final organismo = primera['OrganismoPublico']?.toString() ?? '—';
+
+    // Permanencia: priorizar el registro que coincide con el organismo actual
+    final permTop = permanencia.isNotEmpty
+        ? (permanencia.firstWhere(
+              (p) => p['proveedor_rut']?.toString() == rutGanador &&
+                     (rutOrganismo == null || p['cliente_nombre']?.toString().isNotEmpty == true),
+              orElse: () => permanencia.first,
+            ))
+        : null;
+    final permAniosRaw = permTop?['permanencia_anios'];
+    final permAnios = permAniosRaw != null
+        ? (permAniosRaw is num ? permAniosRaw.toStringAsFixed(1) : permAniosRaw.toString())
+        : null;
+
+    // Alerta estratégica: más de 3 años (36 meses) con el mismo organismo
+    final esSospechoso = permAniosRaw is num && permAniosRaw > 3;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)],
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(color: const Color(0xFFF59E0B).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
+                child: const Icon(Icons.emoji_events_outlined, size: 16, color: Color(0xFFF59E0B)),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(proyectoTieneOC ? 'Proveedor adjudicado' : 'Ganador de la licitación',
+                    style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Datos del ganador
+          _row('Proveedor', nombreGanador ?? '—'),
+          if (rutGanador != null) _row('RUT', rutGanador!),
+          _row('Organismo', organismo),
+          _row('Monto adjudicado', _fmtMonto(montoAdj)),
+          if (primera['FechaEnvio'] != null) _row('Fecha OC', primera['FechaEnvio'].toString().substring(0, 10)),
+
+          // Permanencia
+          if (permTop != null) ...[
+            const SizedBox(height: 12),
+            Divider(color: Colors.grey.shade100),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(Icons.history, size: 14, color: esSospechoso ? const Color(0xFFEF4444) : Colors.grey.shade400),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    esSospechoso
+                        ? 'Proveedor arraigado — $permAnios años con este organismo'
+                        : 'Relación de $permAnios años con ${permTop['cliente_nombre'] ?? 'este organismo'}',
+                    style: GoogleFonts.inter(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: esSospechoso ? const Color(0xFFEF4444) : Colors.grey.shade600),
+                  ),
+                ),
+              ],
+            ),
+            if (historialOcs.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text('${historialOcs.length} OC${historialOcs.length != 1 ? 's' : ''} con este organismo · Categoría: ${permTop['categoria_nombre'] ?? '—'}',
+                  style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
+            ],
+          ],
+
+          // Historial reciente
+          if (historialOcs.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Divider(color: Colors.grey.shade100),
+            const SizedBox(height: 8),
+            Text('Últimas ${historialOcs.length > 5 ? 5 : historialOcs.length} OC con este organismo',
+                style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey.shade600)),
+            const SizedBox(height: 6),
+            ...historialOcs.take(5).map((oc) => Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                children: [
+                  Expanded(child: Text(oc['CodigoLicitacion']?.toString() ?? oc['ID']?.toString() ?? '—',
+                      style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF1E293B)))),
+                  Text(_fmtMonto(oc['monto_calculado_oc']),
+                      style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: _primary)),
+                  const SizedBox(width: 8),
+                  Text(oc['FechaEnvio']?.toString().substring(0, 10) ?? '—',
+                      style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
+                ],
+              ),
+            )),
+          ],
+
+          // Botones Ver ficha
+          if (onVerFichaProveedor != null || onVerFichaOrganismo != null) ...[
+            const SizedBox(height: 12),
+            Divider(color: Colors.grey.shade100),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                if (rutGanador != null && onVerFichaProveedor != null)
+                  OutlinedButton.icon(
+                    onPressed: () => onVerFichaProveedor!(rutGanador!, nombreGanador ?? rutGanador!),
+                    icon: const Icon(Icons.person_search_outlined, size: 14),
+                    label: Text('Ficha proveedor', style: GoogleFonts.inter(fontSize: 12)),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _primary,
+                      side: BorderSide(color: _primary.withValues(alpha: 0.3)),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                if (rutOrganismo != null && onVerFichaOrganismo != null)
+                  OutlinedButton.icon(
+                    onPressed: () => onVerFichaOrganismo!(rutOrganismo!, primera['OrganismoPublico']?.toString() ?? rutOrganismo!),
+                    icon: const Icon(Icons.domain_outlined, size: 14),
+                    label: Text('Ficha organismo', style: GoogleFonts.inter(fontSize: 12)),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF0EA5E9),
+                      side: BorderSide(color: const Color(0xFF0EA5E9).withValues(alpha: 0.3)),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _row(String label, String value) => Padding(
+    padding: const EdgeInsets.only(bottom: 6),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(width: 130, child: Text(label, style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400))),
+        Expanded(child: Text(value, style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w500, color: const Color(0xFF1E293B)))),
+      ],
+    ),
+  );
+}
+
+// ── ANÁLISIS: Predicción próxima compra ────────────────────────────────────
+
+class _AnalisisPrediccionCard extends StatelessWidget {
+  final List<Map<String, dynamic>> predicciones;
+  final String? rutOrganismo;
+
+  const _AnalisisPrediccionCard({required this.predicciones, required this.rutOrganismo});
+
+  static const _primary = Color(0xFF5B21B6);
+
+  String _fmtFecha(dynamic v) {
+    if (v == null) return '—';
+    final s = v.toString();
+    if (s.length >= 10) return s.substring(0, 10);
+    return s;
+  }
+
+  String _fmtMonto(dynamic v) {
+    if (v == null) return '—';
+    final n = (v is num) ? v.toDouble() : double.tryParse(v.toString()) ?? 0;
+    if (n >= 1000000000) return '\$${(n / 1000000000).toStringAsFixed(1)}B';
+    if (n >= 1000000) return '\$${(n / 1000000).toStringAsFixed(1)}M';
+    return '\$${(n / 1000).toStringAsFixed(0)}K';
+  }
+
+  Color _urgencyColor(String? fechaStr) {
+    if (fechaStr == null) return Colors.grey.shade300;
+    final fecha = DateTime.tryParse(fechaStr);
+    if (fecha == null) return Colors.grey.shade300;
+    final dias = fecha.difference(DateTime.now()).inDays;
+    if (dias < 0) return const Color(0xFFEF4444);
+    if (dias <= 30) return const Color(0xFFF59E0B);
+    if (dias <= 90) return const Color(0xFF10B981);
+    return Colors.grey.shade300;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Ordenar: más próximas primero
+    final sorted = [...predicciones]..sort((a, b) {
+      final fa = a['Proxima_Compra_Estimada']?.toString() ?? '';
+      final fb = b['Proxima_Compra_Estimada']?.toString() ?? '';
+      return fa.compareTo(fb);
+    });
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(color: _primary.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(8)),
+                  child: const Icon(Icons.calendar_today_outlined, size: 16, color: _primary),
+                ),
+                const SizedBox(width: 10),
+                Text('Predicción de próxima compra',
+                    style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text('Por categoría — ${sorted.length} registros para este organismo',
+                style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
+          ),
+          const SizedBox(height: 10),
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: sorted.length > 10 ? 10 : sorted.length,
+            separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey.shade100),
+            itemBuilder: (_, i) {
+              final r = sorted[i];
+              final proxima = r['Proxima_Compra_Estimada']?.toString();
+              final color = _urgencyColor(proxima);
+              final dias = proxima != null ? DateTime.tryParse(proxima)?.difference(DateTime.now()).inDays : null;
+              final diasStr = dias != null
+                  ? (dias < 0 ? 'Vencida' : dias == 0 ? 'Hoy' : 'en $dias días')
+                  : '';
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 4, height: 40,
+                      margin: const EdgeInsets.only(right: 12, top: 2),
+                      decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2)),
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(r['Categoria_Nombre_Referencia']?.toString() ?? 'Categoría ${r['codigoCategoria']}',
+                              style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w500, color: const Color(0xFF1E293B)),
+                              maxLines: 1, overflow: TextOverflow.ellipsis),
+                          const SizedBox(height: 2),
+                          Text('${r['Proveedor_Nombre'] ?? '—'} · ${_fmtMonto(r['MontoTotal_CLP'])} histórico',
+                              style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500),
+                              maxLines: 1, overflow: TextOverflow.ellipsis),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(_fmtFecha(proxima),
+                            style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B))),
+                        Text(diasStr, style: GoogleFonts.inter(fontSize: 10, color: color, fontWeight: FontWeight.w500)),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+          if (sorted.length > 10)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+              child: Text('+ ${sorted.length - 10} categorías más',
+                  style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
+            )
+          else
+            const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+}
+
+// ── FICHA ORGANISMO ─────────────────────────────────────────────────────────
+
+class _FichaOrganismoSheet extends StatefulWidget {
+  final String rut;
+  final String nombre;
+  const _FichaOrganismoSheet({required this.rut, required this.nombre});
+
+  @override
+  State<_FichaOrganismoSheet> createState() => _FichaOrganismoSheetState();
+}
+
+class _FichaOrganismoSheetState extends State<_FichaOrganismoSheet> {
+  static const _primary = Color(0xFF0EA5E9);
+  bool _cargando = true;
+  String? _error;
+  Map<String, dynamic>? _resumen;
+  List<Map<String, dynamic>> _proveedores = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _cargar();
+  }
+
+  Future<void> _cargar() async {
+    try {
+      final data = await BigQueryService.instance.obtenerFichaOrganismo(widget.rut);
+      if (mounted) {
+        setState(() {
+          _resumen = data['resumen'] as Map<String, dynamic>?;
+          _proveedores = (data['proveedores'] as List? ?? []).cast<Map<String, dynamic>>();
+          _cargando = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() { _error = e.toString(); _cargando = false; });
+      }
+    }
+  }
+
+  String _fmtMonto(dynamic v) {
+    if (v == null) return '—';
+    final n = (v is num) ? v.toDouble() : double.tryParse(v.toString()) ?? 0;
+    if (n >= 1000000000) return '\$${(n / 1000000000).toStringAsFixed(1)}B';
+    if (n >= 1000000) return '\$${(n / 1000000).toStringAsFixed(1)}M';
+    if (n >= 1000) return '\$${(n / 1000).toStringAsFixed(0)}K';
+    return '\$${n.toStringAsFixed(0)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (_, ctrl) => Column(children: [
+        Container(width: 36, height: 4, margin: const EdgeInsets.symmetric(vertical: 12),
+            decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+          child: Row(children: [
+            Container(padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(color: _primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
+                child: const Icon(Icons.domain_outlined, size: 20, color: _primary)),
+            const SizedBox(width: 12),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(widget.nombre, style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B)), maxLines: 2, overflow: TextOverflow.ellipsis),
+              Text('RUT ${widget.rut}', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
+            ])),
+          ]),
+        ),
+        Divider(color: Colors.grey.shade100),
+        Expanded(child: _cargando
+          ? const Center(child: CircularProgressIndicator(color: _primary))
+          : _error != null
+            ? Center(child: Text('Error: $_error', style: GoogleFonts.inter(fontSize: 12, color: Colors.red.shade400)))
+            : ListView(controller: ctrl, padding: const EdgeInsets.all(20), children: [
+                if (_resumen != null) ...[
+                  _kpiRow([
+                    ('Total OCs', _resumen!['total_ocs']?.toString() ?? '—', Icons.receipt_long_outlined),
+                    ('Gasto total', _fmtMonto(_resumen!['gasto_total']), Icons.monetization_on_outlined),
+                    ('Sector', _resumen!['Sector']?.toString() ?? '—', Icons.category_outlined),
+                  ]),
+                  const SizedBox(height: 6),
+                  _kpiRow([
+                    ('Región', _resumen!['RegionUnidadCompra']?.toString() ?? '—', Icons.location_on_outlined),
+                    ('Primera OC', (_resumen!['primera_oc']?.toString() ?? '').length >= 10 ? _resumen!['primera_oc'].toString().substring(0, 10) : '—', Icons.calendar_today_outlined),
+                    ('Última OC', (_resumen!['ultima_oc']?.toString() ?? '').length >= 10 ? _resumen!['ultima_oc'].toString().substring(0, 10) : '—', Icons.update_outlined),
+                  ]),
+                  const SizedBox(height: 20),
+                ],
+                Text('Top proveedores', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
+                const SizedBox(height: 10),
+                ..._proveedores.asMap().entries.map((e) {
+                  final i = e.key;
+                  final p = e.value;
+                  final maxMonto = _proveedores.isEmpty ? 1.0
+                      : _proveedores.map((x) => (x['monto_total'] is num) ? (x['monto_total'] as num).toDouble() : 0.0).reduce((a, b) => a > b ? a : b);
+                  final monto = (p['monto_total'] is num) ? (p['monto_total'] as num).toDouble() : 0.0;
+                  final pct = maxMonto > 0 ? monto / maxMonto : 0.0;
+                  return Padding(padding: const EdgeInsets.only(bottom: 10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
+                      Container(width: 20, height: 20, alignment: Alignment.center,
+                          decoration: BoxDecoration(color: i < 3 ? _primary.withValues(alpha: 0.1) : Colors.grey.shade100, shape: BoxShape.circle),
+                          child: Text('${i + 1}', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w700, color: i < 3 ? _primary : Colors.grey.shade400))),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(p['nombre_proveedor']?.toString() ?? '—',
+                          style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w500, color: const Color(0xFF1E293B)), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                      Text(_fmtMonto(p['monto_total']), style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: _primary)),
+                    ]),
+                    const SizedBox(height: 4),
+                    ClipRRect(borderRadius: BorderRadius.circular(2),
+                        child: LinearProgressIndicator(value: pct, minHeight: 3,
+                            backgroundColor: Colors.grey.shade100,
+                            valueColor: AlwaysStoppedAnimation(_primary.withValues(alpha: 0.6)))),
+                    const SizedBox(height: 2),
+                    Text('${p['total_ocs']} OCs · última: ${(p['ultima_oc']?.toString() ?? '').length >= 10 ? p['ultima_oc'].toString().substring(0, 10) : '—'}',
+                        style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
+                  ]));
+                }),
+              ]),
+        ),
+      ]),
+    );
+  }
+
+  Widget _kpiRow(List<(String, String, IconData)> items) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Row(children: items.map((item) => Expanded(child: Container(
+      margin: const EdgeInsets.only(right: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(10)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(item.$3, size: 14, color: Colors.grey.shade400),
+        const SizedBox(height: 4),
+        Text(item.$2, style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)), maxLines: 1, overflow: TextOverflow.ellipsis),
+        Text(item.$1, style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
+      ]),
+    ))).toList()),
+  );
+}
+
+// ── FICHA PROVEEDOR ─────────────────────────────────────────────────────────
+
+class _FichaProveedorSheet extends StatefulWidget {
+  final String rut;
+  final String nombre;
+  const _FichaProveedorSheet({required this.rut, required this.nombre});
+
+  @override
+  State<_FichaProveedorSheet> createState() => _FichaProveedorSheetState();
+}
+
+class _FichaProveedorSheetState extends State<_FichaProveedorSheet> {
+  static const _primary = Color(0xFF5B21B6);
+  bool _cargando = true;
+  String? _error;
+  Map<String, dynamic>? _resumen;
+  List<Map<String, dynamic>> _organismos = [];
+  List<Map<String, dynamic>> _permanencia = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _cargar();
+  }
+
+  Future<void> _cargar() async {
+    try {
+      final data = await BigQueryService.instance.obtenerFichaProveedor(widget.rut);
+      if (mounted) {
+        setState(() {
+          _resumen = data['resumen'] as Map<String, dynamic>?;
+          _organismos = (data['organismos'] as List? ?? []).cast<Map<String, dynamic>>();
+          _permanencia = (data['permanencia'] as List? ?? []).cast<Map<String, dynamic>>();
+          _cargando = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() { _error = e.toString(); _cargando = false; });
+      }
+    }
+  }
+
+  String _fmtMonto(dynamic v) {
+    if (v == null) return '—';
+    final n = (v is num) ? v.toDouble() : double.tryParse(v.toString()) ?? 0;
+    if (n >= 1000000000) return '\$${(n / 1000000000).toStringAsFixed(1)}B';
+    if (n >= 1000000) return '\$${(n / 1000000).toStringAsFixed(1)}M';
+    if (n >= 1000) return '\$${(n / 1000).toStringAsFixed(0)}K';
+    return '\$${n.toStringAsFixed(0)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (_, ctrl) => Column(children: [
+        Container(width: 36, height: 4, margin: const EdgeInsets.symmetric(vertical: 12),
+            decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+          child: Row(children: [
+            Container(padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(color: _primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
+                child: const Icon(Icons.person_search_outlined, size: 20, color: _primary)),
+            const SizedBox(width: 12),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(widget.nombre, style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B)), maxLines: 2, overflow: TextOverflow.ellipsis),
+              Text('RUT ${widget.rut}', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
+            ])),
+          ]),
+        ),
+        Divider(color: Colors.grey.shade100),
+        Expanded(child: _cargando
+          ? const Center(child: CircularProgressIndicator(color: _primary))
+          : _error != null
+            ? Center(child: Text('Error: $_error', style: GoogleFonts.inter(fontSize: 12, color: Colors.red.shade400)))
+            : ListView(controller: ctrl, padding: const EdgeInsets.all(20), children: [
+                if (_resumen != null) ...[
+                  _kpiRow([
+                    ('Total OCs', _resumen!['total_ocs']?.toString() ?? '—', Icons.receipt_long_outlined),
+                    ('Monto total', _fmtMonto(_resumen!['monto_total']), Icons.monetization_on_outlined),
+                    ('Región', _resumen!['RegionProveedor']?.toString() ?? '—', Icons.location_on_outlined),
+                  ]),
+                  const SizedBox(height: 6),
+                  if (_resumen!['ActividadProveedor'] != null)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(8)),
+                      child: Text(_resumen!['ActividadProveedor'].toString(),
+                          style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500)),
+                    ),
+                  const SizedBox(height: 8),
+                ],
+                if (_permanencia.isNotEmpty) ...[
+                  Text('Relaciones de largo plazo', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
+                  const SizedBox(height: 8),
+                  ..._permanencia.map((p) {
+                    final meses = p['permanencia_meses'];
+                    final anios = meses is num ? (meses / 12.0).toStringAsFixed(1) : '—';
+                    final esSospechoso = meses is num && meses > 36;
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: esSospechoso ? const Color(0xFFEF4444).withValues(alpha: 0.04) : const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: esSospechoso ? const Color(0xFFEF4444).withValues(alpha: 0.2) : Colors.transparent),
+                      ),
+                      child: Row(children: [
+                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(p['cliente_nombre']?.toString() ?? '—',
+                              style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w500, color: const Color(0xFF1E293B)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                          Text('${p['categoria_nombre'] ?? '—'} · ${p['cantidad_oc_emitidas']} OCs',
+                              style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
+                        ])),
+                        Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                          Text('$anios años', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w700,
+                              color: esSospechoso ? const Color(0xFFEF4444) : _primary)),
+                          Text('~${p['promedio_dias_entre_compras']?.toStringAsFixed(0) ?? '—'} días/OC',
+                              style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
+                        ]),
+                      ]),
+                    );
+                  }),
+                  const SizedBox(height: 16),
+                ],
+                Text('Organismos compradores', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
+                const SizedBox(height: 10),
+                ..._organismos.asMap().entries.map((e) {
+                  final i = e.key;
+                  final o = e.value;
+                  final maxMonto = _organismos.isEmpty ? 1.0
+                      : _organismos.map((x) => (x['monto_total'] is num) ? (x['monto_total'] as num).toDouble() : 0.0).reduce((a, b) => a > b ? a : b);
+                  final monto = (o['monto_total'] is num) ? (o['monto_total'] as num).toDouble() : 0.0;
+                  final pct = maxMonto > 0 ? monto / maxMonto : 0.0;
+                  return Padding(padding: const EdgeInsets.only(bottom: 10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
+                      Container(width: 20, height: 20, alignment: Alignment.center,
+                          decoration: BoxDecoration(color: i < 3 ? _primary.withValues(alpha: 0.1) : Colors.grey.shade100, shape: BoxShape.circle),
+                          child: Text('${i + 1}', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w700, color: i < 3 ? _primary : Colors.grey.shade400))),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(o['OrganismoPublico']?.toString() ?? '—',
+                          style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w500, color: const Color(0xFF1E293B)), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                      Text(_fmtMonto(o['monto_total']), style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: _primary)),
+                    ]),
+                    const SizedBox(height: 4),
+                    ClipRRect(borderRadius: BorderRadius.circular(2),
+                        child: LinearProgressIndicator(value: pct, minHeight: 3,
+                            backgroundColor: Colors.grey.shade100,
+                            valueColor: AlwaysStoppedAnimation(_primary.withValues(alpha: 0.6)))),
+                    const SizedBox(height: 2),
+                    Text('${o['total_ocs']} OCs · última: ${(o['ultima_oc']?.toString() ?? '').length >= 10 ? o['ultima_oc'].toString().substring(0, 10) : '—'}',
+                        style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
+                  ]));
+                }),
+              ]),
+        ),
+      ]),
+    );
+  }
+
+  Widget _kpiRow(List<(String, String, IconData)> items) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Row(children: items.map((item) => Expanded(child: Container(
+      margin: const EdgeInsets.only(right: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(10)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(item.$3, size: 14, color: Colors.grey.shade400),
+        const SizedBox(height: 4),
+        Text(item.$2, style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)), maxLines: 1, overflow: TextOverflow.ellipsis),
+        Text(item.$1, style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
+      ]),
+    ))).toList()),
+  );
 }

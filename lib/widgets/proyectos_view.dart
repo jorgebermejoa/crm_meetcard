@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:js_interop';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -9,6 +10,7 @@ import 'package:web/web.dart' as web;
 import '../app_shell.dart';
 import '../models/configuracion.dart';
 import '../models/proyecto.dart';
+import '../services/bigquery_service.dart';
 import '../services/config_service.dart';
 import '../services/proyectos_service.dart';
 import 'app_breadcrumbs.dart';
@@ -83,6 +85,11 @@ class _ProyectosViewState extends State<ProyectosView>
   int? _sortColumn;
   bool _sortAscending = true;
 
+  // Radar tab
+  List<Map<String, dynamic>> _radarOportunidades = [];
+  bool _radarCargando = false;
+  String? _radarError;
+
   // Config
   List<String> _cfgModalidades = [
     'Licitación Pública',
@@ -101,8 +108,9 @@ class _ProyectosViewState extends State<ProyectosView>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _cargar();
+    _cargarRadar(); // precarga en background para que esté listo al entrar al tab
     ConfigService.instance.load().then((cfg) {
       if (!mounted) return;
       setState(() {
@@ -130,6 +138,35 @@ class _ProyectosViewState extends State<ProyectosView>
       if (mounted) setState(() { _proyectos = list; _cargando = false; });
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _cargando = false; });
+    }
+  }
+
+  Future<void> _cargarRadar({bool forceRefresh = false}) async {
+    if (_radarCargando) return;
+    if (mounted) setState(() { _radarCargando = true; _radarError = null; });
+    try {
+      // Fast path: leer desde Firestore caché directamente (evita llamar a la CF)
+      if (!forceRefresh) {
+        final snap = await FirebaseFirestore.instance
+            .collection('cache_bq')
+            .doc('radar_oportunidades')
+            .get();
+        if (snap.exists) {
+          final d = snap.data()!;
+          final fetchedAt = (d['fetchedAt'] as Timestamp?)?.toDate();
+          final age = fetchedAt != null ? DateTime.now().difference(fetchedAt) : null;
+          if (age != null && age.inHours < 24) {
+            final rows = (d['rows'] as List? ?? []).cast<Map<String, dynamic>>();
+            if (mounted) setState(() { _radarOportunidades = rows; _radarCargando = false; });
+            return;
+          }
+        }
+      }
+      // Caché inexistente o stale: llamar CF (que también actualiza Firestore)
+      final rows = await BigQueryService.instance.obtenerRadarOportunidades();
+      if (mounted) setState(() { _radarOportunidades = rows; _radarCargando = false; });
+    } catch (e) {
+      if (mounted) setState(() { _radarError = e.toString(); _radarCargando = false; });
     }
   }
 
@@ -668,20 +705,6 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
       _ReclamosCard(pendientes: reclamosPend, finalizados: reclamosFinalizados, onNavigate: _goToReclamosFiltered),
       _XVencerKpiCard(proyectos: proyectos, onNavigate: _goToVencerFiltered),
     ];
-    final chartCards = [
-      _ClientesChartCard(
-        proyectos: proyectos,
-        onQuarterTap: (y, q, {bool onlyWithOC = false, bool onlyIngresos = false}) =>
-            _goToQuarterFiltered(y, q, onlyWithOC: onlyWithOC, onlyIngresos: onlyIngresos),
-        onChurnQuarterTap: (y, q) => _goToChurnQuarterFiltered(y, q),
-      ),
-      _FacturacionChartCard(
-        proyectos: proyectos,
-        onQuarterTap: (y, q, {bool onlyWithOC = false, bool onlyIngresos = false}) =>
-            _goToQuarterFiltered(y, q, onlyWithOC: onlyWithOC, onlyIngresos: onlyIngresos),
-      ),
-    ];
-
     Widget actionBadges() => Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
@@ -703,7 +726,7 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
     if (isMobile) {
       return _KpiCarouselMobile(
         kpiCards: kpiCards,
-        chartCards: chartCards,
+        chartCards: const [],
         actionBadges: actionBadges(),
       );
     }
@@ -719,18 +742,6 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
                 if (i > 0) const SizedBox(width: 14),
                 Expanded(child: kpiCards[i]),
               ],
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        SizedBox(
-          height: 200,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(child: chartCards[0]),
-              const SizedBox(width: 14),
-              Expanded(child: chartCards[1]),
             ],
           ),
         ),
@@ -1869,6 +1880,7 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
                                           Tab(text: 'Resumen'),
                                           Tab(text: 'Proyectos'),
                                           Tab(text: 'Documentación'),
+                                          Tab(text: 'Radar'),
                                         ],
                                       ),
                                     ),
@@ -1882,6 +1894,9 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
                                         }
                                         if (_tabController.index == 2) {
                                           return _buildTabDocumentacion(isMobile);
+                                        }
+                                        if (_tabController.index == 3) {
+                                          return _buildTabRadar(isMobile);
                                         }
                                         return _buildTabProyectos(isMobile);
                                       },
@@ -2497,6 +2512,101 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
       }
       return true;
     }).toList();
+  }
+
+  // ── TAB RADAR ──────────────────────────────────────────────────────────────
+
+  Widget _buildTabRadar(bool isMobile) {
+    // Win rate calculado desde Firestore (sin BQ)
+    final conLicitacion = _proyectos.where((p) => p.idLicitacion != null && p.idLicitacion!.isNotEmpty).toList();
+    final ganados = conLicitacion.where((p) => p.idsOrdenesCompra.isNotEmpty).length;
+    final perdidos = conLicitacion.where((p) => p.idsOrdenesCompra.isEmpty && p.completado).length;
+    final enCurso  = conLicitacion.where((p) => p.idsOrdenesCompra.isEmpty && !p.completado).length;
+    final total    = ganados + perdidos;
+    final winRate  = total > 0 ? (ganados / total * 100) : 0.0;
+    final montoGanado = _proyectos
+        .where((p) => p.idsOrdenesCompra.isNotEmpty && p.montoTotalOC != null)
+        .fold<double>(0, (s, p) => s + p.montoTotalOC!);
+
+    String fmtMonto(double v) {
+      if (v >= 1000000000) return '\$${(v / 1000000000).toStringAsFixed(1)}B';
+      if (v >= 1000000) return '\$${(v / 1000000).toStringAsFixed(1)}M';
+      if (v >= 1000) return '\$${(v / 1000).toStringAsFixed(0)}K';
+      return '\$${v.toStringAsFixed(0)}';
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ── KPI Win Rate ─────────────────────────────────────────────────────
+        _RadarKpiRow(
+          ganados: ganados,
+          perdidos: perdidos,
+          enCurso: enCurso,
+          winRate: winRate,
+          montoGanado: montoGanado,
+          fmtMonto: fmtMonto,
+          isMobile: isMobile,
+        ),
+        const SizedBox(height: 20),
+
+        // ── Gráficos (movidos desde tab Resumen) ────────────────────────────
+        if (isMobile) ...[
+          SizedBox(
+            height: 200,
+            child: _ClientesChartCard(
+              proyectos: _proyectos,
+              onQuarterTap: (y, q, {bool onlyWithOC = false, bool onlyIngresos = false}) =>
+                  _goToQuarterFiltered(y, q, onlyWithOC: onlyWithOC, onlyIngresos: onlyIngresos),
+              onChurnQuarterTap: (y, q) => _goToChurnQuarterFiltered(y, q),
+            ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 200,
+            child: _FacturacionChartCard(
+              proyectos: _proyectos,
+              onQuarterTap: (y, q, {bool onlyWithOC = false, bool onlyIngresos = false}) =>
+                  _goToQuarterFiltered(y, q, onlyWithOC: onlyWithOC, onlyIngresos: onlyIngresos),
+            ),
+          ),
+        ] else
+          SizedBox(
+            height: 200,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: _ClientesChartCard(
+                    proyectos: _proyectos,
+                    onQuarterTap: (y, q, {bool onlyWithOC = false, bool onlyIngresos = false}) =>
+                        _goToQuarterFiltered(y, q, onlyWithOC: onlyWithOC, onlyIngresos: onlyIngresos),
+                    onChurnQuarterTap: (y, q) => _goToChurnQuarterFiltered(y, q),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: _FacturacionChartCard(
+                    proyectos: _proyectos,
+                    onQuarterTap: (y, q, {bool onlyWithOC = false, bool onlyIngresos = false}) =>
+                        _goToQuarterFiltered(y, q, onlyWithOC: onlyWithOC, onlyIngresos: onlyIngresos),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        const SizedBox(height: 20),
+
+        // ── Radar de Oportunidades ───────────────────────────────────────────
+        _RadarOportunidadesCard(
+          rows: _radarOportunidades,
+          cargando: _radarCargando,
+          error: _radarError,
+          onCargar: () => _cargarRadar(forceRefresh: true),
+        ),
+        const SizedBox(height: 24),
+      ],
+    );
   }
 
   Widget _buildTabDocumentacion(bool isMobile) {
@@ -3878,12 +3988,7 @@ class _KpiCardShellState extends State<_KpiCardShell>
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                  color: Colors.black.withValues(alpha: _hovered ? 0.09 : 0.05),
-                  blurRadius: _hovered ? 12 : 6,
-                  offset: const Offset(0, 2))
-            ],
+            border: Border.all(color: Colors.grey.shade100, width: 1),
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(
@@ -4293,15 +4398,16 @@ class _KpiCarouselMobileState extends State<_KpiCarouselMobile> {
     return Column(
       children: [
         SizedBox(
-          height: 200,
+          height: 124,
           child: Stack(
+            clipBehavior: Clip.none,
             children: [
               PageView.builder(
                 controller: _ctrl,
                 itemCount: total,
                 onPageChanged: (i) => setState(() => _page = i),
                 itemBuilder: (_, i) => Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  padding: const EdgeInsets.fromLTRB(4, 2, 4, 4),
                   child: _buildPage(i),
                 ),
               ),
@@ -5775,6 +5881,274 @@ class _FilterSearchDialogState extends State<_FilterSearchDialog> {
             const SizedBox(height: 8),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ── RADAR: KPI Row ──────────────────────────────────────────────────────────
+
+class _RadarKpiRow extends StatelessWidget {
+  final int ganados;
+  final int perdidos;
+  final int enCurso;
+  final double winRate;
+  final double montoGanado;
+  final String Function(double) fmtMonto;
+  final bool isMobile;
+
+  const _RadarKpiRow({
+    required this.ganados,
+    required this.perdidos,
+    required this.enCurso,
+    required this.winRate,
+    required this.montoGanado,
+    required this.fmtMonto,
+    required this.isMobile,
+  });
+
+  static const _primary = Color(0xFF5B21B6);
+
+  Widget _kpiCard(String label, String value, Color color, IconData icon) {
+    return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6)],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, size: 16, color: color),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(value,
+                      style: GoogleFonts.inter(
+                          fontSize: 18, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
+                  Text(label,
+                      style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500)),
+                ],
+              ),
+            ),
+          ],
+        ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final rateStr = winRate > 0 ? '${winRate.toStringAsFixed(0)}%' : '—';
+    final cards = [
+      _kpiCard('Ganadas', '$ganados', const Color(0xFF10B981), Icons.emoji_events_outlined),
+      _kpiCard('Perdidas', '$perdidos', const Color(0xFFEF4444), Icons.close_outlined),
+      _kpiCard('En curso', '$enCurso', const Color(0xFFF59E0B), Icons.pending_outlined),
+      _kpiCard('Win rate', rateStr, _primary, Icons.track_changes_outlined),
+      _kpiCard('Monto ganado', fmtMonto(montoGanado), const Color(0xFF0EA5E9), Icons.monetization_on_outlined),
+    ];
+
+    if (isMobile) {
+      return SizedBox(
+        height: 80,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: cards.length,
+          separatorBuilder: (_, __) => const SizedBox(width: 10),
+          itemBuilder: (_, i) => SizedBox(width: 160, child: cards[i]),
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        for (int i = 0; i < cards.length; i++) ...[
+          if (i > 0) const SizedBox(width: 10),
+          Expanded(child: cards[i]),
+        ],
+      ],
+    );
+  }
+}
+
+// ── RADAR: Tabla de Oportunidades ───────────────────────────────────────────
+
+class _RadarOportunidadesCard extends StatelessWidget {
+  final List<Map<String, dynamic>> rows;
+  final bool cargando;
+  final String? error;
+  final VoidCallback onCargar;
+
+  const _RadarOportunidadesCard({
+    required this.rows,
+    required this.cargando,
+    required this.error,
+    required this.onCargar,
+  });
+
+  static const _primary = Color(0xFF5B21B6);
+
+  String _fmtMonto(dynamic v) {
+    if (v == null) return '—';
+    final n = (v is num) ? v.toDouble() : double.tryParse(v.toString()) ?? 0;
+    if (n >= 1000000000) return '\$${(n / 1000000000).toStringAsFixed(1)}B';
+    if (n >= 1000000) return '\$${(n / 1000000).toStringAsFixed(1)}M';
+    if (n >= 1000) return '\$${(n / 1000).toStringAsFixed(0)}K';
+    return '\$${n.toStringAsFixed(0)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: _primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.radar, size: 16, color: _primary),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text('Radar de Oportunidades',
+                      style: GoogleFonts.inter(
+                          fontSize: 14, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
+                ),
+                if (cargando)
+                  const SizedBox(
+                      width: 18, height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: _primary))
+                else if (rows.isEmpty)
+                  TextButton.icon(
+                    onPressed: onCargar,
+                    icon: const Icon(Icons.download_outlined, size: 15),
+                    label: Text('Cargar', style: GoogleFonts.inter(fontSize: 12)),
+                    style: TextButton.styleFrom(foregroundColor: _primary, padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6)),
+                  )
+                else
+                  IconButton(
+                    icon: const Icon(Icons.refresh, size: 18, color: _primary),
+                    tooltip: 'Actualizar',
+                    onPressed: onCargar,
+                  ),
+              ],
+            ),
+          ),
+
+          if (error != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+              child: Text('Error: $error',
+                  style: GoogleFonts.inter(fontSize: 12, color: Colors.red.shade400)),
+            )
+          else if (rows.isEmpty && !cargando)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+              child: Text('Toca "Cargar" para consultar las oportunidades detectadas.',
+                  style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade400)),
+            )
+          else if (rows.isNotEmpty) ...[
+            // Header
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(flex: 3, child: Text('Institución / Título', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey.shade400))),
+                  Expanded(flex: 2, child: Text('Ganador actual', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey.shade400))),
+                  SizedBox(width: 80, child: Text('Monto', textAlign: TextAlign.right, style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey.shade400))),
+                  const SizedBox(width: 8),
+                ],
+              ),
+            ),
+            const SizedBox(height: 6),
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: rows.length,
+              separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey.shade100),
+              itemBuilder: (_, i) {
+                final r = rows[i];
+                final alerta = r['alerta_comercial']?.toString() ?? '';
+                final menciona = r['menciona_seguridad'] == true;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(r['institucion']?.toString() ?? '—',
+                                style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500)),
+                            const SizedBox(height: 2),
+                            Text(r['titulo']?.toString() ?? '—',
+                                style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w500, color: const Color(0xFF1E293B)),
+                                maxLines: 2, overflow: TextOverflow.ellipsis),
+                            if (alerta.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: menciona
+                                      ? const Color(0xFF10B981).withValues(alpha: 0.1)
+                                      : const Color(0xFFF59E0B).withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(alerta,
+                                    style: GoogleFonts.inter(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w500,
+                                        color: menciona
+                                            ? const Color(0xFF10B981)
+                                            : const Color(0xFFF59E0B))),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        flex: 2,
+                        child: Text(r['ganador_actual']?.toString() ?? '—',
+                            style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF1E293B)),
+                            maxLines: 2, overflow: TextOverflow.ellipsis),
+                      ),
+                      SizedBox(
+                        width: 80,
+                        child: Text(_fmtMonto(r['monto']),
+                            textAlign: TextAlign.right,
+                            style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B))),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ],
       ),
     );
   }

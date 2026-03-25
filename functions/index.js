@@ -22,24 +22,28 @@ function getDocClient() {
 
 const DE_PARENT = 'projects/licitaciones-prod/locations/global/collections/default_collection/dataStores/datos-licitaciones_1772758314411/branches/0';
 
-// Indexa un lote de documentos en Discovery Engine
+// Indexa un lote de documentos en Discovery Engine (máx 100 por request)
 async function indexarEnDiscoveryEngine(documentos) {
   if (!documentos.length) return;
-  try {
-    const [operation] = await getDocClient().importDocuments({
-      parent: DE_PARENT,
-      inlineSource: {
-        documents: documentos.map(({ id, data }) => ({
-          id,
-          // _firestoreId embebido para recuperarlo desde structData en búsqueda
-          jsonData: JSON.stringify({ ...data, _firestoreId: id }),
-        })),
-      },
-      reconciliationMode: 'INCREMENTAL',
-    });
-    logger.info(`DE import iniciado: ${documentos.length} docs`, operation.name);
-  } catch (e) {
-    logger.error('Error indexando en Discovery Engine:', e.message);
+  const DE_BATCH = 100;
+  for (let i = 0; i < documentos.length; i += DE_BATCH) {
+    const lote = documentos.slice(i, i + DE_BATCH);
+    try {
+      const [operation] = await getDocClient().importDocuments({
+        parent: DE_PARENT,
+        inlineSource: {
+          documents: lote.map(({ id, data }) => ({
+            id,
+            // _firestoreId embebido para recuperarlo desde structData en búsqueda
+            jsonData: JSON.stringify({ ...data, _firestoreId: id }),
+          })),
+        },
+        reconciliationMode: 'INCREMENTAL',
+      });
+      logger.info(`DE import iniciado: ${lote.length} docs (lote ${Math.floor(i / DE_BATCH) + 1})`, operation.name);
+    } catch (e) {
+      logger.error('Error indexando en Discovery Engine:', e.message);
+    }
   }
 }
 
@@ -118,12 +122,19 @@ function convertDatesToTimestamps(data) {
 async function processMonth(db, year, month) {
   let offset = 0;
   let hasMore = true;
+  let totalAgregados = 0;
   while (hasMore) {
     const url = `${BASE_URL}/listaOCDSAgnoMes/${year}/${month}/${offset}/${BATCH_SIZE}`;
-    const response = await axios.get(url, { timeout: API_TIMEOUT }).catch(() => null);
+    const response = await axios.get(url, { timeout: API_TIMEOUT }).catch((e) => {
+      logger.warn(`processMonth ${year}/${month} offset=${offset}: error API — ${e.message}`);
+      return null;
+    });
     const data = response?.data?.data || [];
-    
-    if (data.length === 0) break;
+
+    if (data.length === 0) {
+      logger.info(`processMonth ${year}/${month}: sin más datos en offset ${offset}`);
+      break;
+    }
 
     const bulkWriter = db.bulkWriter();
     const collectionRef = db.collection("licitaciones_activas");
@@ -135,15 +146,19 @@ async function processMonth(db, year, month) {
       const docRef = collectionRef.doc(codigoExterno);
       bulkWriter.set(docRef, {
         ocid: licitacion.ocid || null,
+        codigoExterno,
         procesado: false,
         error: false,
-        fechaIngreso: admin.firestore.FieldValue.serverTimestamp(),
+        fuente: 'ocds',
+        fechaEncolado: admin.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
     }
     await bulkWriter.close();
+    totalAgregados += data.length;
     hasMore = data.length === BATCH_SIZE;
     offset += BATCH_SIZE;
   }
+  logger.info(`processMonth ${year}/${month}: ${totalAgregados} licitaciones encoladas`);
 }
 
 // --- CLOUD FUNCTION 1: Ingesta Masiva ---
@@ -160,9 +175,11 @@ exports.obtenerLicitacionesOCDS = onSchedule({
     { year: now.getFullYear(), month: String(now.getMonth()).padStart(2, '0') }
   ];
   
+  logger.info(`obtenerLicitacionesOCDS iniciado — meses: ${months.map(m => `${m.year}/${m.month}`).join(', ')}`);
   for (const { year, month } of months) {
     await processMonth(db, year, month);
   }
+  logger.info('obtenerLicitacionesOCDS completado');
 });
 
 // --- CLOUD FUNCTION 2: Procesar Detalle (GUARDA TODO EL OCDS + CAMPO DE BÚSQUEDA) ---
@@ -196,18 +213,41 @@ exports.procesarLotesDeLicitaciones = onSchedule({
     
     const results = await Promise.allSettled(apiPromises);
 
+    let erroresApi = 0;
+    let erroresParse = 0;
     for (const result of results) {
-      if (result.status !== 'fulfilled' || !result.value.success) continue;
+      if (result.status !== 'fulfilled' || !result.value.success) {
+        // Fallo de red o timeout — el doc queda en cola para reintento
+        const codigo = result.value?.codigoExterno ?? '(desconocido)';
+        logger.warn(`procesarLotes: fallo de red en ${codigo}`);
+        erroresApi++;
+        continue;
+      }
       const { codigoExterno, status, data } = result.value;
       const activaRef = db.collection("licitaciones_activas").doc(codigoExterno);
 
       if (status === 404) {
-        bulkWriter.update(activaRef, { procesado: true, error: true });
+        logger.warn(`procesarLotes: OCDS 404 para ${codigoExterno} — marcando error`);
+        bulkWriter.update(activaRef, { procesado: true, error: true, errorTipo: 'ocds_404' });
+        erroresParse++;
+        continue;
+      }
+
+      if (status >= 400) {
+        logger.warn(`procesarLotes: OCDS HTTP ${status} para ${codigoExterno} — reintentará`);
+        erroresApi++;
         continue;
       }
 
       try {
-        const release = data.releases[0];
+        const releases = data?.releases;
+        if (!releases || !Array.isArray(releases) || releases.length === 0) {
+          logger.warn(`procesarLotes: releases vacío para ${codigoExterno}`);
+          bulkWriter.update(activaRef, { procesado: true, error: true, errorTipo: 'releases_vacio' });
+          erroresParse++;
+          continue;
+        }
+        const release = releases[0];
         const releaseData = convertDatesToTimestamps(release);
 
         const descripcionesItems = (releaseData.tender?.items || [])
@@ -233,11 +273,25 @@ exports.procesarLotesDeLicitaciones = onSchedule({
         docsParaIndexar.push({ id: codigoExterno, data: { ...release, texto_busqueda: textoBusqueda } });
 
       } catch (e) {
-        bulkWriter.update(activaRef, { procesado: true, error: true });
+        logger.error(`procesarLotes: error de parse en ${codigoExterno} — ${e.message}`);
+        bulkWriter.update(activaRef, { procesado: true, error: true, errorTipo: 'parse_exception' });
+        erroresParse++;
       }
     }
   }
   await bulkWriter.close();
+
+  // Registrar estado del procesamiento
+  const procesados = docsParaIndexar.length;
+  const totalErrores = snapshot.docs.length - procesados;
+  await db.collection('_stats').doc('procesamiento').set({
+    estado: totalErrores === 0 ? 'ok' : 'ok_con_errores',
+    fecha: admin.firestore.FieldValue.serverTimestamp(),
+    procesadas: procesados,
+    erroresApi,
+    erroresParse,
+    error: totalErrores > 0 ? `${totalErrores} con error (${erroresApi} API, ${erroresParse} parse)` : null,
+  });
 
   // Indexar el lote procesado en Discovery Engine
   await indexarEnDiscoveryEngine(docsParaIndexar);
@@ -449,11 +503,11 @@ exports.obtenerResumen = onRequest({
     const offsetMs = 3 * 60 * 60 * 1000; // Chile UTC-3 aprox
     // Inicio de mes en Chile
     const inicioMesUTC = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), 1) + offsetMs);
-    // Hace 7 días (para métrica "recientes")
-    const hace7diasUTC = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate() - 7) + offsetMs);
+    // Hace 14 días (para métrica "recientes" — el feed OCDS de Mercado Público llega con ~9 días de retraso)
+    const hace7diasUTC = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate() - 14) + offsetMs);
 
     // Usar el campo 'date' del release OCDS (fecha real de publicación en Mercado Público)
-    const [totalSnap, recientesSnap, mesSnap, statsDoc] = await Promise.all([
+    const [totalSnap, recientesSnap, mesSnap, statsDoc, ingestaDoc, procesamientoDoc] = await Promise.all([
       db.collection('licitaciones_ocds').count().get(),
       db.collection('licitaciones_ocds')
         .where('date', '>=', admin.firestore.Timestamp.fromDate(hace7diasUTC))
@@ -462,6 +516,8 @@ exports.obtenerResumen = onRequest({
         .where('date', '>=', admin.firestore.Timestamp.fromDate(inicioMesUTC))
         .count().get(),
       db.collection('_stats').doc('resumen').get(),
+      db.collection('_stats').doc('ingesta').get(),
+      db.collection('_stats').doc('procesamiento').get(),
     ]);
 
     const cache = statsDoc.exists ? statsDoc.data() : null;
@@ -470,6 +526,14 @@ exports.obtenerResumen = onRequest({
       hour: '2-digit', minute: '2-digit',
     });
 
+    const _fmtTs = (ts) => ts?.toDate?.()?.toLocaleDateString('es-CL', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    }) ?? null;
+
+    const ingesta = ingestaDoc.exists ? ingestaDoc.data() : null;
+    const procesamiento = procesamientoDoc.exists ? procesamientoDoc.data() : null;
+
     res.status(200).json({
       total: totalSnap.data().count,
       recientes: recientesSnap.data().count,
@@ -477,6 +541,18 @@ exports.obtenerResumen = onRequest({
       ti: cache?.ti || 0,
       categorias: cache?.categorias || [],
       ultimaActualizacion,
+      ingesta: ingesta ? {
+        estado: ingesta.estado,
+        fecha: _fmtTs(ingesta.fecha),
+        encoladas: ingesta.encoladas ?? null,
+        error: ingesta.error ?? null,
+      } : null,
+      procesamiento: procesamiento ? {
+        estado: procesamiento.estado,
+        fecha: _fmtTs(procesamiento.fecha),
+        procesadas: procesamiento.procesadas ?? null,
+        error: procesamiento.error ?? null,
+      } : null,
     });
   } catch (error) {
     logger.error("Error en obtenerResumen:", error);
@@ -540,8 +616,8 @@ async function _ejecutarCalculoEstadisticas(db) {
       prefix,
       esTI: prefix === '43' || prefix === '81',
     }))
-    .sort((a, b) => b.cantidad - a.cantidad)
-    .slice(0, 12);
+    .filter(c => c.esTI)   // solo categorías TI
+    .sort((a, b) => b.cantidad - a.cantidad);
 
   await db.collection('_stats').doc('resumen').set({
     ti: tiCount,
@@ -1551,6 +1627,370 @@ exports.analizarClientesMeetcard = onRequest({
   }
 });
 
+// ── Helpers análisis ──────────────────────────────────────────────────────────
+
+// Verifica token Firebase y retorna uid, o responde 401.
+async function _verifyToken(req, res) {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ')) { res.status(401).json({ error: 'Token requerido' }); return null; }
+  try { await admin.auth().verifyIdToken(auth.slice(7)); return true; } catch (_) { res.status(401).json({ error: 'Token inválido' }); return null; }
+}
+
+// Lee caché Firestore. Retorna datos si vigente (ttlMs), null si expirado/inexistente.
+async function _readCache(db, docId, ttlMs) {
+  const snap = await db.collection('cache_bq').doc(docId).get();
+  if (!snap.exists) return null;
+  const d = snap.data();
+  if (ttlMs && Date.now() - (d.fetchedAt?.toMillis?.() ?? 0) > ttlMs) return null;
+  return d;
+}
+
+async function _writeCache(db, docId, data) {
+  await db.collection('cache_bq').doc(docId).set({ ...data, fetchedAt: admin.firestore.FieldValue.serverTimestamp() });
+}
+
+const TTL_7D = 7 * 24 * 60 * 60 * 1000;
+
+// --- CLOUD FUNCTION: Competidores por licitación ---
+// Retorna todas las ofertas de Competencia_Ofertas para un id_licitacion.
+// GET /obtenerCompetidoresLicitacion?idLicitacion=XXX
+// Caché Firestore 7 días.
+exports.obtenerCompetidoresLicitacion = onRequest({ cors: true }, async (req, res) => {
+  if (req.method !== 'GET') return res.status(405).send('Method Not Allowed');
+  if (!await _verifyToken(req, res)) return;
+  const { idLicitacion } = req.query;
+  if (!idLicitacion) return res.status(400).json({ error: 'idLicitacion requerido' });
+
+  const db = admin.firestore();
+  const cacheId = `competidores_${idLicitacion.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+  const cached = await _readCache(db, cacheId, TTL_7D);
+  if (cached) return res.json({ rows: cached.rows, fromCache: true });
+
+  try {
+    const [rows] = await bigquery.query({
+      query: `SELECT id_licitacion, titulo, id_oferta, nombre_competidor, rut_competidor, monto_ofertado, quien_oferta
+              FROM \`licitaciones-prod.sistema_compras.Competencia_Ofertas\`
+              WHERE id_licitacion = @idLicitacion
+              ORDER BY monto_ofertado ASC`,
+      params: { idLicitacion },
+      useLegacySql: false,
+    });
+    await _writeCache(db, cacheId, { rows });
+    return res.json({ rows, fromCache: false });
+  } catch (e) {
+    logger.error('obtenerCompetidoresLicitacion error:', e.message);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// --- CLOUD FUNCTION: Ganador de licitación ---
+// Retorna las OC adjudicadas para un CodigoLicitacion desde tab_gestion_universal.
+// GET /obtenerGanadorLicitacion?idLicitacion=XXX
+// Caché Firestore 7 días.
+exports.obtenerGanadorLicitacion = onRequest({ cors: true }, async (req, res) => {
+  if (req.method !== 'GET') return res.status(405).send('Method Not Allowed');
+  if (!await _verifyToken(req, res)) return;
+  const { idLicitacion } = req.query;
+  if (!idLicitacion) return res.status(400).json({ error: 'idLicitacion requerido' });
+
+  const db = admin.firestore();
+  const cacheId = `ganador_${idLicitacion.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+  const cached = await _readCache(db, cacheId, TTL_7D);
+  if (cached) return res.json({ rows: cached.rows, fromCache: true });
+
+  try {
+    const [rows] = await bigquery.query({
+      query: `SELECT ID, NombreProveedor, rut_proveedor, CAST(monto_calculado_oc AS STRING) AS monto_calculado_oc,
+                     RutUnidadCompra, OrganismoPublico, FechaEnvio, modalidad, Estado, CodigoLicitacion
+              FROM \`licitaciones-prod.sistema_compras.tab_gestion_universal\`
+              WHERE CodigoLicitacion = @idLicitacion
+              LIMIT 20`,
+      params: { idLicitacion },
+      useLegacySql: false,
+    });
+    await _writeCache(db, cacheId, { rows });
+    return res.json({ rows, fromCache: false });
+  } catch (e) {
+    logger.error('obtenerGanadorLicitacion error:', e.message);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// --- CLOUD FUNCTION: Historial ganador con organismo ---
+// Combina tab_gestion_universal (historial OC) y analisis_permanencia_proveedor.
+// GET /obtenerHistorialGanador?rutProveedor=XXX&rutOrganismo=YYY
+// Caché Firestore 7 días.
+exports.obtenerHistorialGanador = onRequest({ cors: true, memory: '512MiB' }, async (req, res) => {
+  if (req.method !== 'GET') return res.status(405).send('Method Not Allowed');
+  if (!await _verifyToken(req, res)) return;
+  const { rutProveedor, rutOrganismo } = req.query;
+  if (!rutProveedor) return res.status(400).json({ error: 'rutProveedor requerido' });
+
+  const db = admin.firestore();
+  const cacheId = `historial_${rutProveedor.replace(/[^a-zA-Z0-9_-]/g, '_')}_${(rutOrganismo || '').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+  const cached = await _readCache(db, cacheId, TTL_7D);
+  if (cached) return res.json({ ocs: cached.ocs, permanencia: cached.permanencia, fromCache: true });
+
+  try {
+    // Query 1: últimas 30 OC del proveedor con este organismo
+    const ocQuery = rutOrganismo
+      ? `SELECT ID, CAST(monto_calculado_oc AS STRING) AS monto_calculado_oc, FechaEnvio, OrganismoPublico, RutUnidadCompra, Estado, CodigoLicitacion, modalidad
+         FROM \`licitaciones-prod.sistema_compras.tab_gestion_universal\`
+         WHERE rut_proveedor = @rutProveedor AND RutUnidadCompra = @rutOrganismo
+         ORDER BY fecha_envio_limpia DESC LIMIT 30`
+      : `SELECT ID, CAST(monto_calculado_oc AS STRING) AS monto_calculado_oc, FechaEnvio, OrganismoPublico, RutUnidadCompra, Estado, CodigoLicitacion, modalidad
+         FROM \`licitaciones-prod.sistema_compras.tab_gestion_universal\`
+         WHERE rut_proveedor = @rutProveedor
+         ORDER BY fecha_envio_limpia DESC LIMIT 30`;
+
+    const [ocs] = await bigquery.query({
+      query: ocQuery,
+      params: rutOrganismo ? { rutProveedor, rutOrganismo } : { rutProveedor },
+      useLegacySql: false,
+    });
+
+    // Query 2: permanencia del proveedor (CAST dates to STRING to avoid BigQueryDate serialization issues)
+    const [perm] = await bigquery.query({
+      query: `SELECT cliente_nombre, categoria_nombre, proveedor_rut, proveedor_nombre,
+                     CAST(fecha_inicio_primera_compra AS STRING) AS fecha_inicio_primera_compra,
+                     CAST(fecha_ultima_compra AS STRING) AS fecha_ultima_compra,
+                     cantidad_oc_emitidas, permanencia_meses, permanencia_anios, promedio_dias_entre_compras
+              FROM \`licitaciones-prod.ordenes_historicas.analisis_permanencia_proveedor\`
+              WHERE proveedor_rut = @rutProveedor
+              ORDER BY permanencia_meses DESC LIMIT 20`,
+      params: { rutProveedor },
+      useLegacySql: false,
+    });
+
+    await _writeCache(db, cacheId, { ocs, permanencia: perm });
+    return res.json({ ocs, permanencia: perm, fromCache: false });
+  } catch (e) {
+    logger.error('obtenerHistorialGanador error:', e.message);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// --- CLOUD FUNCTION: Predicción próxima compra por organismo ---
+// Retorna frecuencia_compra_prediccion_CATEGORIA filtrada por Cliente_RUT.
+// GET /obtenerPrediccionOrganismo?rutOrganismo=XXX
+// Caché Firestore 7 días.
+exports.obtenerPrediccionOrganismo = onRequest({ cors: true, memory: '512MiB' }, async (req, res) => {
+  if (req.method !== 'GET') return res.status(405).send('Method Not Allowed');
+  if (!await _verifyToken(req, res)) return;
+  const { rutOrganismo } = req.query;
+  if (!rutOrganismo) return res.status(400).json({ error: 'rutOrganismo requerido' });
+
+  const db = admin.firestore();
+  const cacheId = `prediccion_${rutOrganismo.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+  const cached = await _readCache(db, cacheId, TTL_7D);
+  if (cached) return res.json({ rows: cached.rows, fromCache: true });
+
+  try {
+    const [rows] = await bigquery.query({
+      query: `SELECT Cliente_RUT, Cliente_Nombre, Proveedor_RUT, Proveedor_Nombre,
+                     codigoCategoria, Categoria_Nombre_Referencia,
+                     Total_OCs_Adjudicadas, CAST(MontoTotal_CLP AS STRING) AS MontoTotal_CLP,
+                     CAST(Primera_Compra AS STRING) AS Primera_Compra,
+                     CAST(Ultima_Compra AS STRING) AS Ultima_Compra,
+                     Promedio_Dias_Entre_Compras,
+                     CAST(Proxima_Compra_Estimada AS STRING) AS Proxima_Compra_Estimada
+              FROM \`licitaciones-prod.ordenes_historicas.frecuencia_compra_prediccion_CATEGORIA\`
+              WHERE Cliente_RUT = @rutOrganismo
+              ORDER BY Proxima_Compra_Estimada ASC
+              LIMIT 50`,
+      params: { rutOrganismo },
+      useLegacySql: false,
+    });
+    await _writeCache(db, cacheId, { rows });
+    return res.json({ rows, fromCache: false });
+  } catch (e) {
+    logger.error('obtenerPrediccionOrganismo error:', e.message);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// --- CLOUD FUNCTION: Ficha de Organismo ---
+// Retorna resumen del organismo + top proveedores desde tab_gestion_universal.
+// GET /obtenerFichaOrganismo?rutOrganismo=XXX — Caché 7 días.
+exports.obtenerFichaOrganismo = onRequest({ cors: true }, async (req, res) => {
+  if (req.method !== 'GET') return res.status(405).send('Method Not Allowed');
+  if (!await _verifyToken(req, res)) return;
+  const { rutOrganismo } = req.query;
+  if (!rutOrganismo) return res.status(400).json({ error: 'rutOrganismo requerido' });
+
+  const db = admin.firestore();
+  const cacheId = `ficha_org_${rutOrganismo.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+  const cached = await _readCache(db, cacheId, TTL_7D);
+  if (cached) return res.json({ resumen: cached.resumen, proveedores: cached.proveedores, fromCache: true });
+
+  try {
+    const [[resumenRows], [proveedores]] = await Promise.all([
+      bigquery.query({
+        query: `SELECT OrganismoPublico, RutUnidadCompra, Sector, RegionUnidadCompra, ActividadComprador,
+                       COUNT(*) AS total_ocs,
+                       SUM(monto_calculado_oc) AS gasto_total,
+                       CAST(MIN(fecha_envio_limpia) AS STRING) AS primera_oc,
+                       CAST(MAX(fecha_envio_limpia) AS STRING) AS ultima_oc
+                FROM \`licitaciones-prod.sistema_compras.tab_gestion_universal\`
+                WHERE RutUnidadCompra = @rutOrganismo
+                GROUP BY OrganismoPublico, RutUnidadCompra, Sector, RegionUnidadCompra, ActividadComprador
+                LIMIT 1`,
+        params: { rutOrganismo }, useLegacySql: false,
+      }),
+      bigquery.query({
+        query: `SELECT rut_proveedor, nombre_proveedor,
+                       COUNT(*) AS total_ocs,
+                       SUM(monto_calculado_oc) AS monto_total,
+                       CAST(MAX(fecha_envio_limpia) AS STRING) AS ultima_oc
+                FROM \`licitaciones-prod.sistema_compras.tab_gestion_universal\`
+                WHERE RutUnidadCompra = @rutOrganismo
+                GROUP BY rut_proveedor, nombre_proveedor
+                ORDER BY monto_total DESC
+                LIMIT 20`,
+        params: { rutOrganismo }, useLegacySql: false,
+      }),
+    ]);
+    const resumen = resumenRows[0] ?? null;
+    await _writeCache(db, cacheId, { resumen, proveedores });
+    return res.json({ resumen, proveedores, fromCache: false });
+  } catch (e) {
+    logger.error('obtenerFichaOrganismo error:', e.message);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// --- CLOUD FUNCTION: Ficha de Proveedor ---
+// Retorna resumen del proveedor + top organismos + permanencia desde BQ.
+// GET /obtenerFichaProveedor?rutProveedor=XXX — Caché 7 días.
+exports.obtenerFichaProveedor = onRequest({ cors: true }, async (req, res) => {
+  if (req.method !== 'GET') return res.status(405).send('Method Not Allowed');
+  if (!await _verifyToken(req, res)) return;
+  const { rutProveedor } = req.query;
+  if (!rutProveedor) return res.status(400).json({ error: 'rutProveedor requerido' });
+
+  const db = admin.firestore();
+  const cacheId = `ficha_prov_${rutProveedor.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+  const cached = await _readCache(db, cacheId, TTL_7D);
+  if (cached) return res.json({ resumen: cached.resumen, organismos: cached.organismos, permanencia: cached.permanencia, fromCache: true });
+
+  try {
+    const [[resumenRows], [organismos], [permanencia]] = await Promise.all([
+      bigquery.query({
+        query: `SELECT nombre_proveedor, rut_proveedor, ActividadProveedor, RegionProveedor,
+                       COUNT(*) AS total_ocs,
+                       SUM(monto_calculado_oc) AS monto_total,
+                       CAST(MIN(fecha_envio_limpia) AS STRING) AS primera_oc,
+                       CAST(MAX(fecha_envio_limpia) AS STRING) AS ultima_oc
+                FROM \`licitaciones-prod.sistema_compras.tab_gestion_universal\`
+                WHERE rut_proveedor = @rutProveedor
+                GROUP BY nombre_proveedor, rut_proveedor, ActividadProveedor, RegionProveedor
+                LIMIT 1`,
+        params: { rutProveedor }, useLegacySql: false,
+      }),
+      bigquery.query({
+        query: `SELECT RutUnidadCompra, OrganismoPublico,
+                       COUNT(*) AS total_ocs,
+                       SUM(monto_calculado_oc) AS monto_total,
+                       CAST(MAX(fecha_envio_limpia) AS STRING) AS ultima_oc
+                FROM \`licitaciones-prod.sistema_compras.tab_gestion_universal\`
+                WHERE rut_proveedor = @rutProveedor
+                GROUP BY RutUnidadCompra, OrganismoPublico
+                ORDER BY monto_total DESC
+                LIMIT 20`,
+        params: { rutProveedor }, useLegacySql: false,
+      }),
+      bigquery.query({
+        query: `SELECT cliente_nombre, categoria_nombre, cantidad_oc_emitidas,
+                       permanencia_meses, permanencia_anios, promedio_dias_entre_compras,
+                       CAST(fecha_inicio_primera_compra AS STRING) AS fecha_inicio_primera_compra,
+                       CAST(fecha_ultima_compra AS STRING) AS fecha_ultima_compra
+                FROM \`licitaciones-prod.ordenes_historicas.analisis_permanencia_proveedor\`
+                WHERE proveedor_rut = @rutProveedor
+                ORDER BY permanencia_meses DESC
+                LIMIT 15`,
+        params: { rutProveedor }, useLegacySql: false,
+      }),
+    ]);
+    const resumen = resumenRows[0] ?? null;
+    await _writeCache(db, cacheId, { resumen, organismos, permanencia });
+    return res.json({ resumen, organismos, permanencia, fromCache: false });
+  } catch (e) {
+    logger.error('obtenerFichaProveedor error:', e.message);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// --- CLOUD FUNCTION: Radar de Oportunidades ---
+// Retorna todas las filas de sistema_compras."Radar de Oportunidades".
+// Caché Firestore 24 h bajo /cache_bq/radar_oportunidades.
+exports.obtenerRadarOportunidades = onRequest({ cors: true, memory: '512MiB', timeoutSeconds: 120 }, async (req, res) => {
+  if (req.method !== 'GET') return res.status(405).send('Method Not Allowed');
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Token requerido' });
+  try { await admin.auth().verifyIdToken(auth.slice(7)); } catch (_) { return res.status(401).json({ error: 'Token inválido' }); }
+
+  const db = admin.firestore();
+  const cacheRef = db.collection('cache_bq').doc('radar_oportunidades');
+  try {
+    const snap = await cacheRef.get();
+    if (snap.exists) {
+      const d = snap.data();
+      const age = Date.now() - (d.fetchedAt?.toMillis?.() ?? 0);
+      if (age < 24 * 60 * 60 * 1000) return res.json({ rows: d.rows, fromCache: true });
+    }
+  } catch (_) { /* cache read failure is non-fatal */ }
+
+  try {
+    const [rows] = await bigquery.query({
+      query: `SELECT institucion, titulo, ganador_actual,
+                     CAST(fecha_adjudicacion AS STRING) AS fecha_adjudicacion,
+                     CAST(monto AS STRING) AS monto,
+                     menciona_seguridad, alerta_comercial
+              FROM \`licitaciones-prod.sistema_compras.Radar de Oportunidades\`
+              ORDER BY fecha_adjudicacion DESC
+              LIMIT 300`,
+      useLegacySql: false,
+    });
+    // Save cache but don't fail the request if it exceeds Firestore doc limit
+    try {
+      await cacheRef.set({ rows, fetchedAt: admin.firestore.FieldValue.serverTimestamp() });
+    } catch (cacheErr) {
+      logger.warn('obtenerRadarOportunidades cache write failed:', cacheErr.message);
+    }
+    return res.json({ rows, fromCache: false });
+  } catch (e) {
+    logger.error('obtenerRadarOportunidades error:', e.message);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// --- CLOUD FUNCTION: Rubros ONU ---
+// Retorna toda la tabla analisis_mercado.rubros_onu (clasificador UNSPSC oficial).
+// Caché Firestore permanente (sin TTL) bajo /cache_bq/rubros_onu.
+exports.obtenerRubrosOnu = onRequest({ cors: true }, async (req, res) => {
+  if (req.method !== 'GET') return res.status(405).send('Method Not Allowed');
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Token requerido' });
+  try { await admin.auth().verifyIdToken(auth.slice(7)); } catch (_) { return res.status(401).json({ error: 'Token inválido' }); }
+
+  const db = admin.firestore();
+  const cacheRef = db.collection('cache_bq').doc('rubros_onu');
+  const snap = await cacheRef.get();
+  if (snap.exists) return res.json({ rows: snap.data().rows, fromCache: true });
+
+  try {
+    const [rows] = await bigquery.query({
+      query: 'SELECT Segmento, Familia, Clase, Producto_Nivel, Codigo_ONU, Nombre_Item, Codigo_Especifico FROM `licitaciones-prod.analisis_mercado.rubros_onu` ORDER BY Codigo_ONU',
+      useLegacySql: false,
+    });
+    await cacheRef.set({ rows, fetchedAt: admin.firestore.FieldValue.serverTimestamp() });
+    return res.json({ rows, fromCache: false });
+  } catch (e) {
+    logger.error('obtenerRubrosOnu error:', e.message);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 // --- CLOUD FUNCTION: Refresh nocturno de caché de proyectos ---
 // Corre a las 5 AM UTC (2 AM Santiago) después de la ingesta de licitaciones.
 // Para cada proyecto revisa si el caché de licitación/OC existe y está vigente;
@@ -1712,12 +2152,22 @@ exports.dispararIngestaOCDS = onRequest({
     { year: now.getFullYear(), month: String(now.getMonth() + 1).padStart(2, '0') },
     { year: now.getFullYear(), month: String(now.getMonth()).padStart(2, '0') },
   ];
+  const ingestaRef = db.collection('_stats').doc('ingesta');
+  await ingestaRef.set({ estado: 'en_proceso', fecha: admin.firestore.FieldValue.serverTimestamp(), encoladas: null, error: null });
   try {
+    let totalEncoladas = 0;
     for (const { year, month } of months) {
+      const antes = await db.collection('licitaciones_activas').where('procesado', '==', false).count().get();
       await processMonth(db, year, month);
+      const despues = await db.collection('licitaciones_activas').where('procesado', '==', false).count().get();
+      totalEncoladas += Math.max(0, despues.data().count - antes.data().count);
     }
-    res.json({ ok: true, mensaje: 'Ingesta completada para los últimos 2 meses.' });
+    // Recalcular categorías y stats de TI para que los cards reflejen los datos actuales
+    await _ejecutarCalculoEstadisticas(db);
+    await ingestaRef.set({ estado: 'ok', fecha: admin.firestore.FieldValue.serverTimestamp(), encoladas: totalEncoladas, error: null });
+    res.json({ ok: true, mensaje: 'Ingesta y estadísticas actualizadas.', encoladas: totalEncoladas });
   } catch (e) {
+    await ingestaRef.set({ estado: 'error', fecha: admin.firestore.FieldValue.serverTimestamp(), encoladas: null, error: e.message });
     res.status(500).json({ ok: false, error: e.message });
   }
 });
@@ -1748,4 +2198,331 @@ exports.obtenerHistorialApi = onRequest({
     };
   });
   res.json({ logs });
+});
+
+// --- SCHEDULED: Renovar caché Radar de Oportunidades cada noche ---
+// Corre a las 3 AM Santiago (6 AM UTC) para que esté listo al inicio del día laboral.
+exports.renovarRadarOportunidades = onSchedule({
+  schedule: '0 6 * * *',
+  region: 'us-central1',
+  timeoutSeconds: 180,
+  memory: '512MiB',
+}, async () => {
+  const db = admin.firestore();
+  const cacheRef = db.collection('cache_bq').doc('radar_oportunidades');
+  try {
+    const [rows] = await bigquery.query({
+      query: `SELECT institucion, titulo, ganador_actual,
+                     CAST(fecha_adjudicacion AS STRING) AS fecha_adjudicacion,
+                     CAST(monto AS STRING) AS monto,
+                     menciona_seguridad, alerta_comercial
+              FROM \`licitaciones-prod.sistema_compras.Radar de Oportunidades\`
+              ORDER BY fecha_adjudicacion DESC
+              LIMIT 300`,
+      useLegacySql: false,
+    });
+    await cacheRef.set({ rows, fetchedAt: admin.firestore.FieldValue.serverTimestamp() });
+    logger.info(`renovarRadarOportunidades: ${rows.length} filas guardadas en caché.`);
+  } catch (e) {
+    logger.error('renovarRadarOportunidades error:', e.message);
+  }
+});
+
+// --- SCHEDULED: Análisis nocturno de todos los proyectos (TTL 30 días) ---
+// Corre cada noche a las 2 AM UTC (11 PM Santiago).
+// Solo re-analiza proyectos cuyo análisis tiene más de 30 días o no existe.
+// Procesa hasta 60 proyectos por ejecución para no superar el timeout.
+const TTL_30D = 30 * 24 * 60 * 60 * 1000;
+
+exports.analizarProyectosNocturno = onSchedule({
+  schedule: '0 2 * * *',
+  region: 'us-central1',
+  timeoutSeconds: 540,
+  memory: '1GiB',
+}, async () => {
+  const db = admin.firestore();
+  const stats = { analizados: 0, omitidos: 0, errores: 0 };
+
+  // 1. Obtener proyectos con idLicitacion
+  const snap = await db.collection('proyectos').get();
+  const proyectos = snap.docs
+    .map(d => ({ id: d.id, idLicitacion: d.data().idLicitacion }))
+    .filter(p => p.idLicitacion && p.idLicitacion.trim() !== '');
+
+  logger.info(`analizarProyectosNocturno: ${proyectos.length} proyectos con licitación.`);
+
+  // Función auxiliar: analiza un proyecto y guarda en Firestore
+  async function analizarProyecto(idLicitacion) {
+    // Competidores y ganador en paralelo
+    const [compRows] = await bigquery.query({
+      query: `SELECT rut_competidor, nombre_competidor, monto_ofertado, quien_oferta
+              FROM \`licitaciones-prod.sistema_compras.Competencia_Ofertas\`
+              WHERE id_licitacion = @idLicitacion`,
+      params: { idLicitacion },
+      useLegacySql: false,
+    });
+
+    const [ganRows] = await bigquery.query({
+      query: `SELECT rut_proveedor, NombreProveedor, RutUnidadCompra, OrganismoPublico,
+                     CAST(monto_calculado_oc AS STRING) AS monto_calculado_oc,
+                     FechaEnvio, CodigoLicitacion
+              FROM \`licitaciones-prod.sistema_compras.tab_gestion_universal\`
+              WHERE CodigoLicitacion = @idLicitacion
+              ORDER BY fecha_envio_limpia DESC LIMIT 10`,
+      params: { idLicitacion },
+      useLegacySql: false,
+    });
+
+    let historialOcs = [], permanencia = [], predicciones = [];
+    let rutGanador = null, nombreGanador = null, rutOrganismo = null;
+
+    if (ganRows.length > 0) {
+      const p = ganRows[0];
+      rutGanador    = p.rut_proveedor ?? null;
+      nombreGanador = p.NombreProveedor ?? null;
+      rutOrganismo  = p.RutUnidadCompra ?? null;
+    }
+
+    const subFutures = [];
+
+    if (rutGanador) {
+      subFutures.push(
+        bigquery.query({
+          query: `SELECT ID, CAST(monto_calculado_oc AS STRING) AS monto_calculado_oc,
+                         FechaEnvio, OrganismoPublico, CodigoLicitacion
+                  FROM \`licitaciones-prod.sistema_compras.tab_gestion_universal\`
+                  WHERE rut_proveedor = @rutGanador
+                    ${rutOrganismo ? 'AND RutUnidadCompra = @rutOrganismo' : ''}
+                  ORDER BY fecha_envio_limpia DESC LIMIT 30`,
+          params: rutOrganismo ? { rutGanador, rutOrganismo } : { rutGanador },
+          useLegacySql: false,
+        }).then(([r]) => { historialOcs = r; }),
+
+        bigquery.query({
+          query: `SELECT cliente_nombre, categoria_nombre, proveedor_rut, proveedor_nombre,
+                         CAST(fecha_inicio_primera_compra AS STRING) AS fecha_inicio_primera_compra,
+                         CAST(fecha_ultima_compra AS STRING) AS fecha_ultima_compra,
+                         cantidad_oc_emitidas, permanencia_meses, permanencia_anios
+                  FROM \`licitaciones-prod.ordenes_historicas.analisis_permanencia_proveedor\`
+                  WHERE proveedor_rut = @rutGanador
+                  ORDER BY permanencia_meses DESC LIMIT 10`,
+          params: { rutGanador },
+          useLegacySql: false,
+        }).then(([r]) => { permanencia = r; })
+      );
+    }
+
+    if (rutOrganismo) {
+      subFutures.push(
+        bigquery.query({
+          query: `SELECT Cliente_RUT, Cliente_Nombre, Proveedor_RUT, Proveedor_Nombre,
+                         codigoCategoria, Categoria_Nombre_Referencia,
+                         Total_OCs_Adjudicadas, CAST(MontoTotal_CLP AS STRING) AS MontoTotal_CLP,
+                         CAST(Primera_Compra AS STRING) AS Primera_Compra,
+                         CAST(Ultima_Compra AS STRING) AS Ultima_Compra,
+                         Promedio_Dias_Entre_Compras,
+                         CAST(Proxima_Compra_Estimada AS STRING) AS Proxima_Compra_Estimada
+                  FROM \`licitaciones-prod.ordenes_historicas.frecuencia_compra_prediccion_CATEGORIA\`
+                  WHERE Cliente_RUT = @rutOrganismo
+                  ORDER BY Proxima_Compra_Estimada ASC LIMIT 50`,
+          params: { rutOrganismo },
+          useLegacySql: false,
+        }).then(([r]) => { predicciones = r; })
+      );
+    }
+
+    if (subFutures.length > 0) await Promise.all(subFutures);
+
+    const cacheDoc = db.collection('analisis_licitacion').doc(idLicitacion);
+    const payload = {
+      competidores:    compRows,
+      ganadorOcs:      ganRows,
+      historialGanador: historialOcs,
+      permanencia,
+      predicciones,
+      rutGanador,
+      nombreGanador,
+      rutOrganismo,
+      fetchedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    await cacheDoc.set(payload);
+
+    // Snapshot de historial para análisis de tendencias
+    await cacheDoc.collection('historial').add({
+      fechaConsulta:     admin.firestore.FieldValue.serverTimestamp(),
+      totalCompetidores: compRows.length,
+      rutGanador,
+      nombreGanador,
+      rutOrganismo,
+      montoAdjudicado:   ganRows[0]?.monto_calculado_oc ?? null,
+      totalOcsHistorial: historialOcs.length,
+      totalPredicciones: predicciones.length,
+      competidoresSnapshot: compRows.map(c => ({
+        rut:    c.rut_competidor,
+        nombre: c.nombre_competidor,
+        monto:  c.monto_ofertado?.toString() ?? null,
+      })),
+      fuente: 'nocturno',
+    });
+  }
+
+  // 2. Procesar en lotes de 5 (paralelo moderado para no saturar BQ)
+  const BATCH = 5;
+  let procesados = 0;
+
+  for (let i = 0; i < proyectos.length && procesados < 60; i += BATCH) {
+    const lote = proyectos.slice(i, i + BATCH);
+    await Promise.all(lote.map(async (p) => {
+      if (procesados >= 60) return;
+      try {
+        // Verificar TTL 30 días
+        const cacheSnap = await db.collection('analisis_licitacion').doc(p.idLicitacion).get();
+        if (cacheSnap.exists) {
+          const fetchedAt = cacheSnap.data()?.fetchedAt?.toDate?.();
+          if (fetchedAt && (Date.now() - fetchedAt.getTime()) < TTL_30D) {
+            stats.omitidos++;
+            return;
+          }
+        }
+        await analizarProyecto(p.idLicitacion);
+        stats.analizados++;
+        procesados++;
+      } catch (e) {
+        logger.warn(`analizarProyectosNocturno error en ${p.idLicitacion}:`, e.message);
+        stats.errores++;
+      }
+    }));
+    // Pausa breve entre lotes para no saturar BigQuery
+    if (i + BATCH < proyectos.length) await new Promise(r => setTimeout(r, 2000));
+  }
+
+  logger.info(`analizarProyectosNocturno: analizados=${stats.analizados}, omitidos=${stats.omitidos}, errores=${stats.errores}`);
+});
+
+// ─── Helper compartido: encola licitaciones de la API nativa en licitaciones_activas ─────
+async function encolarLicitacionesNativas(db, fecha, licitaciones) {
+  if (!licitaciones.length) return 0;
+  const collectionRef = db.collection('licitaciones_activas');
+
+  // Filtrar códigos válidos
+  const items = licitaciones
+    .map(lic => ({ codigo: lic.CodigoExterno }))
+    .filter(item => !!item.codigo);
+
+  if (!items.length) return 0;
+
+  // Verificar existencia en paralelo para evitar sobreescribir docs ya procesados
+  let snaps;
+  try {
+    snaps = await Promise.all(items.map(item => collectionRef.doc(item.codigo).get()));
+  } catch (e) {
+    logger.error(`encolarLicitacionesNativas: error leyendo existentes — ${e.message}`);
+    throw e;
+  }
+
+  const bulkWriter = db.bulkWriter();
+  let encoladas = 0;
+  for (let i = 0; i < items.length; i++) {
+    if (snaps[i].exists) continue;   // ya está (procesado por OCDS u otra fuente)
+    bulkWriter.set(collectionRef.doc(items[i].codigo), {
+      codigoExterno: items[i].codigo,
+      procesado: false,
+      error: false,
+      fuente: 'api_nativa',
+      fechaPublicacion: fecha,
+      fechaEncolado: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    encoladas++;
+  }
+  await bulkWriter.close();
+  return encoladas;
+}
+
+// --- SCHEDULED: Ingesta Diaria API Nativa (cubre lag OCDS 0-30 días) ---
+// Corre a las 03:00 UTC ≈ 23:00-00:00 hora Chile según DST, para capturar
+// todas las licitaciones publicadas durante el día que termina.
+exports.ingestarLicitacionesNativas = onSchedule({
+  schedule: '0 3 * * *',
+  region: 'us-central1',
+  timeoutSeconds: 300,
+  memory: '512MiB',
+}, async () => {
+  const db = admin.firestore();
+
+  // A las 03:00 UTC aún es el mismo día calendario en Chile → usamos fecha UTC actual
+  const now = new Date();
+  const dd   = String(now.getUTCDate()).padStart(2, '0');
+  const mm   = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const yyyy = now.getUTCFullYear();
+  const fecha = `${dd}${mm}${yyyy}`;   // formato DDMMYYYY requerido por la API
+
+  logger.info(`ingestarLicitacionesNativas: consultando fecha ${fecha}`);
+
+  let response;
+  try {
+    response = await axios.get(
+      `${MP_API_LICIT_URL}?fecha=${fecha}&estado=5&ticket=${OC_TICKET}`,
+      { timeout: API_TIMEOUT }
+    );
+  } catch (e) {
+    logger.error(`ingestarLicitacionesNativas: error API — ${e.message}`);
+    return;
+  }
+
+  const licitaciones = response.data?.Listado ?? [];
+  logger.info(`ingestarLicitacionesNativas: ${licitaciones.length} licitaciones en ${fecha}`);
+
+  const encoladas = await encolarLicitacionesNativas(db, fecha, licitaciones);
+
+  await db.collection('_stats').doc('ingesta_nativa').set({
+    fecha,
+    encontradas: licitaciones.length,
+    encoladas,
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  logger.info(`ingestarLicitacionesNativas: ${encoladas} nuevas encoladas`);
+});
+
+// --- HTTP: Backfill de los últimos 15 días (ejecución única para cubrir lag inicial) ---
+// Llamar con: POST /backfillLicitaciones15Dias  (no requiere body)
+exports.backfillLicitaciones15Dias = onRequest({
+  cors: false,
+  region: 'us-central1',
+  timeoutSeconds: 540,
+  memory: '1GiB',
+}, async (req, res) => {
+  const db = admin.firestore();
+  const resumen = [];
+
+  for (let diasAtras = 1; diasAtras <= 15; diasAtras++) {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - diasAtras);
+    const dd   = String(d.getUTCDate()).padStart(2, '0');
+    const mm   = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const yyyy = d.getUTCFullYear();
+    const fecha = `${dd}${mm}${yyyy}`;
+
+    try {
+      const response = await axios.get(
+        `${MP_API_LICIT_URL}?fecha=${fecha}&estado=5&ticket=${OC_TICKET}`,
+        { timeout: API_TIMEOUT }
+      );
+      const licitaciones = response.data?.Listado ?? [];
+      const encoladas = await encolarLicitacionesNativas(db, fecha, licitaciones);
+      resumen.push({ fecha, encontradas: licitaciones.length, encoladas });
+      logger.info(`backfill ${fecha}: ${licitaciones.length} encontradas, ${encoladas} encoladas`);
+    } catch (e) {
+      logger.warn(`backfill ${fecha}: error — ${e.message}`);
+      resumen.push({ fecha, error: e.message });
+    }
+  }
+
+  const totalEncoladas = resumen.reduce((s, r) => s + (r.encoladas ?? 0), 0);
+  await db.collection('_stats').doc('backfill_nativa').set({
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    totalEncoladas,
+    resumen,
+  });
+
+  res.json({ ok: true, totalEncoladas, resumen });
 });

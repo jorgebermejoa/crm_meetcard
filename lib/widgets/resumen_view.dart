@@ -170,7 +170,7 @@ class _ResumenViewState extends State<ResumenView> {
         subtitle: 'en Firestore',
       ),
       _StatCard(
-        label: 'Últimos 7 días',
+        label: 'Últimos 14 días',
         value: _fmt(stats['recientes']),
         icon: Icons.today_outlined,
         color: const Color(0xFF10B981),
@@ -317,7 +317,14 @@ class _ResumenViewState extends State<ResumenView> {
       );
     }
 
-    final maxVal = categorias
+    final tiCats = categorias
+        .where((c) => (c as Map<String, dynamic>)['esTI'] == true)
+        .cast<Map<String, dynamic>>()
+        .toList();
+
+    if (tiCats.isEmpty) return const SizedBox.shrink();
+
+    final tiMaxVal = tiCats
         .map((c) => (c['cantidad'] as num).toDouble())
         .reduce((a, b) => a > b ? a : b);
 
@@ -337,89 +344,36 @@ class _ResumenViewState extends State<ResumenView> {
         ),
         const SizedBox(height: 4),
         Text(
-          'Clasificación UNSPSC — número de licitaciones por categoría',
+          'Clasificación UNSPSC por área',
           style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade500),
         ),
         const SizedBox(height: 16),
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8, offset: const Offset(0, 2))],
-          ),
-          child: Column(
-            children: categorias.asMap().entries.map<Widget>((entry) {
-              final cat = entry.value as Map<String, dynamic>;
-              final nombre = cat['nombre'] as String;
-              final cantidad = (cat['cantidad'] as num).toInt();
-              final esTI = cat['esTI'] == true;
-              final ratio = cantidad / maxVal;
-              final barColor = esTI ? const Color(0xFF8B5CF6) : const Color(0xFF93C5FD);
-              final labelColor = esTI ? const Color(0xFF6D28D9) : Colors.grey.shade800;
 
-              final prefix = cat['prefix'] as String;
-              return InkWell(
-                borderRadius: BorderRadius.circular(6),
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => CategoriaResultadosView(
-                    prefix: prefix,
-                    nombre: nombre,
-                    total: cantidad,
-                  ),
-                )),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 4),
-                  child: Row(
-                    children: [
-                      if (esTI)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: Icon(Icons.computer, size: 14, color: const Color(0xFF8B5CF6)),
-                        ),
-                      SizedBox(
-                        width: isMobile ? 140 : 260,
-                        child: Text(
-                          nombre,
-                          style: GoogleFonts.inter(
-                            fontSize: 13,
-                            fontWeight: esTI ? FontWeight.w600 : FontWeight.normal,
-                            color: labelColor,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
-                          child: Stack(children: [
-                            Container(height: 18, color: Colors.grey.shade100),
-                            FractionallySizedBox(
-                              widthFactor: ratio,
-                              child: Container(height: 18, color: barColor),
-                            ),
-                          ]),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      SizedBox(
-                        width: 52,
-                        child: Text(
-                          _fmt(cantidad),
-                          style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.grey.shade700),
-                          textAlign: TextAlign.right,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Icon(Icons.chevron_right, size: 16, color: Colors.grey.shade400),
-                    ],
-                  ),
-                ),
-              );
-            }).toList(),
+        // ── Sección TI (rubros UNSPSC 43 y 81) ─────────────────────────────
+        if (tiCats.isNotEmpty) ...[
+          _SectionHeader(
+            icon: Icons.computer_outlined,
+            label: 'Tecnología de la Información',
+            color: const Color(0xFF6D28D9),
           ),
-        ),
+          const SizedBox(height: 8),
+          _CategoryCard(
+            cats: tiCats,
+            maxVal: tiMaxVal,
+            barColor: const Color(0xFF8B5CF6),
+            labelColor: const Color(0xFF6D28D9),
+            isMobile: isMobile,
+            onTap: (cat) => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => CategoriaResultadosView(
+                prefix: cat['prefix'] as String,
+                nombre: cat['nombre'] as String,
+                total: (cat['cantidad'] as num).toInt(),
+              ),
+            )),
+          ),
+          const SizedBox(height: 24),
+        ],
+
       ],
     );
   }
@@ -502,6 +456,123 @@ class _StatCard extends StatelessWidget {
           const SizedBox(height: 2),
           Text(subtitle, style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
         ],
+      ),
+    );
+  }
+}
+
+// ── Encabezado de sección ─────────────────────────────────────────────────────
+class _SectionHeader extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  const _SectionHeader({required this.icon, required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(children: [
+      Container(
+        padding: const EdgeInsets.all(5),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(7),
+        ),
+        child: Icon(icon, size: 15, color: color),
+      ),
+      const SizedBox(width: 8),
+      Text(label,
+          style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600, color: color)),
+    ]);
+  }
+}
+
+// ── Tarjeta con lista de categorías y barras ──────────────────────────────────
+class _CategoryCard extends StatelessWidget {
+  final List<Map<String, dynamic>> cats;
+  final double maxVal;
+  final Color barColor;
+  final Color labelColor;
+  final bool isMobile;
+  final void Function(Map<String, dynamic>) onTap;
+
+  const _CategoryCard({
+    required this.cats,
+    required this.maxVal,
+    required this.barColor,
+    required this.labelColor,
+    required this.isMobile,
+    required this.onTap,
+  });
+
+  String _fmt(int n) {
+    final str = n.toString();
+    final buf = StringBuffer();
+    int count = 0;
+    for (int i = str.length - 1; i >= 0; i--) {
+      if (count > 0 && count % 3 == 0) buf.write('.');
+      buf.write(str[i]);
+      count++;
+    }
+    return buf.toString().split('').reversed.join('');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8, offset: const Offset(0, 2))],
+      ),
+      child: Column(
+        children: cats.map<Widget>((cat) {
+          final nombre = cat['nombre'] as String;
+          final cantidad = (cat['cantidad'] as num).toInt();
+          final ratio = cantidad / maxVal;
+          return InkWell(
+            borderRadius: BorderRadius.circular(6),
+            onTap: () => onTap(cat),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+              child: Row(children: [
+                SizedBox(
+                  width: isMobile ? 140 : 240,
+                  child: Text(
+                    nombre,
+                    style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500, color: labelColor),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: Stack(children: [
+                      Container(height: 18, color: Colors.grey.shade100),
+                      FractionallySizedBox(
+                        widthFactor: ratio.clamp(0.0, 1.0),
+                        child: Container(height: 18, color: barColor),
+                      ),
+                    ]),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                SizedBox(
+                  width: 52,
+                  child: Text(
+                    _fmt(cantidad),
+                    style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.grey.shade700),
+                    textAlign: TextAlign.right,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(Icons.chevron_right, size: 16, color: Colors.grey.shade400),
+              ]),
+            ),
+          );
+        }).toList(),
       ),
     );
   }

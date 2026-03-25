@@ -115,9 +115,12 @@ class _HomeViewState extends State<HomeView>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(
-          resp.statusCode == 200 ? 'Ingesta completada. Actualizando estadísticas…' : 'Error ${resp.statusCode}',
+          resp.statusCode == 200
+              ? 'Cola y estadísticas actualizadas. Los conteos de licitaciones se reflejarán en ~2 min.'
+              : 'Error ${resp.statusCode}',
           style: GoogleFonts.inter(fontSize: 13),
         ),
+        duration: const Duration(seconds: 6),
         backgroundColor: resp.statusCode == 200 ? const Color(0xFF10B981) : Colors.redAccent,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -424,44 +427,130 @@ class _HomeViewState extends State<HomeView>
         _buildCategoriasSection(stats, isMobile),
         const SizedBox(height: 24),
         // ── Ingesta manual ────────────────────────────────────────────────
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey.shade100),
-          ),
-          child: Row(children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: _primaryColor.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.cloud_download_outlined, size: 18, color: _primaryColor),
-            ),
-            const SizedBox(width: 12),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Buscar nuevas licitaciones',
-                  style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B))),
-              Text('Consulta la API OCDS y agrega licitaciones del mes actual',
-                  style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500)),
-            ])),
-            const SizedBox(width: 12),
-            _disparandoIngesta
-                ? const SizedBox(width: 20, height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: _primaryColor))
-                : TextButton(
-                    onPressed: _dispararIngesta,
-                    style: TextButton.styleFrom(
-                      foregroundColor: _primaryColor,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    ),
-                    child: Text('Actualizar', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
-                  ),
-          ]),
-        ),
+        _buildIngestaCard(stats, isMobile),
       ],
+    );
+  }
+
+  Widget _buildIngestaCard(Map<String, dynamic> stats, bool isMobile) {
+    final ingesta = stats['ingesta'] as Map<String, dynamic>?;
+    final proc = stats['procesamiento'] as Map<String, dynamic>?;
+
+    Widget statusRow(String label, Map<String, dynamic>? data) {
+      if (data == null) {
+        return Row(children: [
+          Icon(Icons.remove_circle_outline, size: 12, color: Colors.grey.shade300),
+          const SizedBox(width: 5),
+          Text(label, style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
+          const SizedBox(width: 4),
+          Text('Sin datos', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
+        ]);
+      }
+      final estado = data['estado'] as String? ?? '';
+      final esError = estado == 'error';
+      final esOk = estado == 'ok' || estado == 'ok_con_errores';
+      final color = esError ? const Color(0xFFEF4444) : esOk ? const Color(0xFF10B981) : const Color(0xFFF59E0B);
+      final icon = esError ? Icons.error_outline : esOk ? Icons.check_circle_outline : Icons.hourglass_top_outlined;
+      final fecha = data['fecha'] as String? ?? '';
+      final extra = esError
+          ? (data['error'] as String? ?? '')
+          : esOk && data['procesadas'] != null
+              ? '${data['procesadas']} procesadas'
+              : esOk && data['encoladas'] != null
+                  ? '${data['encoladas']} encoladas'
+                  : '';
+
+      return Row(children: [
+        Icon(icon, size: 12, color: color),
+        const SizedBox(width: 5),
+        Text(label, style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w500)),
+        const SizedBox(width: 4),
+        if (fecha.isNotEmpty)
+          Text(fecha, style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500)),
+        if (extra.isNotEmpty) ...[
+          Text(' · ', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
+          Flexible(
+            child: Text(extra,
+                style: GoogleFonts.inter(fontSize: 11, color: esError ? const Color(0xFFEF4444) : Colors.grey.shade500),
+                overflow: TextOverflow.ellipsis),
+          ),
+        ],
+      ]);
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade100),
+      ),
+      child: isMobile
+          ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: _primaryColor.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.cloud_download_outlined, size: 18, color: _primaryColor),
+                ),
+                const SizedBox(width: 12),
+                Text('Buscar nuevas licitaciones',
+                    style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B))),
+              ]),
+              const SizedBox(height: 8),
+              statusRow('Ingesta:', ingesta),
+              const SizedBox(height: 2),
+              statusRow('Procesamiento:', proc),
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerRight,
+                child: _disparandoIngesta
+                    ? const SizedBox(width: 20, height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: _primaryColor))
+                    : TextButton(
+                        onPressed: _dispararIngesta,
+                        style: TextButton.styleFrom(
+                          foregroundColor: _primaryColor,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        ),
+                        child: Text('Actualizar', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                      ),
+              ),
+            ])
+          : Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _primaryColor.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.cloud_download_outlined, size: 18, color: _primaryColor),
+              ),
+              const SizedBox(width: 12),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Buscar nuevas licitaciones',
+                    style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B))),
+                const SizedBox(height: 4),
+                statusRow('Ingesta:', ingesta),
+                const SizedBox(height: 2),
+                statusRow('Procesamiento:', proc),
+              ])),
+              const SizedBox(width: 12),
+              _disparandoIngesta
+                  ? const SizedBox(width: 20, height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: _primaryColor))
+                  : TextButton(
+                      onPressed: _dispararIngesta,
+                      style: TextButton.styleFrom(
+                        foregroundColor: _primaryColor,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      ),
+                      child: Text('Actualizar', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                    ),
+            ]),
     );
   }
 
@@ -475,8 +564,8 @@ class _HomeViewState extends State<HomeView>
         icon: Icons.article_outlined,
       ),
       _ResumenStat(
-        label: '7 DÍAS',
-        sublabel: 'últimos 7 días',
+        label: '14 DÍAS',
+        sublabel: 'últimos 14 días',
         value: _fmt(stats['recientes']),
         color: const Color(0xFF10B981),
         icon: Icons.today_outlined,
@@ -755,7 +844,11 @@ class _HomeViewState extends State<HomeView>
 
   Widget _buildCategoriasList(
       List<dynamic> categorias, bool isMobile) {
-    final maxVal = categorias
+    final tiCats = categorias
+        .where((c) => (c as Map<String, dynamic>)['esTI'] == true)
+        .toList();
+    if (tiCats.isEmpty) return const SizedBox.shrink();
+    final maxVal = tiCats
         .map((c) => ((c['cantidad'] as num?)?.toDouble()) ?? 0.0)
         .fold(1.0, (a, b) => a > b ? a : b);
 
