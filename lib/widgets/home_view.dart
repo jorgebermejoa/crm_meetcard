@@ -717,8 +717,8 @@ class _HomeViewState extends State<HomeView>
 
   Widget _buildTIHero(Map<String, dynamic> stats, bool isMobile) {
     final tiCount = stats['ti'] ?? 0;
-    final total = stats['total'] ?? 1;
-    final pct = total > 0 ? (tiCount / total * 100) : 0.0;
+    final tiBase = (stats['tiBase'] as num?)?.toInt() ?? (stats['total'] as num?)?.toInt() ?? 1;
+    final pct = tiBase > 0 ? ((tiCount as num) / tiBase * 100) : 0.0;
 
     return GestureDetector(
       onTap: () => Navigator.of(context).push(MaterialPageRoute(
@@ -777,7 +777,7 @@ class _HomeViewState extends State<HomeView>
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'ítems UNSPSC 43 o 81',
+                    'ítems TI · últimos 90 días',
                     style: GoogleFonts.inter(
                         fontSize: 12,
                         color: Colors.white.withValues(alpha: 0.55)),

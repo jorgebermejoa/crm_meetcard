@@ -267,9 +267,18 @@ exports.procesarLotesDeLicitaciones = onSchedule({
 
         const ocdsRef = db.collection("licitaciones_ocds").doc(codigoExterno);
 
+        // Calcular prefijos UNSPSC únicos para consultas por categoría
+        const unspscPrefixes = [...new Set(
+          (releaseData.tender?.items || [])
+            .map(item => String(item?.classification?.id || ''))
+            .filter(code => code.length >= 2)
+            .map(code => code.slice(0, 2))
+        )];
+
         bulkWriter.set(ocdsRef, {
             ...releaseData,
             texto_busqueda: textoBusqueda,
+            _unspsc_prefixes: unspscPrefixes,
             fechaProceso: serverTimestamp
         }, { merge: true });
 
@@ -554,6 +563,7 @@ exports.obtenerResumen = onRequest({
       recientes: recientesSnap.data().count,
       esteMes: mesSnap.data().count,
       ti: cache?.ti || 0,
+      tiBase: cache?.tiBase || 0,   // total del período 90d usado para calcular %
       categorias: cache?.categorias || [],
       ultimaActualizacion,
       ingesta: ingesta ? {
@@ -575,12 +585,10 @@ exports.obtenerResumen = onRequest({
   }
 });
 
-// --- Lógica compartida: calcula categorías/TI del mes actual y guarda en caché ---
+// --- Lógica compartida: calcula categorías/TI de los últimos 90 días y guarda en caché ---
 async function _ejecutarCalculoEstadisticas(db) {
   const ahora = new Date();
-  const offsetMs = 3 * 60 * 60 * 1000; // Chile UTC-3
-  const inicioMesUTC = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), 1) + offsetMs);
-  const inicioSigMesUTC = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth() + 1, 1) + offsetMs);
+  const hace90dias = new Date(ahora.getTime() - 90 * 24 * 60 * 60 * 1000);
 
   const categoriaCounts = {};
   let tiCount = 0;
@@ -589,8 +597,7 @@ async function _ejecutarCalculoEstadisticas(db) {
 
   while (true) {
     let q = db.collection('licitaciones_ocds')
-      .where('date', '>=', admin.firestore.Timestamp.fromDate(inicioMesUTC))
-      .where('date', '<', admin.firestore.Timestamp.fromDate(inicioSigMesUTC))
+      .where('date', '>=', admin.firestore.Timestamp.fromDate(hace90dias))
       .select('tender', 'date')
       .orderBy('date')
       .limit(500);
@@ -637,6 +644,7 @@ async function _ejecutarCalculoEstadisticas(db) {
   await db.collection('_stats').doc('resumen').set({
     ti: tiCount,
     categorias,
+    tiBase: totalProcesados,
     ultimaActualizacion: admin.firestore.FieldValue.serverTimestamp(),
   });
 
@@ -753,13 +761,14 @@ exports.obtenerLicitacionesPorCategoria = onRequest({
       } else return "S/F";
       const d = new Date(ms);
       if (isNaN(d.getTime())) return "S/F";
-      return `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
+      return d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'America/Santiago' });
     } catch(e) { return "S/F"; }
   };
 
   try {
     let q = db.collection('licitaciones_ocds')
       .where('_unspsc_prefixes', 'array-contains', prefix)
+      .orderBy('date', 'desc')
       .limit(limite);
 
     if (cursorId) {
