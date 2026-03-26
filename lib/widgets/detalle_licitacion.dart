@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
@@ -71,26 +72,126 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
   bool _cargandoIntel = false;
   late TabController _tabController;
 
+  // Foro
+  List<Map<String, dynamic>> _enquiries = [];
+  bool _cargandoForo = false;
+  bool _foroCargado = false;
+  DateTime? _foroFechaCache;
+  final TextEditingController _foroSearch = TextEditingController();
+  String _foroQuery = '';
+
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(_onTabChanged);
+    _foroSearch.addListener(() => setState(() => _foroQuery = _foroSearch.text.toLowerCase()));
     _fetchIntel();
+  }
+
+  void _onTabChanged() {
+    if (_tabController.index == 1 && !_foroCargado && !_cargandoForo) {
+      _fetchForo();
+    }
   }
 
   @override
   void didUpdateWidget(DetalleLicitacionSidebar old) {
     super.didUpdateWidget(old);
     if (old.rawData['id'] != widget.rawData['id']) {
-      setState(() => _intel = null);
+      setState(() {
+        _intel = null;
+        _enquiries = [];
+        _foroCargado = false;
+        _foroFechaCache = null;
+        _foroSearch.clear();
+      });
       _fetchIntel();
+      if (_tabController.index == 1) _fetchForo();
     }
   }
 
   @override
   void dispose() {
+    _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
+    _foroSearch.dispose();
     super.dispose();
+  }
+
+  // ── Foro fetch (Firestore caché + OCDS API) ───────────────────────────────
+
+  Future<void> _fetchForo({bool forceRefresh = false}) async {
+    final id = widget.rawData['id']?.toString() ?? '';
+    if (id.isEmpty) return;
+    setState(() => _cargandoForo = true);
+    try {
+      final db = FirebaseFirestore.instance;
+      final docRef = db.collection('licitaciones_ocds').doc(id);
+
+      // 1. Read from Firestore cache unless force refresh
+      if (!forceRefresh) {
+        final snap = await docRef.get();
+        if (snap.exists) {
+          final cached = snap.data()?['_foro_enquiries'];
+          if (cached is List && cached.isNotEmpty) {
+            final ts = snap.data()?['_foro_fetchedAt'];
+            if (mounted) {
+              setState(() {
+                _enquiries = cached.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+                _foroFechaCache = ts is Timestamp ? ts.toDate() : null;
+                _foroCargado = true;
+              });
+            }
+            return;
+          }
+        }
+      }
+
+      // 2. Fetch via CF proxy (avoids CORS on web)
+      final uri = Uri.parse('$_cf/buscarLicitacionPorId?id=${Uri.encodeComponent(id)}&type=tender');
+      final resp = await http.get(uri).timeout(const Duration(seconds: 30));
+      if (resp.statusCode != 200) return;
+
+      final data = json.decode(resp.body) as Map<String, dynamic>;
+      final releases = (data['releases'] as List?) ?? [];
+      final seen = <String>{};
+      final all = <Map<String, dynamic>>[];
+      for (final release in releases) {
+        if (release is! Map) continue;
+        final tender = release['tender'];
+        if (tender is! Map) continue;
+        final eqs = tender['enquiries'];
+        if (eqs is! List) continue;
+        for (final e in eqs) {
+          if (e is! Map) continue;
+          final eid = e['id']?.toString() ?? '';
+          if (seen.add(eid)) all.add(Map<String, dynamic>.from(e));
+        }
+      }
+
+      // 3. Actualizar UI primero
+      if (mounted) {
+        setState(() {
+          _enquiries = all;
+          _foroFechaCache = DateTime.now();
+          _foroCargado = true;
+        });
+      }
+
+      // 4. Persistir caché (best-effort)
+      try {
+        await docRef.set({
+          '_foro_enquiries': all,
+          '_foro_fetchedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } catch (_) {}
+
+    } catch (_) {
+      if (mounted) setState(() => _foroCargado = true);
+    } finally {
+      if (mounted) setState(() => _cargandoForo = false);
+    }
   }
 
   Future<void> _fetchIntel() async {
@@ -148,6 +249,7 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
               dividerColor: Colors.transparent,
               tabs: const [
                 Tab(text: 'Información'),
+                Tab(text: 'Foro'),
                 Tab(text: 'Análisis'),
               ],
             ),
@@ -158,6 +260,7 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
               controller: _tabController,
               children: [
                 _panelInformacion(),
+                _panelForo(),
                 _panelAnalisis(),
               ],
             ),
@@ -639,6 +742,216 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
           ),
         ],
       ),
+    );
+  }
+
+  // ── Panel Foro ─────────────────────────────────────────────────────────────
+
+  Widget _panelForo() {
+    if (_cargandoForo) {
+      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+    }
+
+    final filtered = _foroQuery.isEmpty
+        ? _enquiries
+        : _enquiries.where((e) {
+            final desc = (e['description'] ?? '').toString().toLowerCase();
+            final ans  = (e['answer']      ?? '').toString().toLowerCase();
+            return desc.contains(_foroQuery) || ans.contains(_foroQuery);
+          }).toList();
+
+    String? fechaStr;
+    if (_foroFechaCache != null) {
+      final d = _foroFechaCache!;
+      fechaStr =
+          '${d.day.toString().padLeft(2,'0')}/${d.month.toString().padLeft(2,'0')}/${d.year} '
+          '${d.hour.toString().padLeft(2,'0')}:${d.minute.toString().padLeft(2,'0')}';
+    }
+
+    return Column(children: [
+      // Barra superior: caché info + botón actualizar
+      Container(
+        color: Colors.white,
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+        child: Row(children: [
+          if (fechaStr != null) ...[
+            Icon(Icons.cloud_done_outlined, size: 13, color: Colors.grey.shade400),
+            const SizedBox(width: 5),
+            Text('Caché: $fechaStr',
+                style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
+          ] else if (_foroCargado)
+            Text('Sin caché', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
+          const Spacer(),
+          InkWell(
+            onTap: _cargandoForo ? null : () => _fetchForo(forceRefresh: true),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.refresh, size: 14, color: _primary),
+                const SizedBox(width: 4),
+                Text('Actualizar',
+                    style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: _primary)),
+              ]),
+            ),
+          ),
+        ]),
+      ),
+      // Barra de búsqueda
+      Container(
+        color: Colors.white,
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+        child: TextField(
+          controller: _foroSearch,
+          style: GoogleFonts.inter(fontSize: 13),
+          decoration: InputDecoration(
+            hintText: 'Buscar en preguntas y respuestas…',
+            hintStyle: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade400),
+            prefixIcon: Icon(Icons.search, size: 18, color: Colors.grey.shade400),
+            suffixIcon: _foroQuery.isNotEmpty
+                ? IconButton(
+                    icon: Icon(Icons.close, size: 16, color: Colors.grey.shade400),
+                    onPressed: () => _foroSearch.clear(),
+                    padding: EdgeInsets.zero,
+                  )
+                : null,
+            isDense: true,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            filled: true,
+            fillColor: const Color(0xFFF8FAFC),
+            border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: Colors.grey.shade200)),
+            enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: Colors.grey.shade200)),
+            focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: _primary)),
+          ),
+        ),
+      ),
+      const Divider(height: 1, color: Color(0xFFE2E8F0)),
+      // Lista
+      if (_enquiries.isEmpty)
+        Expanded(
+          child: Center(
+            child: Text(
+              _foroCargado ? 'No hay consultas registradas' : 'Selecciona este tab para cargar el foro',
+              style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400),
+            ),
+          ),
+        )
+      else if (filtered.isEmpty)
+        Expanded(
+          child: Center(
+            child: Text('Sin resultados para "$_foroQuery"',
+                style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400)),
+          ),
+        )
+      else
+        Expanded(
+          child: ListView.separated(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 32),
+            itemCount: filtered.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            itemBuilder: (_, i) => _foroItem(filtered[i]),
+          ),
+        ),
+      // Footer contador
+      Container(
+        color: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        child: Row(children: [
+          Icon(Icons.forum_outlined, size: 13, color: Colors.grey.shade400),
+          const SizedBox(width: 5),
+          Text(
+            _foroQuery.isEmpty
+                ? '${_enquiries.length} consulta${_enquiries.length != 1 ? 's' : ''}'
+                : '${filtered.length} de ${_enquiries.length}',
+            style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400),
+          ),
+        ]),
+      ),
+    ]);
+  }
+
+  Widget _foroItem(Map<String, dynamic> e) {
+    final pregunta    = e['description']?.toString()  ?? '';
+    final respuesta   = e['answer']?.toString()        ?? '';
+    final fechaP      = _fmtDate(e['date']);
+    final fechaR      = _fmtDate(e['dateAnswered']);
+    final tieneRespuesta = respuesta.isNotEmpty;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // Pregunta
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(5),
+                ),
+                child: Text('P', style: GoogleFonts.inter(
+                    fontSize: 10, fontWeight: FontWeight.w700, color: const Color(0xFF3B82F6))),
+              ),
+              const SizedBox(width: 6),
+              Text(fechaP, style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
+            ]),
+            const SizedBox(height: 6),
+            Text(pregunta, style: GoogleFonts.inter(
+                fontSize: 12, color: const Color(0xFF334155), height: 1.5)),
+          ]),
+        ),
+        // Respuesta
+        if (tieneRespuesta)
+          Container(
+            width: double.infinity,
+            decoration: const BoxDecoration(
+              color: Color(0xFFF0FDF4),
+              borderRadius: BorderRadius.vertical(bottom: Radius.circular(12)),
+            ),
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  child: Text('R', style: GoogleFonts.inter(
+                      fontSize: 10, fontWeight: FontWeight.w700, color: const Color(0xFF059669))),
+                ),
+                const SizedBox(width: 6),
+                Text(fechaR, style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
+              ]),
+              const SizedBox(height: 4),
+              Text(respuesta, style: GoogleFonts.inter(
+                  fontSize: 12, color: const Color(0xFF166534), height: 1.5, fontWeight: FontWeight.w500)),
+            ]),
+          )
+        else
+          Container(
+            width: double.infinity,
+            decoration: const BoxDecoration(
+              color: Color(0xFFFFF7ED),
+              borderRadius: BorderRadius.vertical(bottom: Radius.circular(12)),
+            ),
+            padding: const EdgeInsets.fromLTRB(12, 7, 12, 8),
+            child: Text('Sin respuesta',
+                style: GoogleFonts.inter(fontSize: 11, color: Colors.orange.shade400)),
+          ),
+      ]),
     );
   }
 

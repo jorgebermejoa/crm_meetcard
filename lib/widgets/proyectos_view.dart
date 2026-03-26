@@ -68,6 +68,7 @@ class _ProyectosViewState extends State<ProyectosView>
   bool _filterQuarterOnlyWithOC = false;
   bool _filterQuarterIsChurn = false;
   bool _filterQuarterOnlyIngresos = false; // solo vigente/xVencer/finalizado (gráfico Monto Mensual)
+  bool? _filterEncadenado; // true = solo encadenados, false = solo sin encadenar, null = todos
 
   // Pagination — Proyectos tab
   int _currentPage = 0;
@@ -178,6 +179,7 @@ class _ProyectosViewState extends State<ProyectosView>
       _filterEstado = null;
       _filterReclamo = null;
       _filterVencer = null;
+      _filterEncadenado = null;
       _filterQuarterYear = null;
       _filterQuarterQ = null;
       _filterQuarterOnlyWithOC = false;
@@ -275,7 +277,7 @@ class _ProyectosViewState extends State<ProyectosView>
 
     return all.where((p) {
       if (_filterInstitucion != null && _filterInstitucion!.isNotEmpty) {
-        if (!p.institucion
+        if (!_cleanInst(p.institucion)
             .toLowerCase()
             .contains(_filterInstitucion!.toLowerCase())) { return false; }
       }
@@ -306,6 +308,11 @@ class _ProyectosViewState extends State<ProyectosView>
         final now = DateTime.now();
         final limite = now.add(Duration(days: dias));
         if (!ft.isAfter(now) || !ft.isBefore(limite)) return false;
+      }
+      if (_filterEncadenado != null) {
+        final encadenado = p.proyectoContinuacionId?.isNotEmpty == true ||
+            all.any((o) => o.proyectoContinuacionId == p.id);
+        if (_filterEncadenado! != encadenado) return false;
       }
       if (_filterQuarterYear != null && _filterQuarterQ != null) {
         if (_filterQuarterIsChurn) {
@@ -394,6 +401,7 @@ class _ProyectosViewState extends State<ProyectosView>
       _filterInstitucion != null || _filterProductos.isNotEmpty ||
       _filterModalidad != null || _filterEstado != null ||
       _filterReclamo != null || _filterVencer != null ||
+      _filterEncadenado != null ||
       _filterQuarterYear != null;
 
   Widget _exportOption(IconData icon, String title, String subtitle, VoidCallback onTap) {
@@ -723,11 +731,38 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
           ],
         );
 
-    if (isMobile) {
+    // Mobile (< 600): carousel 2 por página
+    // Tablet (600–899): grilla 2×2
+    // Desktop (≥ 900): fila de 4
+    final screenW = MediaQuery.of(context).size.width;
+
+    if (screenW < 600) {
       return _KpiCarouselMobile(
         kpiCards: kpiCards,
         chartCards: const [],
         actionBadges: actionBadges(),
+      );
+    }
+
+    if (screenW < 900) {
+      // Grilla 2×2
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(children: [
+            Expanded(child: kpiCards[0]),
+            const SizedBox(width: 14),
+            Expanded(child: kpiCards[1]),
+          ]),
+          const SizedBox(height: 12),
+          Row(children: [
+            Expanded(child: kpiCards[2]),
+            const SizedBox(width: 14),
+            Expanded(child: kpiCards[3]),
+          ]),
+          const SizedBox(height: 8),
+          actionBadges(),
+        ],
       );
     }
 
@@ -2009,7 +2044,8 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
       _filterVencer,
     ].where((v) => v != null).length +
         (_filterProductos.isNotEmpty ? 1 : 0) +
-        (_filterQuarterYear != null ? 1 : 0);
+        (_filterQuarterYear != null ? 1 : 0) +
+        (_filterEncadenado != null ? 1 : 0);
 
     final hasFilters = activeCount > 0;
 
@@ -2034,6 +2070,9 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
       if (_filterVencer != null)
         _activeChip('Vencer: $_filterVencer',
             () => setState(() { _filterVencer = null; _currentPage = 0; })),
+      if (_filterEncadenado != null)
+        _activeChip(_filterEncadenado! ? 'Encadenados' : 'Sin encadenar',
+            () => setState(() { _filterEncadenado = null; _currentPage = 0; })),
       if (_filterQuarterYear != null && _filterQuarterQ != null)
         _activeChip(
             _filterQuarterIsChurn
@@ -2148,7 +2187,7 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
     final instSeen = <String>{};
     final instituciones = <String>[];
     for (final p in all) {
-      final norm = p.institucion.trim().toUpperCase();
+      final norm = _cleanInst(p.institucion).trim().toUpperCase();
       if (norm.isEmpty) continue;
       if (instSeen.add(norm)) instituciones.add(norm);
     }
@@ -2424,6 +2463,16 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
                       chipGroup(
                           const ['30 días', '3 meses', '6 meses', '12 meses'],
                           _filterVencer, (v) => _filterVencer = v),
+                      const SizedBox(height: 20),
+
+                      // Encadenamiento
+                      sectionTitle('Encadenamiento'),
+                      chipGroup(
+                        const ['Encadenados', 'Sin encadenar'],
+                        _filterEncadenado == null ? null
+                            : (_filterEncadenado! ? 'Encadenados' : 'Sin encadenar'),
+                        (v) => _filterEncadenado = v == null ? null : v == 'Encadenados',
+                      ),
                     ],
                   ),
                 ),
@@ -4398,7 +4447,7 @@ class _KpiCarouselMobileState extends State<_KpiCarouselMobile> {
     return Column(
       children: [
         SizedBox(
-          height: 124,
+          height: 136,
           child: Stack(
             clipBehavior: Clip.none,
             children: [

@@ -1963,18 +1963,10 @@ class _SistemaTab extends StatelessWidget {
     required String badge,
     required Color badgeColor,
     required String description,
+    _BulkAction? bulkAction,
   }) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(10),
-      onTap: () => showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (_) => _HistorialApiSheet(funcion: name),
-      ),
-      child: Container(
+    return Container(
       margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(10),
@@ -1986,24 +1978,33 @@ class _SistemaTab extends StatelessWidget {
               offset: const Offset(0, 1))
         ],
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(7),
-            decoration: BoxDecoration(
-              color: iconColor.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, size: 16, color: iconColor),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // Fila principal (tappable → historial)
+        InkWell(
+          borderRadius: bulkAction == null
+              ? BorderRadius.circular(10)
+              : const BorderRadius.vertical(top: Radius.circular(10)),
+          onTap: () => showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (_) => _HistorialApiSheet(funcion: name),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: iconColor.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, size: 16, color: iconColor),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
                     Expanded(
                       child: Text(name,
                           style: GoogleFonts.inter(
@@ -2024,21 +2025,206 @@ class _SistemaTab extends StatelessWidget {
                               fontWeight: FontWeight.w600,
                               color: badgeColor)),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 5),
-                Text(description,
-                    style: GoogleFonts.inter(
-                        fontSize: 12.5,
-                        color: Colors.grey.shade600,
-                        height: 1.5)),
-              ],
-            ),
+                  ]),
+                  const SizedBox(height: 5),
+                  Text(description,
+                      style: GoogleFonts.inter(
+                          fontSize: 12.5,
+                          color: Colors.grey.shade600,
+                          height: 1.5)),
+                ]),
+              ),
+            ]),
+          ),
+        ),
+        // Botón acción masiva (opcional)
+        if (bulkAction != null) ...[
+          Divider(height: 1, color: Colors.grey.shade100),
+          _BulkActionButton(action: bulkAction),
+        ],
+      ]),
+    );
+  }
+}
+
+// ── Bulk Action ────────────────────────────────────────────────────────────
+
+class _BulkAction {
+  final String label;
+  final String confirmTitle;
+  final String confirmBody;
+  final Future<Map<String, dynamic>> Function() execute;
+
+  const _BulkAction({
+    required this.label,
+    required this.confirmTitle,
+    required this.confirmBody,
+    required this.execute,
+  });
+}
+
+class _BulkActionButton extends StatefulWidget {
+  final _BulkAction action;
+  const _BulkActionButton({required this.action});
+  @override
+  State<_BulkActionButton> createState() => _BulkActionButtonState();
+}
+
+class _BulkActionButtonState extends State<_BulkActionButton> {
+  bool _running = false;
+  Map<String, dynamic>? _result;
+  String? _error;
+
+  Future<void> _ejecutar() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(widget.action.confirmTitle,
+            style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 15)),
+        content: Text(widget.action.confirmBody,
+            style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade600)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('Cancelar', style: GoogleFonts.inter()),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(backgroundColor: _primaryColor),
+            child: Text('Ejecutar', style: GoogleFonts.inter()),
           ),
         ],
       ),
-    ),   // Container
-    );   // InkWell
+    );
+    if (confirmed != true) return;
+    setState(() { _running = true; _result = null; _error = null; });
+    try {
+      final res = await widget.action.execute();
+      if (mounted) setState(() { _result = res; _running = false; });
+    } catch (e) {
+      if (mounted) setState(() { _error = e.toString(); _running = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          // Botón ejecutar
+          _running
+              ? const SizedBox(
+                  width: 16, height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: _primaryColor))
+              : OutlinedButton.icon(
+                  onPressed: _ejecutar,
+                  icon: const Icon(Icons.play_arrow_rounded, size: 15),
+                  label: Text(widget.action.label,
+                      style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _primaryColor,
+                    side: const BorderSide(color: _primaryColor),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ),
+          if (_running) ...[
+            const SizedBox(width: 10),
+            Text('Ejecutando…',
+                style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500)),
+          ],
+          // Limpiar resultado
+          if (_result != null || _error != null) ...[
+            const Spacer(),
+            InkWell(
+              onTap: () => setState(() { _result = null; _error = null; }),
+              child: Icon(Icons.close, size: 14, color: Colors.grey.shade400),
+            ),
+          ],
+        ]),
+        // Resultado
+        if (_result != null) ...[
+          const SizedBox(height: 8),
+          _ResultChips(_result!),
+        ],
+        if (_error != null) ...[
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFEF2F2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(_error!,
+                style: GoogleFonts.inter(
+                    fontSize: 11, color: const Color(0xFFDC2626))),
+          ),
+        ],
+      ]),
+    );
+  }
+}
+
+class _ResultChips extends StatelessWidget {
+  final Map<String, dynamic> data;
+  const _ResultChips(this.data);
+
+  @override
+  Widget build(BuildContext context) {
+    // Mostrar campos clave del resultado como chips
+    final entries = data.entries
+        .where((e) => e.key != 'ok' && e.value != null)
+        .toList();
+    if (entries.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF0FDF4),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text('Completado correctamente',
+            style: GoogleFonts.inter(
+                fontSize: 12, color: const Color(0xFF16A34A), fontWeight: FontWeight.w600)),
+      );
+    }
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: entries.map((e) {
+        final label = _labelFor(e.key);
+        final val = e.value.toString();
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF0FDF4),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text('$label: $val',
+              style: GoogleFonts.inter(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF15803D))),
+        );
+      }).toList(),
+    );
+  }
+
+  String _labelFor(String key) {
+    const map = {
+      'licitaciones': 'Licitaciones',
+      'oc': 'OCs',
+      'omitidas': 'Omitidas',
+      'errores': 'Errores',
+      'total': 'Total',
+      'procesados': 'Procesados',
+      'indexados': 'Indexados',
+      'meses': 'Meses',
+      'encoladas': 'Encoladas',
+      'periodo': 'Período',
+    };
+    return map[key] ?? key;
   }
 }
 

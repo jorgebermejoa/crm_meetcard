@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:js_interop';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:web/web.dart' as web;
 import 'package:go_router/go_router.dart';
@@ -45,6 +46,11 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
   late Proyecto _proyecto;
   late TabController _tabController;
 
+  // ─── Cadena contractual ───────────────────────────────────────────────────
+  List<Proyecto>? _cadena;              // lista ordenada de la cadena completa
+  List<Proyecto>? _sugerencias;         // candidatos a encadenar
+  bool _sugerenciasExpanded = false;    // card colapsada por defecto
+
   Map<String, dynamic>? _ocdsData;
   Map<String, dynamic>? _mpApiData;
   bool _cargandoOcds = false;
@@ -62,6 +68,16 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
   final Map<String, String?> _ocLastFetchMap = {};
 
   List<Map<String, dynamic>> _historial = [];
+
+  // ─── Foro ─────────────────────────────────────────────────────────────────
+  List<Map<String, dynamic>> _foroEnquiries = [];
+  bool _cargandoForo = false;
+  bool _foroCargado = false;
+  DateTime? _foroFechaCache;
+  final TextEditingController _foroSearch = TextEditingController();
+  String _foroQuery = '';
+  String? _foroResumen;
+  bool _cargandoResumen = false;
 
   // ─── Análisis BQ ──────────────────────────────────────────────────────────
   bool _analisisCargando = false;
@@ -99,6 +115,8 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
         const Tab(text: 'Orden de Compra'),
       if (_proyecto.idLicitacion?.isNotEmpty == true)
         const Tab(text: 'Análisis'),
+      if (_proyecto.idLicitacion?.isNotEmpty == true)
+        const Tab(text: 'Foro'),
       const Tab(text: 'Certificados'),
       const Tab(text: 'Reclamos'),
     ];
@@ -137,6 +155,9 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
     if (_proyecto.idLicitacion?.isNotEmpty == true) _cargarOcds();
     if (_proyecto.urlConvenioMarco?.isNotEmpty == true) _cargarConvenio();
     if (_proyecto.idsOrdenesCompra.isNotEmpty) _cargarOc();
+    if (_proyecto.idLicitacion?.isNotEmpty == true) _cargarForo();
+    _cargarCadena();
+    _foroSearch.addListener(() => setState(() => _foroQuery = _foroSearch.text.toLowerCase()));
     ConfigService.instance.load().then((cfg) {
       if (!mounted) return;
       setState(() {
@@ -153,6 +174,7 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
   @override
   void dispose() {
     _tabController.dispose();
+    _foroSearch.dispose();
     super.dispose();
   }
 
@@ -260,6 +282,259 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
     } catch (_) {}
   }
 
+  // ─── Foro (Firestore caché + OCDS API) ───────────────────────────────────
+
+  /// Determina si la licitación ya está adjudicada/cerrada (no necesita refresco frecuente).
+  bool get _licitacionCerrada {
+    final tender = _ocdsData?['tender'];
+    if (tender is Map) {
+      final status = tender['status']?.toString().toLowerCase() ?? '';
+      if (status == 'complete' || status == 'cancelled' || status == 'unsuccessful') return true;
+      final details = (tender['statusDetails'] ?? '').toString().toLowerCase();
+      if (details.contains('adjudicada') || details.contains('desierta') || details.contains('revocada')) return true;
+    }
+    return _proyecto.estado == EstadoProyecto.finalizado;
+  }
+
+  Future<void> _cargarForo({bool forceRefresh = false}) async {
+    final id = _proyecto.idLicitacion?.trim() ?? '';
+    if (id.isEmpty) return;
+    setState(() => _cargandoForo = true);
+    try {
+      final db = FirebaseFirestore.instance;
+      // Guardamos en proyectos/{proyectoId}/foro/{licitacionId}
+      // (el usuario tiene permisos de escritura sobre sus propios proyectos)
+      final cacheRef = db
+          .collection('proyectos')
+          .doc(_proyecto.id)
+          .collection('foro')
+          .doc(id);
+
+      // 1. Leer caché de Firestore
+      if (!forceRefresh) {
+        final snap = await cacheRef.get();
+        if (snap.exists) {
+          final cached = snap.data()?['enquiries'];
+          final ts = snap.data()?['fetchedAt'];
+          final fechaCache = ts is Timestamp ? ts.toDate() : null;
+          final antiguedad = fechaCache != null ? DateTime.now().difference(fechaCache) : null;
+          // Usar caché si: cerrada (cualquier antigüedad) o < 7 días
+          final cacheValido = fechaCache != null &&
+              (antiguedad! < const Duration(days: 7) || _licitacionCerrada);
+          if (cacheValido && cached is List && cached.isNotEmpty) {
+            if (mounted) {
+              setState(() {
+                _foroEnquiries = cached.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+                _foroFechaCache = fechaCache;
+                _foroCargado = true;
+              });
+            }
+            return;
+          }
+        }
+      }
+
+      // 2. Fetch via CF proxy (avoids CORS on web)
+      final uri = Uri.parse('$_baseUrl/buscarLicitacionPorId?id=${Uri.encodeComponent(id)}&type=tender');
+      final resp = await http.get(uri).timeout(const Duration(seconds: 30));
+      if (resp.statusCode != 200) return;
+
+      final data = json.decode(resp.body) as Map<String, dynamic>;
+      final releases = (data['releases'] as List?) ?? [];
+      final seen = <String>{};
+      final all = <Map<String, dynamic>>[];
+      for (final release in releases) {
+        if (release is! Map) continue;
+        final tender = release['tender'];
+        if (tender is! Map) continue;
+        final eqs = tender['enquiries'];
+        if (eqs is! List) continue;
+        for (final e in eqs) {
+          if (e is! Map) continue;
+          final eid = e['id']?.toString() ?? '';
+          if (seen.add(eid)) all.add(Map<String, dynamic>.from(e));
+        }
+      }
+
+      // 3. Actualizar UI primero (independiente de si el write a Firestore falla)
+      final now = DateTime.now();
+      if (mounted) {
+        setState(() {
+          _foroEnquiries = all;
+          _foroFechaCache = now;
+          _foroCargado = true;
+        });
+      }
+
+      // 4. Persistir caché en Firestore (best-effort)
+      try {
+        await cacheRef.set({
+          'enquiries': all,
+          'fetchedAt': FieldValue.serverTimestamp(),
+          'licitacionId': id,
+        });
+      } catch (_) { /* permisos o red: ignorar, ya se muestra en UI */ }
+
+    } catch (e) {
+      if (mounted) setState(() => _foroCargado = true);
+    } finally {
+      if (mounted) setState(() => _cargandoForo = false);
+    }
+  }
+
+  Future<void> _generarResumenForo() async {
+    final id = _proyecto.idLicitacion?.trim() ?? '';
+    if (id.isEmpty || _foroEnquiries.isEmpty) return;
+    setState(() => _cargandoResumen = true);
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      final token = await user.getIdToken();
+      final uri = Uri.parse('$_baseUrl/resumirForo'
+          '?proyectoId=${Uri.encodeComponent(_proyecto.id)}'
+          '&licitacionId=${Uri.encodeComponent(id)}');
+      final resp = await http.get(uri, headers: {'Authorization': 'Bearer $token'})
+          .timeout(const Duration(seconds: 120));
+      if (resp.statusCode == 200) {
+        final data = json.decode(resp.body) as Map<String, dynamic>;
+        if (mounted) setState(() => _foroResumen = data['resumen']?.toString());
+      }
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _cargandoResumen = false);
+    }
+  }
+
+  void _mostrarResumenForo(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ForoResumenSheet(
+        nombreProyecto: _proyecto.productos,
+        resumenInicial: _foroResumen,
+        onGenerar: () async {
+          setState(() => _foroResumen = null);
+          await _generarResumenForo();
+          return _foroResumen;
+        },
+      ),
+    );
+  }
+
+  Future<void> _cargarCadena() async {
+    try {
+      final todos = await ProyectosService.instance.load();
+      final cadena = _resolverCadena(todos, _proyecto.id);
+      final sugerencias = _calcularSugerencias(todos, cadena);
+      if (!mounted) return;
+      setState(() {
+        if (cadena.length > 1) _cadena = cadena;
+        if (sugerencias.isNotEmpty) _sugerencias = sugerencias;
+      });
+    } catch (_) {}
+  }
+
+  /// Normaliza nombre de institución: elimina la unidad de compra (parte después de "|").
+  String _normInst(String raw) => raw.split('|').first.trim().toUpperCase();
+
+  /// Extrae el código numérico de organismo desde idLicitacion ("2348-23-LP21" → "2348"),
+  /// OCDS identifier ("CL-MP-2348" → "2348"), o desde OC.CodigoLicitacion (para CM).
+  String? _codigoOrganismo() {
+    // 1. Desde idLicitacion directo
+    final fromLicit = _proyecto.idLicitacion?.split('-').first.trim();
+    if (fromLicit != null && fromLicit.isNotEmpty && int.tryParse(fromLicit) != null) {
+      return fromLicit;
+    }
+    // 2. Desde OC.CodigoLicitacion — clave para Convenio Marco que hereda licitación original
+    for (final oc in _ocDataList) {
+      if (oc == null) continue;
+      final codLicit = oc['CodigoLicitacion']?.toString().trim() ?? '';
+      final code = codLicit.split('-').first.trim();
+      if (code.isNotEmpty && int.tryParse(code) != null) return code;
+    }
+    // 3. Desde OCDS buyer identifier
+    if (_ocdsData != null) {
+      final releases = (_ocdsData!['releases'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      if (releases.isNotEmpty) {
+        final parties = (releases.last['parties'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+        final buyer = parties.firstWhere(
+          (p) => (p['roles'] as List?)?.contains('buyer') == true,
+          orElse: () => <String, dynamic>{},
+        );
+        final rawId = (buyer['identifier'] as Map?)?['id']?.toString() ?? '';
+        final parts = rawId.split('-');
+        if (parts.length >= 3) return parts.last;
+      }
+    }
+    return null;
+  }
+
+  /// Encuentra proyectos del mismo organismo no incluidos en la cadena actual.
+  /// Detecta cross-modal: un CM y una LP del mismo organismo se reconocen
+  /// por código de organismo (vía CodigoLicitacion en OC), RUT, o nombre normalizado.
+  List<Proyecto> _calcularSugerencias(List<Proyecto> todos, List<Proyecto> cadenaActual) {
+    final idCadena = cadenaActual.map((p) => p.id).toSet();
+    // Solo sugerimos si el proyecto actual es el último de la cadena sin sucesor
+    final ultimoDeCadena = cadenaActual.isEmpty || cadenaActual.last.id == _proyecto.id;
+    if (!ultimoDeCadena) return [];
+    if (_proyecto.proyectoContinuacionId?.isNotEmpty == true) return [];
+
+    final codigoOrg = _codigoOrganismo();
+    // Usar nombre sin unidad de compra para comparación robusta entre modalidades
+    final instNorm = _normInst(_proyecto.institucion).toLowerCase();
+
+    return todos.where((p) {
+      if (idCadena.contains(p.id)) return false;
+      final yaEsSucesor = todos.any((o) => o.proyectoContinuacionId == p.id);
+      if (yaEsSucesor) return false;
+      // Match por código de organismo (funciona LP↔CM vía CodigoLicitacion en OC)
+      if (codigoOrg != null) {
+        final pCode = p.idLicitacion?.split('-').first.trim();
+        if (pCode == codigoOrg) return true;
+      }
+      // Match por nombre normalizado sin unidad (cubre LP↔CM cuando el nombre coincide)
+      final pNorm = _normInst(p.institucion).toLowerCase();
+      return pNorm == instNorm;
+    }).toList()
+      ..sort((a, b) {
+        // Priorizar: sin sucesor primero, luego más recientes
+        final aLibre = a.proyectoContinuacionId?.isEmpty != false ? 0 : 1;
+        final bLibre = b.proyectoContinuacionId?.isEmpty != false ? 0 : 1;
+        if (aLibre != bLibre) return aLibre.compareTo(bLibre);
+        final aFecha = a.fechaInicio ?? a.fechaCreacion ?? DateTime(2000);
+        final bFecha = b.fechaInicio ?? b.fechaCreacion ?? DateTime(2000);
+        return bFecha.compareTo(aFecha);
+      });
+  }
+
+  /// Resuelve la cadena completa de proyectos encadenados de forma ordenada (más antiguo primero).
+  List<Proyecto> _resolverCadena(List<Proyecto> todos, String idActual) {
+    final porId = {for (final p in todos) p.id: p};
+    // Buscar raíz: el nodo que no tiene predecesor
+    String? raizId = idActual;
+    final visitados = <String>{};
+    while (true) {
+      if (visitados.contains(raizId)) break;
+      visitados.add(raizId!);
+      final predecesor = todos.where((p) => p.proyectoContinuacionId == raizId).firstOrNull;
+      if (predecesor == null) break;
+      raizId = predecesor.id;
+    }
+    // Construir cadena desde la raíz hacia adelante
+    final cadena = <Proyecto>[];
+    String? cursor = raizId;
+    final vistos = <String>{};
+    while (cursor != null && !vistos.contains(cursor)) {
+      vistos.add(cursor);
+      final nodo = porId[cursor];
+      if (nodo == null) break;
+      cadena.add(nodo);
+      cursor = nodo.proyectoContinuacionId?.isNotEmpty == true ? nodo.proyectoContinuacionId : null;
+    }
+    return cadena;
+  }
+
   Future<void> _cargarOc({bool forceRefresh = false}) async {
     final ids = _proyecto.idsOrdenesCompra.map((id) => id.trim()).where((id) => id.isNotEmpty).toList();
     if (ids.isEmpty) return;
@@ -275,19 +550,70 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
     if (results.any((oc) => oc != null)) {
       _resolverConversionUFyCLP(results);
     }
+    // Re-calcular sugerencias: las OCs pueden revelar CodigoLicitacion en proyectos CM
+    if (_sugerencias == null) _cargarCadena();
   }
 
   /// Convierte UF→CLP en cada OC que lo requiera (siempre) y guarda montoTotalOC si aún no existe.
+  /// Detecta la moneda de una OC revisando todos los campos posibles de la API de MP.
+  String _detectarMoneda(Map<String, dynamic> oc, {String? ocId}) {
+    String? normalizar(String? v) {
+      if (v == null || v.trim().isEmpty) return null;
+      final u = v.trim().toUpperCase();
+      if (u == 'CLF' || u == 'UF' || u.contains('FOMENTO')) return 'UF';
+      if (u == 'USD' || u == 'DÓLAR' || u == 'DOLAR') return 'USD';
+      if (u == 'PESO' || u == 'CLP' || u == 'PESO CHILENO') return 'CLP';
+      if (v.trim() == '2') return 'UF'; // código numérico en algunos endpoints
+      return null;
+    }
+    // Revisar campos del header (TipoMoneda es el campo real de la API de MP)
+    for (final key in ['_moneda', 'TipoMoneda', 'TipoMonedaOC', 'Moneda']) {
+      final r = normalizar(oc[key]?.toString());
+      if (r != null) return r;
+    }
+    // Fallback: revisar moneda del primer ítem
+    final items = (oc['Items']?['Listado'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    if (items.isNotEmpty) {
+      final r = normalizar(items[0]['Moneda']?.toString());
+      if (r != null) return r;
+    }
+    return 'CLP';
+  }
+
   Future<void> _resolverConversionUFyCLP(List<Map<String, dynamic>?> ocs) async {
+    // Si alguna OC no tiene moneda detectada y el proyecto tiene licitación, obtener moneda desde OCDS
+    final ocsSinMoneda = ocs.whereType<Map<String, dynamic>>()
+        .where((oc) => _detectarMoneda(oc) == 'CLP' && (oc['_moneda'] == null || oc['_moneda'].toString().isEmpty))
+        .toList();
+    if (ocsSinMoneda.isNotEmpty && (_proyecto.idLicitacion?.isNotEmpty ?? false)) {
+      try {
+        final uri = Uri.parse('$_baseUrl/buscarLicitacionPorId?id=${Uri.encodeComponent(_proyecto.idLicitacion!)}&type=award');
+        final resp = await http.get(uri).timeout(const Duration(seconds: 15));
+        if (resp.statusCode == 200) {
+          final data = json.decode(resp.body);
+          final releases = data['releases'] as List?;
+          if (releases != null && releases.isNotEmpty) {
+            final awards = releases[0]['awards'] as List?;
+            final awardValue = (awards != null && awards.isNotEmpty)
+                ? (awards[0] as Map<String, dynamic>)['value'] as Map<String, dynamic>?
+                : null;
+            final currency = awardValue?['currency']?.toString() ?? '';
+            if (currency.isNotEmpty && currency != 'CLP') {
+              for (final oc in ocsSinMoneda) {
+                oc['_moneda'] = currency;
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
     double total = 0;
     for (final oc in ocs) {
       if (oc == null) continue;
       final raw = (oc['Total'] as num?)?.toDouble() ?? 0;
       if (raw == 0) continue;
-      final moneda = (oc['_moneda']?.toString().isNotEmpty == true
-              ? oc['_moneda']
-              : oc['Moneda'])
-          ?.toString() ?? 'CLP';
+      final ocId = oc['Codigo']?.toString() ?? '';
+      final moneda = _detectarMoneda(oc, ocId: ocId.isNotEmpty ? ocId : null);
       if (moneda == 'UF') {
         final fechaStr = oc['Fechas']?['FechaCreacion']?.toString();
         final fecha = (fechaStr != null ? DateTime.tryParse(fechaStr) : null) ?? DateTime.now();
@@ -921,6 +1247,14 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           _buildHeader(isMobile),
+                          if (_cadena != null && _cadena!.length > 1) ...[
+                            const SizedBox(height: 20),
+                            _buildCadenaTimeline(_cadena!),
+                          ],
+                          if (_sugerencias != null && _sugerencias!.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            _buildSugerenciasEncadenamiento(_sugerencias!),
+                          ],
                           const SizedBox(height: 24),
                           _buildTabs(isMobile),
                           const SizedBox(height: 48),
@@ -1485,6 +1819,468 @@ $convenioHtml
 
   // ─── HEADER ───────────────────────────────────────────────────────────────
 
+  // ─── Timeline cadena contractual ─────────────────────────────────────────
+
+  Widget _buildCadenaTimeline(List<Proyecto> cadena) {
+    bool esCurrent(Proyecto p) => p.id == _proyecto.id;
+
+    String fmtRango(Proyecto p) {
+      String fmtYear(DateTime? d) => d != null ? '${d.year}' : '—';
+      final ini = fmtYear(p.fechaInicio ?? p.fechaCreacion);
+      final fin = p.fechaTermino != null ? fmtYear(p.fechaTermino) : 'hoy';
+      return '$ini – $fin';
+    }
+
+    String fmtMonto(Proyecto p) {
+      final m = p.montoTotalOC;
+      if (m == null || m == 0) return '';
+      if (m >= 1e9) return '\$${(m / 1e9).toStringAsFixed(1)}B';
+      if (m >= 1e6) return '\$${(m / 1e6).toStringAsFixed(1)}M';
+      return '\$${_fmt(m.toInt())}';
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 12, offset: const Offset(0, 2))],
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(color: _primaryColor.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(6)),
+              child: Text('CONTRATO', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w700, color: _primaryColor, letterSpacing: 0.8)),
+            ),
+            const SizedBox(width: 8),
+            Text('${cadena.length} renovaciones', style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade400, fontWeight: FontWeight.w500)),
+          ]),
+          const SizedBox(height: 16),
+          ...cadena.asMap().entries.map((entry) {
+            final idx = entry.key;
+            final p = entry.value;
+            final isCurrent = esCurrent(p);
+            final isLast = idx == cadena.length - 1;
+            final monto = fmtMonto(p);
+            final rango = fmtRango(p);
+            final nombre = _cleanName(p.productos).split('\n').first.trim();
+
+            return IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Línea + nodo
+                  SizedBox(
+                    width: 24,
+                    child: Column(
+                      children: [
+                        // Nodo
+                        Container(
+                          width: isCurrent ? 14 : 10,
+                          height: isCurrent ? 14 : 10,
+                          margin: EdgeInsets.only(top: isCurrent ? 3 : 5),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: isCurrent ? _primaryColor : Colors.grey.shade300,
+                            border: isCurrent ? Border.all(color: _primaryColor.withValues(alpha: 0.3), width: 3) : null,
+                            boxShadow: isCurrent
+                                ? [BoxShadow(color: _primaryColor.withValues(alpha: 0.25), blurRadius: 6, spreadRadius: 1)]
+                                : null,
+                          ),
+                        ),
+                        // Línea conectora
+                        if (!isLast)
+                          Expanded(
+                            child: Container(
+                              width: 1.5,
+                              margin: const EdgeInsets.only(top: 4),
+                              color: Colors.grey.shade200,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  // Contenido del nodo
+                  Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.only(bottom: isLast ? 0 : 20),
+                      child: GestureDetector(
+                        onTap: isCurrent ? null : () {
+                          Navigator.of(context).pushReplacement(
+                            MaterialPageRoute(builder: (_) => DetalleProyectoView(proyecto: p)),
+                          );
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                          decoration: BoxDecoration(
+                            color: isCurrent
+                                ? _primaryColor.withValues(alpha: 0.05)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isCurrent ? _primaryColor.withValues(alpha: 0.18) : Colors.transparent,
+                            ),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(children: [
+                                      if (isCurrent) ...[
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          margin: const EdgeInsets.only(right: 6),
+                                          decoration: BoxDecoration(
+                                            color: _primaryColor,
+                                            borderRadius: BorderRadius.circular(4),
+                                          ),
+                                          child: Text('ACTUAL', style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.5)),
+                                        ),
+                                      ],
+                                      Expanded(
+                                        child: Text(
+                                          nombre.isEmpty ? p.institucion : nombre,
+                                          style: GoogleFonts.inter(
+                                            fontSize: 13,
+                                            fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
+                                            color: isCurrent ? const Color(0xFF1E293B) : Colors.grey.shade600,
+                                          ),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ]),
+                                    const SizedBox(height: 4),
+                                    Row(children: [
+                                      Icon(Icons.calendar_today_outlined, size: 11, color: Colors.grey.shade400),
+                                      const SizedBox(width: 4),
+                                      Text(rango, style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400, fontWeight: FontWeight.w500)),
+                                      if (monto.isNotEmpty) ...[
+                                        Container(width: 3, height: 3, margin: const EdgeInsets.symmetric(horizontal: 6), decoration: BoxDecoration(color: Colors.grey.shade300, shape: BoxShape.circle)),
+                                        Text(monto, style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w600)),
+                                      ],
+                                    ]),
+                                  ],
+                                ),
+                              ),
+                              if (!isCurrent)
+                                Icon(Icons.chevron_right_rounded, size: 16, color: Colors.grey.shade300),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _encadenarCon(Proyecto p) async {
+    try {
+      await http.post(
+        Uri.parse('$_baseUrl/actualizarProyecto'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'id': _proyecto.id, 'proyectoContinuacionId': p.id}),
+      );
+      ProyectosService.instance.invalidate();
+      if (!mounted) return;
+      setState(() {
+        _proyecto = _proyecto.copyWithContinuacion(p.id);
+        _sugerencias = null;
+        _sugerenciasExpanded = false;
+      });
+      await _cargarCadena();
+    } catch (_) {}
+  }
+
+  void _mostrarEncadenarBottomSheet(List<Proyecto> candidatos) {
+    String fmtRango(Proyecto p) {
+      String y(DateTime? d) => d != null ? '${d.year}' : '—';
+      final ini = y(p.fechaInicio ?? p.fechaCreacion);
+      final fin = p.fechaTermino != null ? y(p.fechaTermino) : 'activo';
+      return '$ini – $fin';
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setS) {
+          bool guardando = false;
+          return Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36, height: 4,
+                    decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(2)),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text('Encadenar con…', style: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
+                Text('Selecciona el proyecto que continúa este contrato', style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400)),
+                const SizedBox(height: 16),
+                ConstrainedBox(
+                  constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.55),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: candidatos.length,
+                    separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey.shade100),
+                    itemBuilder: (_, i) {
+                      final p = candidatos[i];
+                      final nombre = _cleanName(p.productos).split('\n').first.trim();
+                      final monto = p.montoTotalOC != null && p.montoTotalOC! > 0
+                          ? (p.montoTotalOC! >= 1e6
+                              ? '\$${(p.montoTotalOC! / 1e6).toStringAsFixed(1)}M'
+                              : '\$${_fmt(p.montoTotalOC!.toInt())}')
+                          : '';
+                      return Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: guardando ? null : () async {
+                            setS(() => guardando = true);
+                            Navigator.of(ctx).pop();
+                            await _encadenarCon(p);
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            child: Row(children: [
+                              Expanded(
+                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                  Text(nombre.isEmpty ? p.institucion : nombre,
+                                      style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
+                                      maxLines: 2, overflow: TextOverflow.ellipsis),
+                                  const SizedBox(height: 3),
+                                  Row(children: [
+                                    Text(fmtRango(p), style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade400)),
+                                    if (monto.isNotEmpty) ...[
+                                      Container(width: 3, height: 3, margin: const EdgeInsets.symmetric(horizontal: 6), decoration: BoxDecoration(color: Colors.grey.shade300, shape: BoxShape.circle)),
+                                      Text(monto, style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.w600)),
+                                    ],
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(color: _primaryColor.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(4)),
+                                      child: Text(p.modalidadCompra, style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w600, color: _primaryColor)),
+                                    ),
+                                  ]),
+                                ]),
+                              ),
+                              const SizedBox(width: 8),
+                              Icon(Icons.arrow_forward_ios_rounded, size: 13, color: Colors.grey.shade300),
+                            ]),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildSugerenciasEncadenamiento(List<Proyecto> candidatos) {
+    String fmtRango(Proyecto p) {
+      String y(DateTime? d) => d != null ? '${d.year}' : '—';
+      final ini = y(p.fechaInicio ?? p.fechaCreacion);
+      final fin = p.fechaTermino != null ? y(p.fechaTermino) : 'activo';
+      return '$ini – $fin';
+    }
+
+    String fmtMonto(Proyecto p) {
+      final m = p.montoTotalOC;
+      if (m == null || m == 0) return '';
+      if (m >= 1e9) return '\$${(m / 1e9).toStringAsFixed(1)}B';
+      if (m >= 1e6) return '\$${(m / 1e6).toStringAsFixed(1)}M';
+      return '\$${_fmt(m.toInt())}';
+    }
+
+    final mostrar = candidatos.take(4).toList();
+
+    return GestureDetector(
+      onTap: _sugerenciasExpanded ? null : () => setState(() => _sugerenciasExpanded = true),
+      child: AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeInOut,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9F5FF),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _primaryColor.withValues(alpha: 0.10)),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header siempre visible — tap colapsa/expande
+          GestureDetector(
+            onTap: () => setState(() => _sugerenciasExpanded = !_sugerenciasExpanded),
+            behavior: HitTestBehavior.opaque,
+            child: Row(children: [
+              Container(
+                width: 28, height: 28,
+                decoration: BoxDecoration(
+                  color: _primaryColor.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.auto_awesome_rounded, size: 15, color: _primaryColor),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('Posibles continuaciones', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
+                  Text(
+                    _sugerenciasExpanded
+                        ? 'Proyectos del mismo organismo sin encadenamiento'
+                        : '${candidatos.length} proyecto${candidatos.length != 1 ? 's' : ''} del mismo organismo',
+                    style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500),
+                  ),
+                ]),
+              ),
+              const SizedBox(width: 8),
+              AnimatedRotation(
+                turns: _sugerenciasExpanded ? 0.5 : 0,
+                duration: const Duration(milliseconds: 220),
+                child: Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: Colors.grey.shade400),
+              ),
+            ]),
+          ),
+          // Contenido expandible
+          AnimatedSize(
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeInOut,
+            child: _sugerenciasExpanded
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 14),
+                      ...mostrar.asMap().entries.map((entry) {
+            final i = entry.key;
+            final p = entry.value;
+            final isLast = i == mostrar.length - 1;
+            final nombre = _cleanName(p.productos).split('\n').first.trim();
+            final monto = fmtMonto(p);
+            final rango = fmtRango(p);
+            final estadoColor = p.completado
+                ? const Color(0xFF16A34A)
+                : p.fechaTermino != null && p.fechaTermino!.isBefore(DateTime.now())
+                    ? Colors.grey.shade400
+                    : const Color(0xFF0369A1);
+            final estadoLabel = p.completado ? 'Finalizado' : p.estado;
+
+            return Padding(
+              padding: EdgeInsets.only(bottom: isLast ? 0 : 10),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2))],
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  borderRadius: BorderRadius.circular(14),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: () {
+                      Navigator.of(context).pushReplacement(
+                        MaterialPageRoute(builder: (_) => DetalleProyectoView(proyecto: p)),
+                      );
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+                      child: Row(children: [
+                        Expanded(
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text(
+                              nombre.isEmpty ? p.institucion : nombre,
+                              style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
+                              maxLines: 2, overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 5),
+                            Row(children: [
+                              Icon(Icons.calendar_today_outlined, size: 11, color: Colors.grey.shade400),
+                              const SizedBox(width: 4),
+                              Text(rango, style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400, fontWeight: FontWeight.w500)),
+                              if (monto.isNotEmpty) ...[
+                                Container(width: 3, height: 3, margin: const EdgeInsets.symmetric(horizontal: 6), decoration: BoxDecoration(color: Colors.grey.shade300, shape: BoxShape.circle)),
+                                Text(monto, style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w600)),
+                              ],
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(color: estadoColor.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(4)),
+                                child: Text(estadoLabel, style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w600, color: estadoColor)),
+                              ),
+                            ]),
+                          ]),
+                        ),
+                        const SizedBox(width: 8),
+                        Icon(Icons.chevron_right_rounded, size: 16, color: Colors.grey.shade300),
+                      ]),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }),
+                      if (candidatos.length > 4) ...[
+                        const SizedBox(height: 6),
+                        Center(
+                          child: Text('+ ${candidatos.length - 4} más con el mismo organismo',
+                              style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400, fontWeight: FontWeight.w500)),
+                        ),
+                      ],
+                      const SizedBox(height: 14),
+                      GestureDetector(
+                        onTap: () => _mostrarEncadenarBottomSheet(candidatos),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          decoration: BoxDecoration(
+                            color: _primaryColor,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                            const Icon(Icons.link_rounded, size: 15, color: Colors.white),
+                            const SizedBox(width: 6),
+                            Text('Encadenar proyecto', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white)),
+                          ]),
+                        ),
+                      ),
+                    ],
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ],
+      ),
+    ));
+  }
+
   Widget _buildHeader(bool isMobile) {
     final hasFicha = _proyecto.modalidadCompra != 'Trato Directo' &&
         (_proyecto.idLicitacion != null ||
@@ -1684,6 +2480,7 @@ $convenioHtml
       if (_proyecto.urlConvenioMarco?.isNotEmpty == true) _buildTabDetalle(isMobile),
       if (_proyecto.idsOrdenesCompra.isNotEmpty) _buildTabOc(isMobile),
       if (_proyecto.idLicitacion?.isNotEmpty == true) _buildTabAnalisis(isMobile),
+      if (_proyecto.idLicitacion?.isNotEmpty == true) _buildTabForo(isMobile),
       _buildTabCertificados(isMobile),
       _buildTabReclamos(isMobile),
     ];
@@ -3701,7 +4498,9 @@ $convenioHtml
     required String valor,
     required bool esTotal,
     Widget? labelSuffix,
+    Color? colorTotal,
   }) {
+    final totalColor = colorTotal ?? _primaryColor;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(children: [
@@ -3717,7 +4516,7 @@ $convenioHtml
             style: GoogleFonts.inter(
               fontSize: esTotal ? 15 : 13,
               fontWeight: esTotal ? FontWeight.w800 : FontWeight.w500,
-              color: esTotal ? _primaryColor : const Color(0xFF1E293B),
+              color: esTotal ? totalColor : const Color(0xFF1E293B),
             )),
       ]),
     );
@@ -3733,9 +4532,17 @@ $convenioHtml
   }
 
   Widget _ocResumenCard(List<Map<String, dynamic>> ocs) {
-    // Prefer stored montoTotalOC (already UF-converted); fall back to raw sum
-    final totalAcum = _proyecto.montoTotalOC ??
-        ocs.fold<double>(0, (s, oc) => s + ((oc['Total'] as num?)?.toDouble() ?? 0));
+    // Sumar solo CLP directos + UF ya convertidas a CLP (campo _totalCLP)
+    // Si existe montoTotalOC guardado (ya convertido), usarlo directamente
+    final totalAcum = _proyecto.montoTotalOC ?? ocs.fold<double>(0, (s, oc) {
+      final ocId = oc['Codigo']?.toString();
+      final moneda = _detectarMoneda(oc, ocId: ocId);
+      if (moneda == 'UF') {
+        // Usar valor CLP ya convertido si disponible, si no omitir del total
+        return s + ((oc['_totalCLP'] as num?)?.toDouble() ?? 0);
+      }
+      return s + ((oc['Total'] as num?)?.toDouble() ?? 0);
+    });
     final estadoCount = <String, int>{};
     for (final oc in ocs) {
       final e = oc['Estado']?.toString() ?? 'Desconocido';
@@ -3752,7 +4559,7 @@ $convenioHtml
             const SizedBox(height: 3),
             Text('\$ ${_fmt(totalAcum.toInt())}',
                 style: GoogleFonts.inter(fontSize: 22, fontWeight: FontWeight.w800, color: _primaryColor, letterSpacing: -0.5)),
-            Text('CLP · UF convertida al día de emisión',
+            Text('Solo CLP · UF incluida como valor convertido',
                 style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
           ])),
           Container(
@@ -3788,8 +4595,7 @@ $convenioHtml
     final pctIva = oc['PorcentajeIva'];
     final impuestos = oc['Impuestos'];
     final financiamiento = oc['Financiamiento']?.toString() ?? '';
-    final moneda = (oc['_moneda']?.toString().isNotEmpty == true
-            ? oc['_moneda'] : oc['Moneda'])?.toString() ?? 'CLP';
+    final moneda = _detectarMoneda(oc, ocId: ocId);
     final esUF = moneda == 'UF';
     final ufDia = esUF ? (oc['_ufValueDia'] as num?)?.toDouble() : null;
     final totalCLP = esUF ? (oc['_totalCLP'] as num?)?.toDouble() : null;
@@ -3928,15 +4734,23 @@ $convenioHtml
               valor: esUF ? '${(total as num).toStringAsFixed(2)} UF' : '\$ ${_fmt((total as num).toInt())}',
               esTotal: true,
             ),
-            if (esUF && totalCLP != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Row(children: [
-                  const Spacer(),
-                  Text('≈ \$ ${_fmt(totalCLP.toInt())} CLP',
-                      style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.w500)),
-                ]),
+            if (esUF && totalCLP != null) ...[
+              const SizedBox(height: 6),
+              _ocMontoRow(
+                label: 'Total CLP',
+                labelSuffix: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text('≈', style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.green.shade700)),
+                ),
+                valor: '\$ ${_fmt(totalCLP.toInt())}',
+                esTotal: true,
+                colorTotal: Colors.green.shade700,
               ),
+            ],
             if (esUF && ufDia != null)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
@@ -4324,6 +5138,246 @@ $convenioHtml
         ),
         const SizedBox(height: 24),
       ],
+    );
+  }
+
+  // ─── TAB FORO ─────────────────────────────────────────────────────────────
+
+  Widget _buildTabForo(bool isMobile) {
+    final pad = isMobile ? 12.0 : 20.0;
+
+    if (_cargandoForo && _foroEnquiries.isEmpty) {
+      return const Center(
+          child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 48),
+              child: CircularProgressIndicator(strokeWidth: 2)));
+    }
+
+    final filtered = _foroQuery.isEmpty
+        ? _foroEnquiries
+        : _foroEnquiries.where((e) {
+            final desc = (e['description'] ?? '').toString().toLowerCase();
+            final ans  = (e['answer']      ?? '').toString().toLowerCase();
+            return desc.contains(_foroQuery) || ans.contains(_foroQuery);
+          }).toList();
+
+    String? fechaStr;
+    if (_foroFechaCache != null) {
+      final d = _foroFechaCache!;
+      fechaStr =
+          '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year} '
+          '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+    }
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      // Barra caché + actualizar
+      Container(
+        padding: EdgeInsets.symmetric(horizontal: pad, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(children: [
+          if (fechaStr != null) ...[
+            Icon(Icons.cloud_done_outlined, size: 13, color: Colors.grey.shade400),
+            const SizedBox(width: 4),
+            Text(fechaStr,
+                style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
+          ] else if (_foroCargado)
+            Icon(Icons.cloud_off_outlined, size: 13, color: Colors.grey.shade300),
+          if (_licitacionCerrada) ...[
+            const SizedBox(width: 6),
+            Icon(Icons.lock_outline, size: 12, color: Colors.grey.shade400),
+          ],
+          const Spacer(),
+          InkWell(
+            onTap: _cargandoForo ? null : () => _cargarForo(forceRefresh: true),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: _cargandoForo
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: _primaryColor))
+                  : const Icon(Icons.refresh, size: 18, color: _primaryColor),
+            ),
+          ),
+          const SizedBox(width: 6),
+          // Botón Resumen IA
+          if (_foroEnquiries.isNotEmpty)
+            InkWell(
+              onTap: _cargandoResumen ? null : () => _mostrarResumenForo(context),
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF5B21B6).withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: _cargandoResumen
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: _primaryColor))
+                    : const Icon(Icons.auto_awesome, size: 18, color: _primaryColor),
+              ),
+            ),
+        ]),
+      ),
+      const SizedBox(height: 12),
+
+      // Buscador
+      TextField(
+        controller: _foroSearch,
+        style: GoogleFonts.inter(fontSize: 13),
+        decoration: InputDecoration(
+          hintText: 'Buscar en preguntas y respuestas…',
+          hintStyle: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade400),
+          prefixIcon: Icon(Icons.search, size: 18, color: Colors.grey.shade400),
+          suffixIcon: _foroQuery.isNotEmpty
+              ? IconButton(
+                  icon: Icon(Icons.close, size: 16, color: Colors.grey.shade400),
+                  onPressed: () => _foroSearch.clear(),
+                  padding: EdgeInsets.zero,
+                )
+              : null,
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.grey.shade200)),
+          enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.grey.shade200)),
+          focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: _primaryColor)),
+        ),
+      ),
+      const SizedBox(height: 12),
+
+      // Contador
+      Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Row(children: [
+          Icon(Icons.forum_outlined, size: 13, color: Colors.grey.shade400),
+          const SizedBox(width: 5),
+          Text(
+            _foroQuery.isEmpty
+                ? '${_foroEnquiries.length} consulta${_foroEnquiries.length != 1 ? 's' : ''}'
+                : '${filtered.length} de ${_foroEnquiries.length}',
+            style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400),
+          ),
+        ]),
+      ),
+
+      // Lista
+      if (_foroEnquiries.isEmpty)
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 32),
+          alignment: Alignment.center,
+          child: Text(
+            _foroCargado ? 'No hay consultas registradas para esta licitación' : 'Cargando foro…',
+            style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400),
+          ),
+        )
+      else if (filtered.isEmpty)
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 32),
+          alignment: Alignment.center,
+          child: Text('Sin resultados para "$_foroQuery"',
+              style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400)),
+        )
+      else
+        ...filtered.map((e) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _foroItemCard(e),
+            )),
+    ]);
+  }
+
+  Widget _foroItemCard(Map<String, dynamic> e) {
+    final pregunta = e['description']?.toString() ?? '';
+    final respuesta = e['answer']?.toString() ?? '';
+    final fechaP = _fmtDateStr(e['date']?.toString() ?? '');
+    final fechaR = _fmtDateStr(e['dateAnswered']?.toString() ?? '');
+    final tieneRespuesta = respuesta.isNotEmpty;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // Pregunta
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(5),
+                ),
+                child: Text('P',
+                    style: GoogleFonts.inter(
+                        fontSize: 10, fontWeight: FontWeight.w700, color: const Color(0xFF3B82F6))),
+              ),
+              const SizedBox(width: 6),
+              Text(fechaP,
+                  style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
+            ]),
+            const SizedBox(height: 6),
+            Text(pregunta,
+                style: GoogleFonts.inter(
+                    fontSize: 13, color: const Color(0xFF334155), height: 1.5)),
+          ]),
+        ),
+        // Respuesta o sin respuesta
+        if (tieneRespuesta)
+          Container(
+            width: double.infinity,
+            decoration: const BoxDecoration(
+              color: Color(0xFFF0FDF4),
+              borderRadius: BorderRadius.vertical(bottom: Radius.circular(12)),
+            ),
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  child: Text('R',
+                      style: GoogleFonts.inter(
+                          fontSize: 10, fontWeight: FontWeight.w700, color: const Color(0xFF059669))),
+                ),
+                const SizedBox(width: 6),
+                Text(fechaR,
+                    style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
+              ]),
+              const SizedBox(height: 5),
+              Text(respuesta,
+                  style: GoogleFonts.inter(
+                      fontSize: 13,
+                      color: const Color(0xFF166534),
+                      height: 1.5,
+                      fontWeight: FontWeight.w500)),
+            ]),
+          )
+        else
+          Container(
+            width: double.infinity,
+            decoration: const BoxDecoration(
+              color: Color(0xFFFFF7ED),
+              borderRadius: BorderRadius.vertical(bottom: Radius.circular(12)),
+            ),
+            padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+            child: Text('Sin respuesta',
+                style: GoogleFonts.inter(fontSize: 11, color: Colors.orange.shade400)),
+          ),
+      ]),
     );
   }
 
@@ -6590,6 +7644,31 @@ class _FichaOrganismoSheetState extends State<_FichaOrganismoSheet> {
   Map<String, dynamic>? _resumen;
   List<Map<String, dynamic>> _proveedores = [];
 
+  bool _filtroTI = true;
+  int _filtroPlazo = 0; // 0=todos, 12, 36, 48 meses
+
+  List<Map<String, dynamic>> get _proveedoresFiltrados {
+    var lista = _proveedores;
+    if (_filtroTI) {
+      lista = lista.where((p) {
+        final act = (p['actividad_proveedor']?.toString() ?? '').toUpperCase();
+        return act.contains('INFORM') || act.contains('SOFTW') ||
+               act.contains('TECNO') || act.contains('HARDWARE') ||
+               act.contains('COMPUTAC') || act.contains('DIGIT');
+      }).toList();
+    }
+    if (_filtroPlazo > 0) {
+      final corte = DateTime.now().subtract(Duration(days: _filtroPlazo * 30));
+      lista = lista.where((p) {
+        final s = p['ultima_oc']?.toString() ?? '';
+        if (s.length < 10) return false;
+        final d = DateTime.tryParse(s.substring(0, 10));
+        return d != null && d.isAfter(corte);
+      }).toList();
+    }
+    return lista;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -6650,70 +7729,135 @@ class _FichaOrganismoSheetState extends State<_FichaOrganismoSheet> {
           ? const Center(child: CircularProgressIndicator(color: _primary))
           : _error != null
             ? Center(child: Text('Error: $_error', style: GoogleFonts.inter(fontSize: 12, color: Colors.red.shade400)))
-            : ListView(controller: ctrl, padding: const EdgeInsets.all(20), children: [
+            : ListView(controller: ctrl, padding: const EdgeInsets.fromLTRB(20, 16, 20, 32), children: [
+                // ── KPI cards ──────────────────────────────────────────────
                 if (_resumen != null) ...[
-                  _kpiRow([
-                    ('Total OCs', _resumen!['total_ocs']?.toString() ?? '—', Icons.receipt_long_outlined),
-                    ('Gasto total', _fmtMonto(_resumen!['gasto_total']), Icons.monetization_on_outlined),
-                    ('Sector', _resumen!['Sector']?.toString() ?? '—', Icons.category_outlined),
+                  Row(children: [
+                    _kpiCell('Total OCs', _resumen!['total_ocs']?.toString() ?? '—', Icons.receipt_long_outlined),
+                    const SizedBox(width: 8),
+                    _kpiCell('Gasto total', _fmtMonto(_resumen!['gasto_total']), Icons.monetization_on_outlined),
                   ]),
-                  const SizedBox(height: 6),
-                  _kpiRow([
-                    ('Región', _resumen!['RegionUnidadCompra']?.toString() ?? '—', Icons.location_on_outlined),
-                    ('Primera OC', (_resumen!['primera_oc']?.toString() ?? '').length >= 10 ? _resumen!['primera_oc'].toString().substring(0, 10) : '—', Icons.calendar_today_outlined),
-                    ('Última OC', (_resumen!['ultima_oc']?.toString() ?? '').length >= 10 ? _resumen!['ultima_oc'].toString().substring(0, 10) : '—', Icons.update_outlined),
+                  const SizedBox(height: 8),
+                  Row(children: [
+                    _kpiCell('Actividad', _resumen!['ActividadComprador']?.toString() ?? '—', Icons.category_outlined),
+                    const SizedBox(width: 8),
+                    _kpiCell('Región', _resumen!['RegionUnidadCompra']?.toString() ?? '—', Icons.location_on_outlined),
+                  ]),
+                  const SizedBox(height: 8),
+                  Row(children: [
+                    _kpiCell('Primera OC', _fmtFecha(_resumen!['primera_oc']), Icons.calendar_today_outlined),
+                    const SizedBox(width: 8),
+                    _kpiCell('Última OC', _fmtFecha(_resumen!['ultima_oc']), Icons.update_outlined),
                   ]),
                   const SizedBox(height: 20),
                 ],
-                Text('Top proveedores', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
+                // ── Chips de filtro ────────────────────────────────────────
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(children: [
+                    _chip('TI', _filtroTI, () => setState(() => _filtroTI = !_filtroTI), Icons.computer_outlined),
+                    const SizedBox(width: 8),
+                    _chip('12 meses', _filtroPlazo == 12, () => setState(() => _filtroPlazo = _filtroPlazo == 12 ? 0 : 12), Icons.schedule_outlined),
+                    const SizedBox(width: 8),
+                    _chip('36 meses', _filtroPlazo == 36, () => setState(() => _filtroPlazo = _filtroPlazo == 36 ? 0 : 36), Icons.schedule_outlined),
+                    const SizedBox(width: 8),
+                    _chip('48 meses', _filtroPlazo == 48, () => setState(() => _filtroPlazo = _filtroPlazo == 48 ? 0 : 48), Icons.schedule_outlined),
+                  ]),
+                ),
+                const SizedBox(height: 12),
+                // ── Cabecera proveedores ───────────────────────────────────
+                Row(children: [
+                  Text('Top proveedores', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(color: _primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
+                    child: Text('${_proveedoresFiltrados.length}', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: _primary)),
+                  ),
+                ]),
                 const SizedBox(height: 10),
-                ..._proveedores.asMap().entries.map((e) {
-                  final i = e.key;
-                  final p = e.value;
-                  final maxMonto = _proveedores.isEmpty ? 1.0
-                      : _proveedores.map((x) => (x['monto_total'] is num) ? (x['monto_total'] as num).toDouble() : 0.0).reduce((a, b) => a > b ? a : b);
-                  final monto = (p['monto_total'] is num) ? (p['monto_total'] as num).toDouble() : 0.0;
-                  final pct = maxMonto > 0 ? monto / maxMonto : 0.0;
-                  return Padding(padding: const EdgeInsets.only(bottom: 10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Row(children: [
-                      Container(width: 20, height: 20, alignment: Alignment.center,
-                          decoration: BoxDecoration(color: i < 3 ? _primary.withValues(alpha: 0.1) : Colors.grey.shade100, shape: BoxShape.circle),
-                          child: Text('${i + 1}', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w700, color: i < 3 ? _primary : Colors.grey.shade400))),
-                      const SizedBox(width: 8),
-                      Expanded(child: Text(p['nombre_proveedor']?.toString() ?? '—',
-                          style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w500, color: const Color(0xFF1E293B)), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                      Text(_fmtMonto(p['monto_total']), style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: _primary)),
-                    ]),
-                    const SizedBox(height: 4),
-                    ClipRRect(borderRadius: BorderRadius.circular(2),
-                        child: LinearProgressIndicator(value: pct, minHeight: 3,
-                            backgroundColor: Colors.grey.shade100,
-                            valueColor: AlwaysStoppedAnimation(_primary.withValues(alpha: 0.6)))),
-                    const SizedBox(height: 2),
-                    Text('${p['total_ocs']} OCs · última: ${(p['ultima_oc']?.toString() ?? '').length >= 10 ? p['ultima_oc'].toString().substring(0, 10) : '—'}',
-                        style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
-                  ]));
-                }),
+                // ── Lista proveedores ──────────────────────────────────────
+                if (_proveedoresFiltrados.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    child: Center(child: Text('Sin proveedores para los filtros aplicados',
+                        style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade400))),
+                  )
+                else
+                  ..._proveedoresFiltrados.asMap().entries.map((e) {
+                    final i = e.key;
+                    final p = e.value;
+                    final maxMonto = _proveedoresFiltrados
+                        .map((x) => (x['monto_total'] is num) ? (x['monto_total'] as num).toDouble() : 0.0)
+                        .fold(1.0, (a, b) => a > b ? a : b);
+                    final monto = (p['monto_total'] is num) ? (p['monto_total'] as num).toDouble() : 0.0;
+                    final pct = maxMonto > 0 ? monto / maxMonto : 0.0;
+                    return Padding(padding: const EdgeInsets.only(bottom: 10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Row(children: [
+                        Container(width: 20, height: 20, alignment: Alignment.center,
+                            decoration: BoxDecoration(color: i < 3 ? _primary.withValues(alpha: 0.1) : Colors.grey.shade100, shape: BoxShape.circle),
+                            child: Text('${i + 1}', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w700, color: i < 3 ? _primary : Colors.grey.shade400))),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(p['nombre_proveedor']?.toString() ?? '—',
+                            style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w500, color: const Color(0xFF1E293B)), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                        Text(_fmtMonto(p['monto_total']), style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: _primary)),
+                      ]),
+                      const SizedBox(height: 4),
+                      ClipRRect(borderRadius: BorderRadius.circular(2),
+                          child: LinearProgressIndicator(value: pct, minHeight: 3,
+                              backgroundColor: Colors.grey.shade100,
+                              valueColor: AlwaysStoppedAnimation(_primary.withValues(alpha: 0.6)))),
+                      const SizedBox(height: 2),
+                      Text('${p['total_ocs']} OCs · ${_fmtFecha(p['primera_oc'])} → ${_fmtFecha(p['ultima_oc'])}',
+                          style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
+                    ]));
+                  }),
               ]),
         ),
       ]),
     );
   }
 
-  Widget _kpiRow(List<(String, String, IconData)> items) => Padding(
-    padding: const EdgeInsets.only(bottom: 8),
-    child: Row(children: items.map((item) => Expanded(child: Container(
-      margin: const EdgeInsets.only(right: 8),
-      padding: const EdgeInsets.all(10),
+  String _fmtFecha(dynamic v) {
+    final s = v?.toString() ?? '';
+    if (s.length >= 10) return s.substring(0, 10);
+    return '—';
+  }
+
+  Widget _kpiCell(String label, String value, IconData icon) => Expanded(
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(10)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Icon(item.$3, size: 14, color: Colors.grey.shade400),
-        const SizedBox(height: 4),
-        Text(item.$2, style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)), maxLines: 1, overflow: TextOverflow.ellipsis),
-        Text(item.$1, style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
+      child: Row(children: [
+        Icon(icon, size: 16, color: Colors.grey.shade400),
+        const SizedBox(width: 8),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(label, style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
+          Text(value, style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
+              maxLines: 2, overflow: TextOverflow.ellipsis),
+        ])),
       ]),
-    ))).toList()),
+    ),
   );
+
+  Widget _chip(String label, bool selected, VoidCallback onTap, IconData icon) => GestureDetector(
+    onTap: onTap,
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: selected ? _primary : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 13, color: selected ? Colors.white : Colors.grey.shade500),
+        const SizedBox(width: 5),
+        Text(label, style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600,
+            color: selected ? Colors.white : Colors.grey.shade600)),
+      ]),
+    ),
+  );
+
 }
 
 // ── FICHA PROVEEDOR ─────────────────────────────────────────────────────────
@@ -6895,5 +8039,263 @@ class _FichaProveedorSheetState extends State<_FichaProveedorSheet> {
         Text(item.$1, style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
       ]),
     ))).toList()),
+  );
+}
+
+// ─── Bottom sheet: Resumen IA del Foro ────────────────────────────────────────
+
+
+// ─── Bottom sheet: Resumen IA del Foro ────────────────────────────────────────
+
+class _ForoResumenSheet extends StatefulWidget {
+  final String nombreProyecto;
+  final String? resumenInicial;
+  final Future<String?> Function() onGenerar;
+
+  const _ForoResumenSheet({
+    required this.nombreProyecto,
+    required this.resumenInicial,
+    required this.onGenerar,
+  });
+
+  @override
+  State<_ForoResumenSheet> createState() => _ForoResumenSheetState();
+}
+
+class _ForoResumenSheetState extends State<_ForoResumenSheet> {
+  String? _resumen;
+  bool _cargando = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _resumen = widget.resumenInicial;
+    if (_resumen == null) _generar();
+  }
+
+  Future<void> _generar() async {
+    setState(() => _cargando = true);
+    try {
+      final r = await widget.onGenerar();
+      if (mounted) setState(() => _resumen = r);
+    } finally {
+      if (mounted) setState(() => _cargando = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      builder: (_, controller) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(children: [
+          Container(
+            margin: const EdgeInsets.only(top: 12, bottom: 8),
+            width: 40, height: 4,
+            decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 12, 12),
+            child: Row(children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF5B21B6).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.auto_awesome, size: 18, color: Color(0xFF5B21B6)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Resumen del Foro',
+                    style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
+                if (widget.nombreProyecto.isNotEmpty)
+                  Text(widget.nombreProyecto,
+                      style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+              ])),
+              IconButton(
+                icon: const Icon(Icons.refresh, size: 18, color: Color(0xFF5B21B6)),
+                tooltip: 'Regenerar resumen',
+                onPressed: _cargando ? null : _generar,
+              ),
+              IconButton(
+                icon: Icon(Icons.close, size: 20, color: Colors.grey.shade400),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ]),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: _cargando
+                ? const _ResumenSkeleton()
+                : _resumen == null
+                    ? Center(child: Text('No se pudo generar el resumen.',
+                        style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400)))
+                    : ListView(
+                        controller: controller,
+                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                        children: _buildMarkdown(_resumen!),
+                      ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  List<Widget> _buildMarkdown(String text) {
+    final widgets = <Widget>[];
+    for (final rawLine in text.split('\n')) {
+      final line = rawLine.trimRight();
+      if (line.startsWith('### ')) {
+        widgets.add(_mdHeading(line.substring(4), level: 3));
+      } else if (line.startsWith('## ')) {
+        widgets.add(_mdHeading(line.substring(3), level: 2));
+      } else if (line.startsWith('# ')) {
+        widgets.add(_mdHeading(line.substring(2), level: 1));
+      } else if (line.startsWith('- ') || line.startsWith('* ')) {
+        widgets.add(_mdBullet(line.substring(2)));
+      } else if (RegExp(r'^\d+\.\s').hasMatch(line)) {
+        widgets.add(_mdBullet(line.replaceFirst(RegExp(r'^\d+\.\s'), '')));
+      } else if (line.isEmpty) {
+        widgets.add(const SizedBox(height: 8));
+      } else {
+        widgets.add(Padding(padding: const EdgeInsets.only(bottom: 6), child: _richText(line)));
+      }
+    }
+    return widgets;
+  }
+
+  Widget _mdHeading(String text, {required int level}) {
+    final sizes = {1: 16.0, 2: 14.0, 3: 13.0};
+    return Padding(
+      padding: const EdgeInsets.only(top: 12, bottom: 6),
+      child: Text(text.replaceAll('**', ''),
+          style: GoogleFonts.inter(fontSize: sizes[level] ?? 13, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
+    );
+  }
+
+  Widget _mdBullet(String text) => Padding(
+    padding: const EdgeInsets.only(bottom: 5, left: 4),
+    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Padding(
+        padding: const EdgeInsets.only(top: 6, right: 8),
+        child: Container(width: 5, height: 5, decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFF5B21B6))),
+      ),
+      Expanded(child: _richText(text)),
+    ]),
+  );
+
+  Widget _richText(String text) {
+    final spans = <TextSpan>[];
+    final boldRe = RegExp(r'\*\*(.+?)\*\*');
+    int last = 0;
+    for (final m in boldRe.allMatches(text)) {
+      if (m.start > last) spans.add(TextSpan(text: text.substring(last, m.start)));
+      spans.add(TextSpan(text: m.group(1), style: const TextStyle(fontWeight: FontWeight.w700)));
+      last = m.end;
+    }
+    if (last < text.length) spans.add(TextSpan(text: text.substring(last)));
+    return RichText(
+      text: TextSpan(
+        style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF334155), height: 1.5),
+        children: spans,
+      ),
+    );
+  }
+}
+
+// ─── Skeleton de carga para el resumen IA ────────────────────────────────────
+
+class _ResumenSkeleton extends StatefulWidget {
+  const _ResumenSkeleton();
+
+  @override
+  State<_ResumenSkeleton> createState() => _ResumenSkeletonState();
+}
+
+class _ResumenSkeletonState extends State<_ResumenSkeleton>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))
+      ..repeat(reverse: true);
+    _anim = Tween(begin: 0.3, end: 0.9).animate(
+        CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _anim,
+      builder: (_, __) {
+        final color = Color.lerp(Colors.grey.shade200, Colors.grey.shade300, _anim.value)!;
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+          children: [
+            // Título sección
+            _bar(color, width: 140, height: 13),
+            const SizedBox(height: 14),
+            // Bullets
+            for (int i = 0; i < 4; i++) ...[
+              Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                _circle(color),
+                const SizedBox(width: 8),
+                Expanded(child: _bar(color, height: 11)),
+              ]),
+              const SizedBox(height: 10),
+            ],
+            const SizedBox(height: 20),
+            // Título sección 2
+            _bar(color, width: 180, height: 13),
+            const SizedBox(height: 14),
+            _bar(color, height: 11),
+            const SizedBox(height: 8),
+            _bar(color, width: double.infinity, height: 11),
+            const SizedBox(height: 8),
+            _bar(color, width: 200, height: 11),
+            const SizedBox(height: 20),
+            // Título sección 3
+            _bar(color, width: 100, height: 13),
+            const SizedBox(height: 14),
+            for (int i = 0; i < 2; i++) ...[
+              Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                _circle(color),
+                const SizedBox(width: 8),
+                Expanded(child: _bar(color, height: 11)),
+              ]),
+              const SizedBox(height: 10),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _bar(Color color, {double? width, double height = 12}) => Container(
+    width: width,
+    height: height,
+    decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(6)),
+  );
+
+  Widget _circle(Color color) => Container(
+    width: 6, height: 6,
+    decoration: BoxDecoration(color: color, shape: BoxShape.circle),
   );
 }
