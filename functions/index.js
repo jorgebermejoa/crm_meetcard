@@ -816,9 +816,19 @@ exports.buscarLicitacionPorId = onRequest({
     res.status(200).json(response.data);
   } catch (error) {
     if (error.response) {
-      logger.error(`Error buscando licitación ${id}: status ${error.response.status}`);
-      _logApiCall(db, { funcion: 'buscarLicitacionPorId', tipo: 'licitacion', id, estado: 'error', statusCode: error.response.status, ms: Date.now() - t0 });
-      res.status(error.response.status).json({ error: `Error ${error.response.status} al consultar la API` });
+      const status = error.response.status;
+      logger.error(`Error buscando licitación ${id}: status ${status}`);
+      _logApiCall(db, { funcion: 'buscarLicitacionPorId', tipo: 'licitacion', id, estado: 'error', statusCode: status, ms: Date.now() - t0 });
+      // Si la OCDS aún no publicó esta licitación, registrarla para reintento nocturno
+      if (status === 404) {
+        db.collection('licitaciones_pendientes').doc(id).set({
+          id,
+          intentos: admin.firestore.FieldValue.increment(1),
+          ultimoIntento: admin.firestore.FieldValue.serverTimestamp(),
+          creadoEn: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true }).catch(e => logger.warn('licitaciones_pendientes write error:', e.message));
+      }
+      res.status(status).json({ error: `Error ${status} al consultar la API` });
     } else {
       logger.error(`Error buscando licitación ${id}:`, error.message);
       _logApiCall(db, { funcion: 'buscarLicitacionPorId', tipo: 'licitacion', id, estado: 'error', statusCode: 500, ms: Date.now() - t0 });
@@ -1138,6 +1148,18 @@ exports.actualizarProyecto = onRequest({ cors: true, region: 'us-central1' }, as
     if (req.body.fechaConsultas !== undefined) data.fechaConsultas = req.body.fechaConsultas ? new Date(req.body.fechaConsultas) : null;
     if (req.body.fechaAdjudicacion !== undefined) data.fechaAdjudicacion = req.body.fechaAdjudicacion ? new Date(req.body.fechaAdjudicacion) : null;
     if (req.body.fechaAdjudicacionFin !== undefined) data.fechaAdjudicacionFin = req.body.fechaAdjudicacionFin ? new Date(req.body.fechaAdjudicacionFin) : null;
+    // Encadenamiento multi-sucesor
+    if (req.body.addProyectoContinuacionId) {
+      data.proyectoContinuacionIds = admin.firestore.FieldValue.arrayUnion(req.body.addProyectoContinuacionId);
+    } else if (req.body.removeProyectoContinuacionId) {
+      data.proyectoContinuacionIds = admin.firestore.FieldValue.arrayRemove(req.body.removeProyectoContinuacionId);
+    } else if (req.body.clearProyectoContinuacionIds === true) {
+      data.proyectoContinuacionIds = [];
+    } else if (req.body.proyectoContinuacionId !== undefined) {
+      // Backward-compat: convierte asignación simple a array
+      const pid = req.body.proyectoContinuacionId;
+      data.proyectoContinuacionIds = pid ? admin.firestore.FieldValue.arrayUnion(pid) : [];
+    }
 
     const db = admin.firestore();
     const batch = db.batch();
@@ -1736,7 +1758,8 @@ exports.obtenerGanadorLicitacion = onRequest({ cors: true }, async (req, res) =>
   try {
     const [rows] = await bigquery.query({
       query: `SELECT ID, NombreProveedor, rut_proveedor, CAST(monto_calculado_oc AS STRING) AS monto_calculado_oc,
-                     RutUnidadCompra, OrganismoPublico, FechaEnvio, modalidad, Estado, CodigoLicitacion
+                     RutUnidadCompra, OrganismoPublico, FechaEnvio, modalidad, Estado, CodigoLicitacion,
+                     Moneda
               FROM \`licitaciones-prod.sistema_compras.tab_gestion_universal\`
               WHERE CodigoLicitacion = @idLicitacion
               LIMIT 20`,
@@ -2805,5 +2828,78 @@ Responde en español, con formato markdown limpio. Sé conciso y enfocado en lo 
     const detail = e.response?.data ?? e.message;
     logger.error('resumirForo error:', JSON.stringify(detail));
     return res.status(500).json({ error: e.message, detail });
+  }
+});
+
+// ── Reintentar licitaciones pendientes (OCDS aún no publicadas) ────────────────
+// Corre a las 4 AM UTC (~1 AM Santiago). Para cada ID en `licitaciones_pendientes`,
+// intenta obtener la institución desde OCDS. Si la encuentra, actualiza todos los
+// proyectos que tengan ese idLicitacion y elimina el pendiente.
+// Después de 30 intentos fallidos (~1 mes) descarta el pendiente automáticamente.
+exports.resolverLicitacionesPendientes = onSchedule({
+  schedule: '0 4 * * *',
+  timeZone: 'America/Santiago',
+  region: 'us-central1',
+  timeoutSeconds: 540,
+  memory: '256MiB',
+}, async () => {
+  const db = admin.firestore();
+  const snap = await db.collection('licitaciones_pendientes').get();
+  if (snap.empty) { logger.info('resolverLicitacionesPendientes: sin pendientes'); return; }
+
+  logger.info(`resolverLicitacionesPendientes: procesando ${snap.size} pendientes`);
+
+  for (const doc of snap.docs) {
+    const { id, intentos = 0 } = doc.data();
+
+    // Descartar tras 30 intentos (~1 mes de reintentos diarios)
+    if (intentos >= 30) {
+      logger.warn(`resolverLicitacionesPendientes: descartando ${id} tras ${intentos} intentos`);
+      await doc.ref.delete();
+      continue;
+    }
+
+    try {
+      const url = `${BASE_URL}/tender/${id}`;
+      const resp = await axios.get(url, { timeout: API_TIMEOUT });
+      const data = resp.data;
+
+      // Extraer institución (buyer) igual que en el cliente Flutter
+      let institucion = '';
+      const releases = data.releases ?? (Array.isArray(data) ? data : [data]);
+      for (const release of releases) {
+        const parties = release.parties ?? [];
+        const buyer = parties.find(p => Array.isArray(p.roles) && p.roles.includes('buyer'));
+        if (buyer?.name) {
+          institucion = buyer.name.split('|')[0].trim();
+          break;
+        }
+      }
+
+      if (!institucion) {
+        // Aún sin datos — actualizar contador y continuar
+        await doc.ref.set({ intentos: admin.firestore.FieldValue.increment(1), ultimoIntento: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+        continue;
+      }
+
+      // Actualizar todos los proyectos con este idLicitacion
+      const proySnap = await db.collection('proyectos').where('idLicitacion', '==', id).get();
+      const batch = db.batch();
+      for (const p of proySnap.docs) {
+        batch.update(p.ref, { institucion });
+      }
+      batch.delete(doc.ref);
+      await batch.commit();
+
+      logger.info(`resolverLicitacionesPendientes: resuelta ${id} → "${institucion}" (${proySnap.size} proyectos actualizados)`);
+
+    } catch (err) {
+      if (err.response?.status === 404) {
+        // Sigue sin estar en OCDS — incrementar contador
+        await doc.ref.set({ intentos: admin.firestore.FieldValue.increment(1), ultimoIntento: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+      } else {
+        logger.error(`resolverLicitacionesPendientes: error en ${id}:`, err.message);
+      }
+    }
   }
 });

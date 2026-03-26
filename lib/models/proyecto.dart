@@ -155,7 +155,11 @@ class Proyecto {
   final DateTime? fechaAdjudicacion;    // awardPeriod.startDate
   final DateTime? fechaAdjudicacionFin;
   final double? montoTotalOC; // Suma total OC en CLP (UF ya convertido)
-  final String? proyectoContinuacionId; // ID del proyecto que continúa este contrato
+  final List<String> proyectoContinuacionIds; // IDs de proyectos que continúan este contrato
+
+  /// Backward-compat: primer sucesor (o null si no hay ninguno)
+  String? get proyectoContinuacionId =>
+      proyectoContinuacionIds.isNotEmpty ? proyectoContinuacionIds.first : null;
 
   Proyecto({
     required this.id,
@@ -185,10 +189,13 @@ class Proyecto {
     this.fechaAdjudicacion,
     this.fechaAdjudicacionFin,
     this.montoTotalOC,
-    this.proyectoContinuacionId,
+    this.proyectoContinuacionIds = const [],
   });
 
-  Proyecto copyWithMontoTotalOC(double monto) => Proyecto(
+  Proyecto _copyBase({
+    double? montoTotalOC,
+    List<String>? proyectoContinuacionIds,
+  }) => Proyecto(
     id: id, institucion: institucion, productos: productos,
     modalidadCompra: modalidadCompra, valorMensual: valorMensual,
     fechaInicio: fechaInicio, fechaTermino: fechaTermino,
@@ -200,25 +207,31 @@ class Proyecto {
     fechaTerminoRuta: fechaTerminoRuta, fechaPublicacion: fechaPublicacion,
     fechaCierre: fechaCierre, fechaConsultasInicio: fechaConsultasInicio,
     fechaConsultas: fechaConsultas, fechaAdjudicacion: fechaAdjudicacion,
-    fechaAdjudicacionFin: fechaAdjudicacionFin, montoTotalOC: monto,
-    proyectoContinuacionId: proyectoContinuacionId,
+    fechaAdjudicacionFin: fechaAdjudicacionFin,
+    montoTotalOC: montoTotalOC ?? this.montoTotalOC,
+    proyectoContinuacionIds: proyectoContinuacionIds ?? this.proyectoContinuacionIds,
   );
 
-  Proyecto copyWithContinuacion(String? continuacionId) => Proyecto(
-    id: id, institucion: institucion, productos: productos,
-    modalidadCompra: modalidadCompra, valorMensual: valorMensual,
-    fechaInicio: fechaInicio, fechaTermino: fechaTermino,
-    idLicitacion: idLicitacion, idCotizacion: idCotizacion,
-    urlConvenioMarco: urlConvenioMarco, idsOrdenesCompra: idsOrdenesCompra,
-    documentos: documentos, certificados: certificados, reclamos: reclamos,
-    notas: notas, fechaCreacion: fechaCreacion, completado: completado,
-    estadoManual: estadoManual, fechaInicioRuta: fechaInicioRuta,
-    fechaTerminoRuta: fechaTerminoRuta, fechaPublicacion: fechaPublicacion,
-    fechaCierre: fechaCierre, fechaConsultasInicio: fechaConsultasInicio,
-    fechaConsultas: fechaConsultas, fechaAdjudicacion: fechaAdjudicacion,
-    fechaAdjudicacionFin: fechaAdjudicacionFin, montoTotalOC: montoTotalOC,
-    proyectoContinuacionId: continuacionId,
-  );
+  Proyecto copyWithMontoTotalOC(double monto) =>
+      _copyBase(montoTotalOC: monto);
+
+  /// Backward-compat: reemplaza toda la lista con un solo ID (o vacía si null)
+  Proyecto copyWithContinuacion(String? continuacionId) =>
+      _copyBase(proyectoContinuacionIds: continuacionId != null ? [continuacionId] : []);
+
+  /// Agrega un sucesor a la lista (sin duplicados)
+  Proyecto copyWithAddContinuacion(String id) {
+    if (proyectoContinuacionIds.contains(id)) return this;
+    return _copyBase(proyectoContinuacionIds: [...proyectoContinuacionIds, id]);
+  }
+
+  /// Elimina un sucesor específico de la lista
+  Proyecto copyWithRemoveContinuacion(String id) =>
+      _copyBase(proyectoContinuacionIds: proyectoContinuacionIds.where((e) => e != id).toList());
+
+  /// Elimina todos los sucesores
+  Proyecto copyWithClearContinuaciones() =>
+      _copyBase(proyectoContinuacionIds: []);
 
   // Backward compat: first OC in list
   String? get idOrdenCompra =>
@@ -293,7 +306,14 @@ class Proyecto {
       fechaAdjudicacion: d['fechaAdjudicacion'] != null ? DateTime.tryParse(d['fechaAdjudicacion']) : null,
       fechaAdjudicacionFin: d['fechaAdjudicacionFin'] != null ? DateTime.tryParse(d['fechaAdjudicacionFin']) : null,
       montoTotalOC: (d['montoTotalOC'] as num?)?.toDouble(),
-      proyectoContinuacionId: d['proyectoContinuacionId']?.toString(),
+      proyectoContinuacionIds: () {
+        if (d['proyectoContinuacionIds'] is List) {
+          return List<String>.from(
+              (d['proyectoContinuacionIds'] as List).where((e) => e != null && e.toString().isNotEmpty));
+        }
+        final single = d['proyectoContinuacionId']?.toString();
+        return single != null && single.isNotEmpty ? [single] : <String>[];
+      }(),
     );
   }
 }

@@ -49,7 +49,6 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
   // ─── Cadena contractual ───────────────────────────────────────────────────
   List<Proyecto>? _cadena;              // lista ordenada de la cadena completa
   List<Proyecto>? _sugerencias;         // candidatos a encadenar
-  bool _sugerenciasExpanded = false;    // card colapsada por defecto
 
   Map<String, dynamic>? _ocdsData;
   Map<String, dynamic>? _mpApiData;
@@ -422,14 +421,18 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
     );
   }
 
+  List<Proyecto>? _sucesores; // sucesores directos del proyecto actual
+
   Future<void> _cargarCadena() async {
     try {
       final todos = await ProyectosService.instance.load();
       final cadena = _resolverCadena(todos, _proyecto.id);
+      final sucesores = _sucesoresDirectos(todos);
       final sugerencias = _calcularSugerencias(todos, cadena);
       if (!mounted) return;
       setState(() {
-        if (cadena.length > 1) _cadena = cadena;
+        if (cadena.length > 1 || sucesores.isNotEmpty) _cadena = cadena;
+        _sucesores = sucesores;
         if (sugerencias.isNotEmpty) _sugerencias = sugerencias;
       });
     } catch (_) {}
@@ -475,32 +478,26 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
   /// por código de organismo (vía CodigoLicitacion en OC), RUT, o nombre normalizado.
   List<Proyecto> _calcularSugerencias(List<Proyecto> todos, List<Proyecto> cadenaActual) {
     final idCadena = cadenaActual.map((p) => p.id).toSet();
-    // Solo sugerimos si el proyecto actual es el último de la cadena sin sucesor
-    final ultimoDeCadena = cadenaActual.isEmpty || cadenaActual.last.id == _proyecto.id;
-    if (!ultimoDeCadena) return [];
-    if (_proyecto.proyectoContinuacionId?.isNotEmpty == true) return [];
-
     final codigoOrg = _codigoOrganismo();
-    // Usar nombre sin unidad de compra para comparación robusta entre modalidades
     final instNorm = _normInst(_proyecto.institucion).toLowerCase();
+    // Excluir los ya encadenados desde este proyecto
+    final yaEncadenados = _proyecto.proyectoContinuacionIds.toSet();
 
     return todos.where((p) {
       if (idCadena.contains(p.id)) return false;
-      final yaEsSucesor = todos.any((o) => o.proyectoContinuacionId == p.id);
-      if (yaEsSucesor) return false;
-      // Match por código de organismo (funciona LP↔CM vía CodigoLicitacion en OC)
+      if (yaEncadenados.contains(p.id)) return false;
+      if (p.id == _proyecto.id) return false;
+      // Match por código de organismo
       if (codigoOrg != null) {
         final pCode = p.idLicitacion?.split('-').first.trim();
         if (pCode == codigoOrg) return true;
       }
-      // Match por nombre normalizado sin unidad (cubre LP↔CM cuando el nombre coincide)
       final pNorm = _normInst(p.institucion).toLowerCase();
       return pNorm == instNorm;
     }).toList()
       ..sort((a, b) {
-        // Priorizar: sin sucesor primero, luego más recientes
-        final aLibre = a.proyectoContinuacionId?.isEmpty != false ? 0 : 1;
-        final bLibre = b.proyectoContinuacionId?.isEmpty != false ? 0 : 1;
+        final aLibre = a.proyectoContinuacionIds.isEmpty ? 0 : 1;
+        final bLibre = b.proyectoContinuacionIds.isEmpty ? 0 : 1;
         if (aLibre != bLibre) return aLibre.compareTo(bLibre);
         final aFecha = a.fechaInicio ?? a.fechaCreacion ?? DateTime(2000);
         final bFecha = b.fechaInicio ?? b.fechaCreacion ?? DateTime(2000);
@@ -508,20 +505,21 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
       });
   }
 
-  /// Resuelve la cadena completa de proyectos encadenados de forma ordenada (más antiguo primero).
+  /// Resuelve la cadena de ancestros hasta el proyecto actual (más antiguo primero),
+  /// sin incluir los sucesores (estos se muestran por separado en el timeline).
   List<Proyecto> _resolverCadena(List<Proyecto> todos, String idActual) {
     final porId = {for (final p in todos) p.id: p};
-    // Buscar raíz: el nodo que no tiene predecesor
+    // Buscar raíz: remontando por predecesores
     String? raizId = idActual;
     final visitados = <String>{};
     while (true) {
       if (visitados.contains(raizId)) break;
       visitados.add(raizId!);
-      final predecesor = todos.where((p) => p.proyectoContinuacionId == raizId).firstOrNull;
+      final predecesor = todos.where((p) => p.proyectoContinuacionIds.contains(raizId)).firstOrNull;
       if (predecesor == null) break;
       raizId = predecesor.id;
     }
-    // Construir cadena desde la raíz hacia adelante
+    // Construir cadena lineal desde raíz hasta idActual (primer sucesor en cada paso)
     final cadena = <Proyecto>[];
     String? cursor = raizId;
     final vistos = <String>{};
@@ -530,9 +528,34 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
       final nodo = porId[cursor];
       if (nodo == null) break;
       cadena.add(nodo);
-      cursor = nodo.proyectoContinuacionId?.isNotEmpty == true ? nodo.proyectoContinuacionId : null;
+      if (cursor == idActual) break;
+      // Seguir por el primer sucesor que lleva al proyecto actual
+      cursor = nodo.proyectoContinuacionIds
+          .firstWhere((sid) => _estaEnCamino(porId, sid, idActual), orElse: () => nodo.proyectoContinuacionId ?? '');
+      if (cursor.isEmpty) break;
     }
     return cadena;
+  }
+
+  /// Devuelve true si desde [desde] se puede llegar a [hasta] siguiendo sucesores.
+  bool _estaEnCamino(Map<String, Proyecto> porId, String desde, String hasta) {
+    final vistos = <String>{};
+    String? cursor = desde;
+    while (cursor != null && !vistos.contains(cursor)) {
+      if (cursor == hasta) return true;
+      vistos.add(cursor);
+      cursor = porId[cursor]?.proyectoContinuacionId;
+    }
+    return false;
+  }
+
+  /// Obtiene los sucesores directos del proyecto actual ya cargados.
+  List<Proyecto> _sucesoresDirectos(List<Proyecto> todos) {
+    final porId = {for (final p in todos) p.id: p};
+    return _proyecto.proyectoContinuacionIds
+        .map((id) => porId[id])
+        .whereType<Proyecto>()
+        .toList();
   }
 
   Future<void> _cargarOc({bool forceRefresh = false}) async {
@@ -948,21 +971,7 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
     );
 
     if (seleccionado == null) return;
-
-    try {
-      await http.post(
-        Uri.parse('$_baseUrl/actualizarProyecto'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'id': _proyecto.id,
-          'proyectoContinuacionId': seleccionado.id,
-        }),
-      );
-      ProyectosService.instance.invalidate();
-      if (mounted) {
-        setState(() => _proyecto = _proyecto.copyWithContinuacion(seleccionado.id));
-      }
-    } catch (_) {}
+    await _encadenarCon(seleccionado);
   }
 
   Widget _encadenarButton() {
@@ -1247,13 +1256,9 @@ class _DetalleProyectoViewState extends State<DetalleProyectoView>
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           _buildHeader(isMobile),
-                          if (_cadena != null && _cadena!.length > 1) ...[
+                          if (_cadena != null && (_cadena!.length > 1 || (_sucesores?.isNotEmpty ?? false))) ...[
                             const SizedBox(height: 20),
-                            _buildCadenaTimeline(_cadena!),
-                          ],
-                          if (_sugerencias != null && _sugerencias!.isNotEmpty) ...[
-                            const SizedBox(height: 12),
-                            _buildSugerenciasEncadenamiento(_sugerencias!),
+                            _buildCadenaTimeline(_cadena!, _sucesores ?? []),
                           ],
                           const SizedBox(height: 24),
                           _buildTabs(isMobile),
@@ -1821,13 +1826,16 @@ $convenioHtml
 
   // ─── Timeline cadena contractual ─────────────────────────────────────────
 
-  Widget _buildCadenaTimeline(List<Proyecto> cadena) {
-    bool esCurrent(Proyecto p) => p.id == _proyecto.id;
+  Widget _buildCadenaTimeline(List<Proyecto> cadena, List<Proyecto> sucesores) {
+    // "Último de la cadena de ancestros" = el que se está viendo
+    final ultimoId = cadena.isNotEmpty ? cadena.last.id : _proyecto.id;
+    bool esViewing(Proyecto p) => p.id == _proyecto.id;
+    bool esUltimo(Proyecto p) => p.id == ultimoId;
 
     String fmtRango(Proyecto p) {
-      String fmtYear(DateTime? d) => d != null ? '${d.year}' : '—';
-      final ini = fmtYear(p.fechaInicio ?? p.fechaCreacion);
-      final fin = p.fechaTermino != null ? fmtYear(p.fechaTermino) : 'hoy';
+      String y(DateTime? d) => d != null ? '${d.year}' : '—';
+      final ini = y(p.fechaInicio ?? p.fechaCreacion);
+      final fin = p.fechaTermino != null ? y(p.fechaTermino) : 'hoy';
       return '$ini – $fin';
     }
 
@@ -1838,6 +1846,147 @@ $convenioHtml
       if (m >= 1e6) return '\$${(m / 1e6).toStringAsFixed(1)}M';
       return '\$${_fmt(m.toInt())}';
     }
+
+    Widget buildNodo(Proyecto p, {
+      required bool isLast,
+      required bool isSucesor,
+      required bool showLine,
+    }) {
+      final esAqui = esViewing(p);
+      final esVigente = isSucesor && sucesores.length == 1 && !esAqui;
+      final nombre = _cleanName(p.productos).split('\n').first.trim();
+      final monto = fmtMonto(p);
+      final rango = fmtRango(p);
+
+      return IntrinsicHeight(
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          // Dot + line
+          SizedBox(
+            width: 24,
+            child: Column(children: [
+              Container(
+                width: esAqui ? 14 : 10,
+                height: esAqui ? 14 : 10,
+                margin: EdgeInsets.only(top: esAqui ? 3 : 5),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: esVigente
+                      ? _primaryColor
+                      : esAqui
+                          ? _primaryColor.withValues(alpha: 0.45)
+                          : Colors.grey.shade300,
+                  border: (esVigente || esAqui)
+                      ? Border.all(color: _primaryColor.withValues(alpha: 0.3), width: 3)
+                      : null,
+                  boxShadow: esVigente
+                      ? [BoxShadow(color: _primaryColor.withValues(alpha: 0.25), blurRadius: 6, spreadRadius: 1)]
+                      : null,
+                ),
+              ),
+              if (showLine)
+                Expanded(
+                  child: Container(
+                    width: 1.5,
+                    margin: const EdgeInsets.only(top: 4),
+                    color: Colors.grey.shade200,
+                  ),
+                ),
+            ]),
+          ),
+          const SizedBox(width: 12),
+          // Content
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: isLast ? 0 : 16),
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: () => Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(builder: (_) => DetalleProyectoView(proyecto: p)),
+                  ),
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+                    decoration: BoxDecoration(
+                      color: esAqui
+                          ? _primaryColor.withValues(alpha: 0.04)
+                          : esVigente
+                              ? _primaryColor.withValues(alpha: 0.06)
+                              : Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: esVigente
+                            ? _primaryColor.withValues(alpha: 0.18)
+                            : esAqui
+                                ? Colors.grey.shade200
+                                : Colors.transparent,
+                      ),
+                    ),
+                    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Expanded(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Row(children: [
+                            if (esVigente) ...[
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                margin: const EdgeInsets.only(right: 6),
+                                decoration: BoxDecoration(color: _primaryColor, borderRadius: BorderRadius.circular(4)),
+                                child: Text('VIGENTE', style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.5)),
+                              ),
+                            ] else if (esAqui) ...[
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                margin: const EdgeInsets.only(right: 6),
+                                decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(4)),
+                                child: Text('AQUÍ', style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.5)),
+                              ),
+                            ],
+                            Expanded(
+                              child: Text(
+                                nombre.isEmpty ? p.institucion : nombre,
+                                style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  fontWeight: (esAqui || esVigente) ? FontWeight.w700 : FontWeight.w500,
+                                  color: (esAqui || esVigente) ? const Color(0xFF1E293B) : Colors.grey.shade600,
+                                ),
+                                maxLines: 2, overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ]),
+                          const SizedBox(height: 4),
+                          Row(children: [
+                            Icon(Icons.calendar_today_outlined, size: 11, color: Colors.grey.shade400),
+                            const SizedBox(width: 4),
+                            Text(rango, style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400, fontWeight: FontWeight.w500)),
+                            if (monto.isNotEmpty) ...[
+                              Container(width: 3, height: 3, margin: const EdgeInsets.symmetric(horizontal: 6), decoration: BoxDecoration(color: Colors.grey.shade300, shape: BoxShape.circle)),
+                              Text(monto, style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w600)),
+                            ],
+                          ]),
+                        ]),
+                      ),
+                      // Botón eliminar solo en sucesores directos del proyecto actual
+                      if (isSucesor && esViewing(cadena.isNotEmpty ? cadena.last : _proyecto))
+                        GestureDetector(
+                          onTap: () => _confirmarDesencadenar(p),
+                          child: Padding(
+                            padding: const EdgeInsets.only(left: 6, top: 2),
+                            child: Icon(Icons.link_off_rounded, size: 15, color: Colors.red.shade300),
+                          ),
+                        )
+                      else
+                        Icon(Icons.chevron_right_rounded, size: 16, color: Colors.grey.shade300),
+                    ]),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ]),
+      );
+    }
+
+    final totalRenovaciones = cadena.length - 1 + sucesores.length;
+    final renovLabel = '$totalRenovaciones renovación${totalRenovaciones != 1 ? 'es' : ''}';
 
     return Container(
       decoration: BoxDecoration(
@@ -1849,143 +1998,88 @@ $convenioHtml
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Header
           Row(children: [
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(color: _primaryColor.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(6)),
-              child: Text('CONTRATO', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w700, color: _primaryColor, letterSpacing: 0.8)),
+              child: Text('PROYECTO', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w700, color: _primaryColor, letterSpacing: 0.8)),
             ),
             const SizedBox(width: 8),
-            Text('${cadena.length} renovaciones', style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade400, fontWeight: FontWeight.w500)),
+            Text(renovLabel, style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade400, fontWeight: FontWeight.w500)),
+            const Spacer(),
+            // Botón eliminar todo encadenamiento (solo si hay sucesores y estamos en el proyecto actual = último de cadena)
+            if (sucesores.isNotEmpty && esUltimo(_proyecto))
+              GestureDetector(
+                onTap: _confirmarDesencadenarTodo,
+                child: Row(children: [
+                  Icon(Icons.delete_outline_rounded, size: 13, color: Colors.red.shade300),
+                  const SizedBox(width: 3),
+                  Text('Eliminar todo', style: GoogleFonts.inter(fontSize: 11, color: Colors.red.shade300, fontWeight: FontWeight.w500)),
+                ]),
+              ),
           ]),
           const SizedBox(height: 16),
-          ...cadena.asMap().entries.map((entry) {
-            final idx = entry.key;
-            final p = entry.value;
-            final isCurrent = esCurrent(p);
-            final isLast = idx == cadena.length - 1;
-            final monto = fmtMonto(p);
-            final rango = fmtRango(p);
-            final nombre = _cleanName(p.productos).split('\n').first.trim();
-
-            return IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Línea + nodo
-                  SizedBox(
-                    width: 24,
-                    child: Column(
-                      children: [
-                        // Nodo
-                        Container(
-                          width: isCurrent ? 14 : 10,
-                          height: isCurrent ? 14 : 10,
-                          margin: EdgeInsets.only(top: isCurrent ? 3 : 5),
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: isCurrent ? _primaryColor : Colors.grey.shade300,
-                            border: isCurrent ? Border.all(color: _primaryColor.withValues(alpha: 0.3), width: 3) : null,
-                            boxShadow: isCurrent
-                                ? [BoxShadow(color: _primaryColor.withValues(alpha: 0.25), blurRadius: 6, spreadRadius: 1)]
-                                : null,
-                          ),
-                        ),
-                        // Línea conectora
-                        if (!isLast)
-                          Expanded(
-                            child: Container(
-                              width: 1.5,
-                              margin: const EdgeInsets.only(top: 4),
-                              color: Colors.grey.shade200,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  // Contenido del nodo
-                  Expanded(
-                    child: Padding(
-                      padding: EdgeInsets.only(bottom: isLast ? 0 : 20),
-                      child: GestureDetector(
-                        onTap: isCurrent ? null : () {
-                          Navigator.of(context).pushReplacement(
-                            MaterialPageRoute(builder: (_) => DetalleProyectoView(proyecto: p)),
-                          );
-                        },
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-                          decoration: BoxDecoration(
-                            color: isCurrent
-                                ? _primaryColor.withValues(alpha: 0.05)
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: isCurrent ? _primaryColor.withValues(alpha: 0.18) : Colors.transparent,
-                            ),
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(children: [
-                                      if (isCurrent) ...[
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                          margin: const EdgeInsets.only(right: 6),
-                                          decoration: BoxDecoration(
-                                            color: _primaryColor,
-                                            borderRadius: BorderRadius.circular(4),
-                                          ),
-                                          child: Text('ACTUAL', style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.5)),
-                                        ),
-                                      ],
-                                      Expanded(
-                                        child: Text(
-                                          nombre.isEmpty ? p.institucion : nombre,
-                                          style: GoogleFonts.inter(
-                                            fontSize: 13,
-                                            fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
-                                            color: isCurrent ? const Color(0xFF1E293B) : Colors.grey.shade600,
-                                          ),
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    ]),
-                                    const SizedBox(height: 4),
-                                    Row(children: [
-                                      Icon(Icons.calendar_today_outlined, size: 11, color: Colors.grey.shade400),
-                                      const SizedBox(width: 4),
-                                      Text(rango, style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400, fontWeight: FontWeight.w500)),
-                                      if (monto.isNotEmpty) ...[
-                                        Container(width: 3, height: 3, margin: const EdgeInsets.symmetric(horizontal: 6), decoration: BoxDecoration(color: Colors.grey.shade300, shape: BoxShape.circle)),
-                                        Text(monto, style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w600)),
-                                      ],
-                                    ]),
-                                  ],
-                                ),
-                              ),
-                              if (!isCurrent)
-                                Icon(Icons.chevron_right_rounded, size: 16, color: Colors.grey.shade300),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+          // Ancestros (cadena hasta el proyecto actual)
+          ...cadena.asMap().entries.map((e) {
+            final isLastAnc = e.key == cadena.length - 1;
+            return buildNodo(e.value,
+              isLast: isLastAnc && sucesores.isEmpty,
+              isSucesor: false,
+              showLine: !isLastAnc || sucesores.isNotEmpty,
+            );
+          }),
+          // Sucesores directos del proyecto actual
+          ...sucesores.asMap().entries.map((e) {
+            final isLast = e.key == sucesores.length - 1;
+            return buildNodo(e.value,
+              isLast: isLast,
+              isSucesor: true,
+              showLine: !isLast,
             );
           }),
         ],
       ),
     );
+  }
+
+  Future<void> _confirmarDesencadenar(Proyecto sucesor) async {
+    final nombre = _cleanName(sucesor.productos).split('\n').first.trim();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Eliminar encadenamiento', style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
+        content: Text('¿Desvincular "${nombre.isEmpty ? sucesor.institucion : nombre}" de este proyecto?',
+            style: GoogleFonts.inter(fontSize: 14)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Eliminar', style: TextStyle(color: Colors.red.shade600)),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await _desencadenarUno(sucesor.id);
+  }
+
+  Future<void> _confirmarDesencadenarTodo() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Eliminar todo el encadenamiento', style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
+        content: Text('¿Deseas desvincular todos los proyectos encadenados desde éste?',
+            style: GoogleFonts.inter(fontSize: 14)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Eliminar todo', style: TextStyle(color: Colors.red.shade600)),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await _desencadenarTodo();
   }
 
   Future<void> _encadenarCon(Proyecto p) async {
@@ -1993,293 +2087,54 @@ $convenioHtml
       await http.post(
         Uri.parse('$_baseUrl/actualizarProyecto'),
         headers: {'Content-Type': 'application/json'},
-        body: json.encode({'id': _proyecto.id, 'proyectoContinuacionId': p.id}),
+        body: json.encode({'id': _proyecto.id, 'addProyectoContinuacionId': p.id}),
       );
       ProyectosService.instance.invalidate();
       if (!mounted) return;
       setState(() {
-        _proyecto = _proyecto.copyWithContinuacion(p.id);
+        _proyecto = _proyecto.copyWithAddContinuacion(p.id);
         _sugerencias = null;
-        _sugerenciasExpanded = false;
       });
       await _cargarCadena();
     } catch (_) {}
   }
 
-  void _mostrarEncadenarBottomSheet(List<Proyecto> candidatos) {
-    String fmtRango(Proyecto p) {
-      String y(DateTime? d) => d != null ? '${d.year}' : '—';
-      final ini = y(p.fechaInicio ?? p.fechaCreacion);
-      final fin = p.fechaTermino != null ? y(p.fechaTermino) : 'activo';
-      return '$ini – $fin';
-    }
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => StatefulBuilder(
-        builder: (ctx, setS) {
-          bool guardando = false;
-          return Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 36, height: 4,
-                    decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(2)),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Text('Encadenar con…', style: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
-                Text('Selecciona el proyecto que continúa este contrato', style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400)),
-                const SizedBox(height: 16),
-                ConstrainedBox(
-                  constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.55),
-                  child: ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: candidatos.length,
-                    separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey.shade100),
-                    itemBuilder: (_, i) {
-                      final p = candidatos[i];
-                      final nombre = _cleanName(p.productos).split('\n').first.trim();
-                      final monto = p.montoTotalOC != null && p.montoTotalOC! > 0
-                          ? (p.montoTotalOC! >= 1e6
-                              ? '\$${(p.montoTotalOC! / 1e6).toStringAsFixed(1)}M'
-                              : '\$${_fmt(p.montoTotalOC!.toInt())}')
-                          : '';
-                      return Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(12),
-                          onTap: guardando ? null : () async {
-                            setS(() => guardando = true);
-                            Navigator.of(ctx).pop();
-                            await _encadenarCon(p);
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            child: Row(children: [
-                              Expanded(
-                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                  Text(nombre.isEmpty ? p.institucion : nombre,
-                                      style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
-                                      maxLines: 2, overflow: TextOverflow.ellipsis),
-                                  const SizedBox(height: 3),
-                                  Row(children: [
-                                    Text(fmtRango(p), style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade400)),
-                                    if (monto.isNotEmpty) ...[
-                                      Container(width: 3, height: 3, margin: const EdgeInsets.symmetric(horizontal: 6), decoration: BoxDecoration(color: Colors.grey.shade300, shape: BoxShape.circle)),
-                                      Text(monto, style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.w600)),
-                                    ],
-                                    const SizedBox(width: 8),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(color: _primaryColor.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(4)),
-                                      child: Text(p.modalidadCompra, style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w600, color: _primaryColor)),
-                                    ),
-                                  ]),
-                                ]),
-                              ),
-                              const SizedBox(width: 8),
-                              Icon(Icons.arrow_forward_ios_rounded, size: 13, color: Colors.grey.shade300),
-                            ]),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
+  Future<void> _desencadenarUno(String sucId) async {
+    try {
+      await http.post(
+        Uri.parse('$_baseUrl/actualizarProyecto'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'id': _proyecto.id, 'removeProyectoContinuacionId': sucId}),
+      );
+      ProyectosService.instance.invalidate();
+      if (!mounted) return;
+      setState(() {
+        _proyecto = _proyecto.copyWithRemoveContinuacion(sucId);
+        _sucesores = _sucesores?.where((p) => p.id != sucId).toList();
+        _sugerencias = null;
+      });
+      await _cargarCadena();
+    } catch (_) {}
   }
 
-  Widget _buildSugerenciasEncadenamiento(List<Proyecto> candidatos) {
-    String fmtRango(Proyecto p) {
-      String y(DateTime? d) => d != null ? '${d.year}' : '—';
-      final ini = y(p.fechaInicio ?? p.fechaCreacion);
-      final fin = p.fechaTermino != null ? y(p.fechaTermino) : 'activo';
-      return '$ini – $fin';
-    }
-
-    String fmtMonto(Proyecto p) {
-      final m = p.montoTotalOC;
-      if (m == null || m == 0) return '';
-      if (m >= 1e9) return '\$${(m / 1e9).toStringAsFixed(1)}B';
-      if (m >= 1e6) return '\$${(m / 1e6).toStringAsFixed(1)}M';
-      return '\$${_fmt(m.toInt())}';
-    }
-
-    final mostrar = candidatos.take(4).toList();
-
-    return GestureDetector(
-      onTap: _sugerenciasExpanded ? null : () => setState(() => _sugerenciasExpanded = true),
-      child: AnimatedContainer(
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeInOut,
-      decoration: BoxDecoration(
-        color: const Color(0xFFF9F5FF),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: _primaryColor.withValues(alpha: 0.10)),
-      ),
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header siempre visible — tap colapsa/expande
-          GestureDetector(
-            onTap: () => setState(() => _sugerenciasExpanded = !_sugerenciasExpanded),
-            behavior: HitTestBehavior.opaque,
-            child: Row(children: [
-              Container(
-                width: 28, height: 28,
-                decoration: BoxDecoration(
-                  color: _primaryColor.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.auto_awesome_rounded, size: 15, color: _primaryColor),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('Posibles continuaciones', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
-                  Text(
-                    _sugerenciasExpanded
-                        ? 'Proyectos del mismo organismo sin encadenamiento'
-                        : '${candidatos.length} proyecto${candidatos.length != 1 ? 's' : ''} del mismo organismo',
-                    style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500),
-                  ),
-                ]),
-              ),
-              const SizedBox(width: 8),
-              AnimatedRotation(
-                turns: _sugerenciasExpanded ? 0.5 : 0,
-                duration: const Duration(milliseconds: 220),
-                child: Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: Colors.grey.shade400),
-              ),
-            ]),
-          ),
-          // Contenido expandible
-          AnimatedSize(
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeInOut,
-            child: _sugerenciasExpanded
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: 14),
-                      ...mostrar.asMap().entries.map((entry) {
-            final i = entry.key;
-            final p = entry.value;
-            final isLast = i == mostrar.length - 1;
-            final nombre = _cleanName(p.productos).split('\n').first.trim();
-            final monto = fmtMonto(p);
-            final rango = fmtRango(p);
-            final estadoColor = p.completado
-                ? const Color(0xFF16A34A)
-                : p.fechaTermino != null && p.fechaTermino!.isBefore(DateTime.now())
-                    ? Colors.grey.shade400
-                    : const Color(0xFF0369A1);
-            final estadoLabel = p.completado ? 'Finalizado' : p.estado;
-
-            return Padding(
-              padding: EdgeInsets.only(bottom: isLast ? 0 : 10),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2))],
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  borderRadius: BorderRadius.circular(14),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(14),
-                    onTap: () {
-                      Navigator.of(context).pushReplacement(
-                        MaterialPageRoute(builder: (_) => DetalleProyectoView(proyecto: p)),
-                      );
-                    },
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
-                      child: Row(children: [
-                        Expanded(
-                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text(
-                              nombre.isEmpty ? p.institucion : nombre,
-                              style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
-                              maxLines: 2, overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 5),
-                            Row(children: [
-                              Icon(Icons.calendar_today_outlined, size: 11, color: Colors.grey.shade400),
-                              const SizedBox(width: 4),
-                              Text(rango, style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400, fontWeight: FontWeight.w500)),
-                              if (monto.isNotEmpty) ...[
-                                Container(width: 3, height: 3, margin: const EdgeInsets.symmetric(horizontal: 6), decoration: BoxDecoration(color: Colors.grey.shade300, shape: BoxShape.circle)),
-                                Text(monto, style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w600)),
-                              ],
-                              const SizedBox(width: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(color: estadoColor.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(4)),
-                                child: Text(estadoLabel, style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w600, color: estadoColor)),
-                              ),
-                            ]),
-                          ]),
-                        ),
-                        const SizedBox(width: 8),
-                        Icon(Icons.chevron_right_rounded, size: 16, color: Colors.grey.shade300),
-                      ]),
-                    ),
-                  ),
-                ),
-              ),
-            );
-          }),
-                      if (candidatos.length > 4) ...[
-                        const SizedBox(height: 6),
-                        Center(
-                          child: Text('+ ${candidatos.length - 4} más con el mismo organismo',
-                              style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400, fontWeight: FontWeight.w500)),
-                        ),
-                      ],
-                      const SizedBox(height: 14),
-                      GestureDetector(
-                        onTap: () => _mostrarEncadenarBottomSheet(candidatos),
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          decoration: BoxDecoration(
-                            color: _primaryColor,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                            const Icon(Icons.link_rounded, size: 15, color: Colors.white),
-                            const SizedBox(width: 6),
-                            Text('Encadenar proyecto', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white)),
-                          ]),
-                        ),
-                      ),
-                    ],
-                  )
-                : const SizedBox.shrink(),
-          ),
-        ],
-      ),
-    ));
+  Future<void> _desencadenarTodo() async {
+    try {
+      await http.post(
+        Uri.parse('$_baseUrl/actualizarProyecto'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'id': _proyecto.id, 'clearProyectoContinuacionIds': true}),
+      );
+      ProyectosService.instance.invalidate();
+      if (!mounted) return;
+      setState(() {
+        _proyecto = _proyecto.copyWithClearContinuaciones();
+        _cadena = null;
+        _sucesores = null;
+        _sugerencias = null;
+      });
+    } catch (_) {}
   }
+
 
   Widget _buildHeader(bool isMobile) {
     final hasFicha = _proyecto.modalidadCompra != 'Trato Directo' &&

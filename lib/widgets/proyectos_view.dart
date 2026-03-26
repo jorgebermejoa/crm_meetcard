@@ -85,6 +85,9 @@ class _ProyectosViewState extends State<ProyectosView>
   // Sorting
   int? _sortColumn;
   bool _sortAscending = true;
+  // Sort por estado (orden por defecto cuando no hay columna activa)
+  // false = descendente: En Evaluación → Vigente → X Vencer → Sin Fecha → Finalizado
+  bool _estadoSortAsc = false;
 
   // Radar tab
   List<Map<String, dynamic>> _radarOportunidades = [];
@@ -210,9 +213,27 @@ class _ProyectosViewState extends State<ProyectosView>
     });
   }
 
+  // Orden canónico de estado: En Evaluación primero, Finalizado último
+  static const _estadoOrder = {
+    'En Evaluación': 0,
+    'Vigente': 1,
+    'X Vencer': 2,
+    'Sin fecha': 3,
+    'Finalizado': 4,
+  };
+
+  int _estadoRank(Proyecto p) => _estadoOrder[p.estado] ?? 99;
+
   List<Proyecto> _applySorting(List<Proyecto> list) {
-    if (_sortColumn == null) return list;
     final sorted = [...list];
+    if (_sortColumn == null) {
+      // Sort por defecto: estado
+      sorted.sort((a, b) {
+        final cmp = _estadoRank(a).compareTo(_estadoRank(b));
+        return _estadoSortAsc ? cmp : -cmp;
+      });
+      return sorted;
+    }
     sorted.sort((a, b) {
       int cmp;
       switch (_sortColumn) {
@@ -2145,9 +2166,142 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
           ),
           const SizedBox(width: 6),
         ],
+        // Sort-by-estado button
+        GestureDetector(
+          onTap: _mostrarSortEstadoSheet,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            margin: const EdgeInsets.only(right: 6),
+            decoration: BoxDecoration(
+              color: _sortColumn == null
+                  ? _primaryColor.withValues(alpha: 0.08)
+                  : Colors.white,
+              border: Border.all(
+                color: _sortColumn == null ? _primaryColor : Colors.grey.shade200,
+                width: _sortColumn == null ? 1.5 : 1.0,
+              ),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _estadoSortAsc ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
+                  size: 13,
+                  color: _sortColumn == null ? _primaryColor : Colors.grey.shade500,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  'Estado',
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: _sortColumn == null ? _primaryColor : Colors.grey.shade500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
         // Filter icon button (right side)
         filterButton,
       ],
+    );
+  }
+
+  void _mostrarSortEstadoSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36, height: 4,
+                decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text('Ordenar por Estado', style: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
+            const SizedBox(height: 6),
+            Text('Elige el orden de prioridad de los estados', style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400)),
+            const SizedBox(height: 20),
+            _sortOpcionEstado(
+              label: 'Descendente',
+              subtitle: 'En Evaluación → Vigente → X Vencer → Sin Fecha → Finalizado',
+              icon: Icons.arrow_downward_rounded,
+              selected: !_estadoSortAsc,
+              onTap: () {
+                setState(() { _estadoSortAsc = false; _sortColumn = null; });
+                Navigator.pop(context);
+              },
+            ),
+            const SizedBox(height: 10),
+            _sortOpcionEstado(
+              label: 'Ascendente',
+              subtitle: 'Finalizado → Sin Fecha → X Vencer → Vigente → En Evaluación',
+              icon: Icons.arrow_upward_rounded,
+              selected: _estadoSortAsc,
+              onTap: () {
+                setState(() { _estadoSortAsc = true; _sortColumn = null; });
+                Navigator.pop(context);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _sortOpcionEstado({
+    required String label,
+    required String subtitle,
+    required IconData icon,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: selected ? _primaryColor.withValues(alpha: 0.06) : Colors.white,
+          border: Border.all(
+            color: selected ? _primaryColor : Colors.grey.shade200,
+            width: selected ? 1.5 : 1.0,
+          ),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(children: [
+          Container(
+            width: 32, height: 32,
+            decoration: BoxDecoration(
+              color: selected ? _primaryColor.withValues(alpha: 0.10) : Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 16, color: selected ? _primaryColor : Colors.grey.shade400),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(label, style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600,
+                  color: selected ? _primaryColor : const Color(0xFF1E293B))),
+              const SizedBox(height: 2),
+              Text(subtitle, style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
+            ]),
+          ),
+          if (selected)
+            Icon(Icons.check_circle_rounded, size: 18, color: _primaryColor),
+        ]),
+      ),
     );
   }
 
