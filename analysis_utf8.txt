@@ -1,0 +1,111 @@
+﻿Analyzing scratch...                                            
+
+  error - The named parameter 'enabled' isn't defined - lib\main.dart:197:13 - undefined_named_parameter
+  error - The body might complete normally, causing 'null' to be returned, but the return type, 'Widget', is a potentially non-nullable type - lib\main.dart:231:10 - body_might_complete_normally
+warning - The value of the local variable 'menuContent' isn't used - lib\main.dart:235:11 - unused_local_variable
+  error - The method '_NavigationItem' isn't defined for the type '_SideNavigationMenu' - lib\main.dart:260:19 - undefined_method
+  error - The method '_NavigationItem' isn't defined for the type '_SideNavigationMenu' - lib\main.dart:266:19 - undefined_method
+  error - The method '_NavigationItem' isn't defined for the type '_SideNavigationMenu' - lib\main.dart:272:19 - undefined_method
+  error - The method '_NavigationItem' isn't defined for the type '_SideNavigationMenu' - lib\main.dart:293:21 - undefined_method
+  error - The method '_NavigationItem' isn't defined for the type '_SideNavigationMenu' - lib\main.dart:299:21 - undefined_method
+  error - Function expressions can't be named - lib\main.dart:360:10 - named_function_expression
+  error - Too many positional arguments: 0 expected, but 1 found - lib\main.dart:360:15 - extra_positional_arguments_could_be_named
+  error - Undefined name 'child' - lib\main.dart:376:47 - undefined_identifier
+  error - The named parameter 'enabled' isn't defined - lib\main.dart:392:13 - undefined_named_parameter
+  error - Undefined name 'child' - lib\main.dart:393:20 - undefined_identifier
+  error - Expected to find ';' - lib\main.dart:398:3 - expected_token
+  error - Expected to find ')' - lib\main.dart:399:1 - expected_token
+  error - Expected to find ']' - lib\main.dart:399:1 - expected_token
+  error - Classes can't be declared inside other classes - lib\main.dart:403:1 - class_in_class
+  error - Expected a class member - lib\main.dart:403:27 - expected_class_member
+   info - The variable name 'StatelessWidget' isn't a lowerCamelCase identifier - lib\main.dart:403:35 - non_constant_identifier_names
+  error - Methods must have an explicit list of parameters - lib\main.dart:403:35 - missing_method_parameters
+  error - The named parameter 'currentPath' is required, but there's no corresponding argument - lib\main.dart:407:9 - missing_required_argument
+  error - The named parameter 'isPermanent' is required, but there's no corresponding argument - lib\main.dart:407:9 - missing_required_argument
+  error - Too many positional arguments: 0 expected, but 1 found - lib\main.dart:407:29 - extra_positional_arguments_could_be_named
+   info - 'required' is deprecated and shouldn't be used. In Dart 2.12 and later, use the built-in `required` keyword to mark a named parameter as required - lib\main.dart:408:5 - deprecated_member_use
+  error - Expected to find ',' - lib\main.dart:408:14 - expected_token
+  error - Invalid constant value - lib\main.dart:408:14 - invalid_constant
+   info - 'required' is deprecated and shouldn't be used. In Dart 2.12 and later, use the built-in `required` keyword to mark a named parameter as required - lib\main.dart:409:5 - deprecated_member_use
+  error - Expected to find ',' - lib\main.dart:409:14 - expected_token
+warning - The value of the local variable 'get' isn't used - lib\main.dart:412:7 - unused_local_variable
+  error - Expected to find ';' - lib\main.dart:412:7 - expected_token
+  error - Expected to find ';' - lib\main.dart:412:11 - expected_token
+  error - The final variable 'currentPath' can't be read because it's potentially unassigned at this point - lib\main.dart:413:9 - read_potentially_unassigned_final
+  error - The final variable 'currentPath' can't be read because it's potentially unassigned at this point - lib\main.dart:414:9 - read_potentially_unassigned_final
+warning - Dead code - lib\main.dart:418:3 - dead_code
+   info - The local variable '_navigate' starts with an underscore - lib\main.dart:418:8 - no_leading_underscores_for_local_identifiers
+  error - The final variable 'isPermanent' can't be read because it's potentially unassigned at this point - lib\main.dart:419:10 - read_potentially_unassigned_final
+warning - The declaration 'build' isn't referenced - lib\main.dart:426:10 - unused_element
+warning - The value of the local variable 'primaryColor' isn't used - lib\main.dart:429:11 - unused_local_variable
+  error - The method '_NavigationItem' isn't defined for the type '_SideNavigationMenu' - lib\main.dart:456:19 - undefined_method
+  error - The method '_NavigationItem' isn't defined for the type '_SideNavigationMenu' - lib\main.dart:462:19 - undefined_method
+  error - The method '_NavigationItem' isn't defined for the type '_SideNavigationMenu' - lib\main.dart:468:19 - undefined_method
+  error - The method '_NavigationItem' isn't defined for the type '_SideNavigationMenu' - lib\main.dart:489:21 - undefined_method
+  error - The final variable 'currentPath' can't be read because it's potentially unassigned at this point - lib\main.dart:492:33 - read_potentially_unassigned_final
+  error - The method '_NavigationItem' isn't defined for the type '_SideNavigationMenu' - lib\main.dart:495:21 - undefined_method
+  error - The final variable 'currentPath' can't be read because it's potentially unassigned at this point - lib\main.dart:498:33 - read_potentially_unassigned_final
+  error - The final variable 'isPermanent' can't be read because it's potentially unassigned at this point - lib\main.dart:552:22 - read_potentially_unassigned_final
+  error - The final variable 'isPermanent' can't be read because it's potentially unassigned at this point - lib\main.dart:561:9 - read_potentially_unassigned_final
+  error - Classes can't be declared inside other classes - lib\main.dart:586:1 - class_in_class
+  error - Expected a class member - lib\main.dart:586:23 - expected_class_member
+   info - The variable name 'StatelessWidget' isn't a lowerCamelCase identifier - lib\main.dart:586:31 - non_constant_identifier_names
+  error - Methods must have an explicit list of parameters - lib\main.dart:586:31 - missing_method_parameters
+  error - The name 'StatelessWidget' is already defined - lib\main.dart:586:31 - duplicate_definition
+  error - The name '_NavigationItem' isn't a class - lib\main.dart:592:9 - creation_with_non_type
+   info - 'required' is deprecated and shouldn't be used. In Dart 2.12 and later, use the built-in `required` keyword to mark a named parameter as required - lib\main.dart:593:5 - deprecated_member_use
+  error - Expected to find ',' - lib\main.dart:593:14 - expected_token
+  error - The getter 'icon' isn't defined for the type '_SideNavigationMenu' - lib\main.dart:593:19 - undefined_getter
+   info - 'required' is deprecated and shouldn't be used. In Dart 2.12 and later, use the built-in `required` keyword to mark a named parameter as required - lib\main.dart:594:5 - deprecated_member_use
+  error - Expected to find ',' - lib\main.dart:594:14 - expected_token
+  error - The getter 'label' isn't defined for the type '_SideNavigationMenu' - lib\main.dart:594:19 - undefined_getter
+   info - 'required' is deprecated and shouldn't be used. In Dart 2.12 and later, use the built-in `required` keyword to mark a named parameter as required - lib\main.dart:595:5 - deprecated_member_use
+  error - Expected to find ',' - lib\main.dart:595:14 - expected_token
+  error - The getter 'selected' isn't defined for the type '_SideNavigationMenu' - lib\main.dart:595:19 - undefined_getter
+   info - 'required' is deprecated and shouldn't be used. In Dart 2.12 and later, use the built-in `required` keyword to mark a named parameter as required - lib\main.dart:596:5 - deprecated_member_use
+  error - Expected to find ',' - lib\main.dart:596:14 - expected_token
+  error - The getter 'onTap' isn't defined for the type '_SideNavigationMenu' - lib\main.dart:596:19 - undefined_getter
+warning - The declaration 'build' isn't referenced - lib\main.dart:600:10 - unused_element
+  error - The final variable 'onTap' can't be read because it's potentially unassigned at this point - lib\main.dart:607:16 - read_potentially_unassigned_final
+  error - The final variable 'selected' can't be read because it's potentially unassigned at this point - lib\main.dart:610:20 - read_potentially_unassigned_final
+  error - The final variable 'icon' can't be read because it's potentially unassigned at this point - lib\main.dart:612:11 - read_potentially_unassigned_final
+  error - The final variable 'selected' can't be read because it's potentially unassigned at this point - lib\main.dart:614:18 - read_potentially_unassigned_final
+  error - The final variable 'label' can't be read because it's potentially unassigned at this point - lib\main.dart:617:11 - read_potentially_unassigned_final
+  error - The final variable 'selected' can't be read because it's potentially unassigned at this point - lib\main.dart:620:25 - read_potentially_unassigned_final
+  error - The final variable 'selected' can't be read because it's potentially unassigned at this point - lib\main.dart:621:20 - read_potentially_unassigned_final
+  error - Expected to find '}' - lib\main.dart:628:1 - expected_token
+warning - The value of the field '_primaryColor' isn't used - lib\widgets\login_view.dart:14:16 - unused_field
+   info - 'surfaceVariant' is deprecated and shouldn't be used. Use surfaceContainerHighest instead. This feature was deprecated after v3.18.0-0.1.pre - lib\widgets\login_view.dart:320:55 - deprecated_member_use
+   info - 'surfaceVariant' is deprecated and shouldn't be used. Use surfaceContainerHighest instead. This feature was deprecated after v3.18.0-0.1.pre - lib\widgets\login_view.dart:323:55 - deprecated_member_use
+warning - The declaration '_setSort' isn't referenced - lib\widgets\proyectos_view.dart:204:8 - unused_element
+warning - The declaration '_openEditDialog' isn't referenced - lib\widgets\proyectos_view.dart:278:16 - unused_element
+warning - The declaration '_goToQuarterFiltered' isn't referenced - lib\widgets\proyectos_view.dart:704:8 - unused_element
+warning - The declaration '_goToChurnQuarterFiltered' isn't referenced - lib\widgets\proyectos_view.dart:717:8 - unused_element
+  error - The named parameter 'tab' isn't defined - lib\widgets\proyectos_view.dart:899:46 - undefined_named_parameter
+  error - The argument type 'Color' can't be assigned to the parameter type 'String?'.  - lib\widgets\proyectos_view.dart:2002:71 - argument_type_not_assignable
+  error - The argument type 'Color' can't be assigned to the parameter type 'String?'.  - lib\widgets\proyectos_view.dart:2004:62 - argument_type_not_assignable
+warning - The declaration '_summaryChip' isn't referenced - lib\widgets\proyectos_view.dart:2042:10 - unused_element
+warning - The declaration '_divider' isn't referenced - lib\widgets\proyectos_view.dart:2067:10 - unused_element
+warning - The declaration '_activeChip' isn't referenced - lib\widgets\proyectos_view.dart:2322:10 - unused_element
+warning - The value of the local variable 'modalidades' isn't used - lib\widgets\proyectos_view.dart:2351:11 - unused_local_variable
+warning - The value of the local variable 'estados' isn't used - lib\widgets\proyectos_view.dart:2352:11 - unused_local_variable
+warning - The value of the local variable 'allProducts' isn't used - lib\widgets\proyectos_view.dart:2353:11 - unused_local_variable
+  error - Undefined name 'instituciones' - lib\widgets\proyectos_view.dart:2654:20 - undefined_identifier
+  error - The named parameter 'onlyIngresos' isn't defined - lib\widgets\proyectos_view.dart:2807:70 - undefined_named_parameter
+  error - The named parameter 'onlyIngresos' isn't defined - lib\widgets\proyectos_view.dart:2817:70 - undefined_named_parameter
+  error - The named parameter 'onlyIngresos' isn't defined - lib\widgets\proyectos_view.dart:2830:76 - undefined_named_parameter
+  error - The named parameter 'onlyIngresos' isn't defined - lib\widgets\proyectos_view.dart:2839:76 - undefined_named_parameter
+  error - The argument type 'Color' can't be assigned to the parameter type 'String?'.  - lib\widgets\proyectos_view.dart:3022:19 - argument_type_not_assignable
+  error - The argument type 'Color' can't be assigned to the parameter type 'String?'.  - lib\widgets\proyectos_view.dart:3025:19 - argument_type_not_assignable
+  error - The name '_activeChip' is already defined - lib\widgets\proyectos_view.dart:3908:10 - duplicate_definition
+  error - The name '_summaryChip' is already defined - lib\widgets\proyectos_view.dart:3931:10 - duplicate_definition
+  error - The name '_divider' is already defined - lib\widgets\proyectos_view.dart:3952:10 - duplicate_definition
+  error - The name '_openEditDialog' is already defined - lib\widgets\proyectos_view.dart:3954:8 - duplicate_definition
+  error - The named parameter 'isEditing' is required, but there's no corresponding argument - lib\widgets\proyectos_view.dart:3957:25 - missing_required_argument
+  error - The named parameter 'onSave' isn't defined - lib\widgets\proyectos_view.dart:3959:9 - undefined_named_parameter
+  error - The name '_setSort' is already defined - lib\widgets\proyectos_view.dart:3966:8 - duplicate_definition
+  error - The name '_goToQuarterFiltered' is already defined - lib\widgets\proyectos_view.dart:3977:8 - duplicate_definition
+  error - The name '_goToChurnQuarterFiltered' is already defined - lib\widgets\proyectos_view.dart:3987:8 - duplicate_definition
+warning - The declaration '_activeChipDoc' isn't referenced - lib\widgets\proyectos_view.dart:3997:10 - unused_element
+warning - The declaration '_fmtMonto' isn't referenced - lib\widgets\proyectos_view.dart:3999:10 - unused_element
+

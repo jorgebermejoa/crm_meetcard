@@ -4,16 +4,15 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'skeleton_loader.dart';
 import 'package:http/http.dart' as http;
 import 'package:web/web.dart' as web;
 
-import '../app_shell.dart';
 import '../models/configuracion.dart';
 import '../models/proyecto.dart';
 import '../services/bigquery_service.dart';
 import '../services/config_service.dart';
 import '../services/proyectos_service.dart';
-import 'app_breadcrumbs.dart';
 import 'proyecto_form_dialog.dart';
 import 'walkthrough.dart';
 
@@ -38,7 +37,7 @@ class ProyectosView extends StatefulWidget {
 
 class _ProyectosViewState extends State<ProyectosView>
     with TickerProviderStateMixin {
-  static const _primaryColor = Color(0xFF5B21B6);
+  static const _primaryColor = Color(0xFF007AFF);
   static const _pageSize = 10;
 
   late final TabController _tabController;
@@ -61,14 +60,16 @@ class _ProyectosViewState extends State<ProyectosView>
   Set<String> _filterProductos = {};
   String? _filterModalidad;
   String? _filterEstado;
-  String? _filterReclamo;   // 'Pendiente' | 'Respondido'
-  String? _filterVencer;    // '30 días' | '3 meses' | '6 meses' | '12 meses'
+  String? _filterReclamo; // 'Pendiente' | 'Respondido'
+  String? _filterVencer; // '30 días' | '3 meses' | '6 meses' | '12 meses'
   int? _filterQuarterYear;
   int? _filterQuarterQ;
   bool _filterQuarterOnlyWithOC = false;
   bool _filterQuarterIsChurn = false;
-  bool _filterQuarterOnlyIngresos = false; // solo vigente/xVencer/finalizado (gráfico Monto Mensual)
-  bool? _filterEncadenado; // true = solo encadenados, false = solo sin encadenar, null = todos
+  bool _filterQuarterOnlyIngresos =
+      false; // solo vigente/xVencer/finalizado (gráfico Monto Mensual)
+  bool?
+  _filterEncadenado; // true = solo encadenados, false = solo sin encadenar, null = todos
 
   // Pagination — Proyectos tab
   int _currentPage = 0;
@@ -99,7 +100,7 @@ class _ProyectosViewState extends State<ProyectosView>
     'Licitación Pública',
     'Convenio Marco',
     'Trato Directo',
-    'Otro'
+    'Otro',
   ];
   List<EstadoItem> _cfgEstados = [
     EstadoItem(nombre: 'Vigente', color: '10B981'),
@@ -137,17 +138,33 @@ class _ProyectosViewState extends State<ProyectosView>
       _error = null;
     });
     try {
-      final list =
-          await ProyectosService.instance.load(forceRefresh: forceRefresh);
-      if (mounted) setState(() { _proyectos = list; _cargando = false; });
+      final list = await ProyectosService.instance.load(
+        forceRefresh: forceRefresh,
+      );
+      if (mounted) {
+        setState(() {
+          _proyectos = list;
+          _cargando = false;
+        });
+      }
     } catch (e) {
-      if (mounted) setState(() { _error = e.toString(); _cargando = false; });
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _cargando = false;
+        });
+      }
     }
   }
 
   Future<void> _cargarRadar({bool forceRefresh = false}) async {
     if (_radarCargando) return;
-    if (mounted) setState(() { _radarCargando = true; _radarError = null; });
+    if (mounted) {
+      setState(() {
+        _radarCargando = true;
+        _radarError = null;
+      });
+    }
     try {
       // Fast path: leer desde Firestore caché directamente (evita llamar a la CF)
       if (!forceRefresh) {
@@ -158,19 +175,37 @@ class _ProyectosViewState extends State<ProyectosView>
         if (snap.exists) {
           final d = snap.data()!;
           final fetchedAt = (d['fetchedAt'] as Timestamp?)?.toDate();
-          final age = fetchedAt != null ? DateTime.now().difference(fetchedAt) : null;
+          final age = fetchedAt != null
+              ? DateTime.now().difference(fetchedAt)
+              : null;
           if (age != null && age.inHours < 24) {
-            final rows = (d['rows'] as List? ?? []).cast<Map<String, dynamic>>();
-            if (mounted) setState(() { _radarOportunidades = rows; _radarCargando = false; });
+            final rows = (d['rows'] as List? ?? [])
+                .cast<Map<String, dynamic>>();
+            if (mounted) {
+              setState(() {
+                _radarOportunidades = rows;
+                _radarCargando = false;
+              });
+            }
             return;
           }
         }
       }
       // Caché inexistente o stale: llamar CF (que también actualiza Firestore)
       final rows = await BigQueryService.instance.obtenerRadarOportunidades();
-      if (mounted) setState(() { _radarOportunidades = rows; _radarCargando = false; });
+      if (mounted) {
+        setState(() {
+          _radarOportunidades = rows;
+          _radarCargando = false;
+        });
+      }
     } catch (e) {
-      if (mounted) setState(() { _radarError = e.toString(); _radarCargando = false; });
+      if (mounted) {
+        setState(() {
+          _radarError = e.toString();
+          _radarCargando = false;
+        });
+      }
     }
   }
 
@@ -247,12 +282,14 @@ class _ProyectosViewState extends State<ProyectosView>
           cmp = (a.valorMensual ?? 0).compareTo(b.valorMensual ?? 0);
           break;
         case 3:
-          cmp = (a.fechaInicio ?? DateTime(0))
-              .compareTo(b.fechaInicio ?? DateTime(0));
+          cmp = (a.fechaInicio ?? DateTime(0)).compareTo(
+            b.fechaInicio ?? DateTime(0),
+          );
           break;
         case 4:
-          cmp = (a.fechaTermino ?? DateTime(0))
-              .compareTo(b.fechaTermino ?? DateTime(0));
+          cmp = (a.fechaTermino ?? DateTime(0)).compareTo(
+            b.fechaTermino ?? DateTime(0),
+          );
           break;
         default:
           cmp = 0;
@@ -269,38 +306,43 @@ class _ProyectosViewState extends State<ProyectosView>
       useSafeArea: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (_) => const ProyectoFormDialog(isEditing: false),
     );
     if (result != null) _cargar(forceRefresh: true);
   }
 
   Future<void> _openEditDialog(Proyecto proyecto, {String? tab}) async {
-    final extra = tab != null
-        ? {'proyecto': proyecto, 'tab': tab}
-        : proyecto;
+    final entity = proyecto.toEntity();
+    final extra = tab != null ? {'proyecto': entity, 'tab': tab} : entity;
     await context.push('/proyectos/${proyecto.id}', extra: extra);
     _cargar(forceRefresh: true);
   }
 
   List<Proyecto> _applyFilters(List<Proyecto> all) {
     // Pre-compute active institutions set for churn renewal check (O(n) once)
-    final renovadas = (_filterQuarterYear != null &&
+    final renovadas =
+        (_filterQuarterYear != null &&
             _filterQuarterQ != null &&
             _filterQuarterIsChurn)
         ? all
-            .where((o) =>
-                o.idsOrdenesCompra.isNotEmpty &&
-                o.estado != EstadoProyecto.finalizado)
-            .map((o) => o.institucion.trim().toLowerCase())
-            .toSet()
+              .where(
+                (o) =>
+                    o.idsOrdenesCompra.isNotEmpty &&
+                    o.estado != EstadoProyecto.finalizado,
+              )
+              .map((o) => o.institucion.trim().toLowerCase())
+              .toSet()
         : null;
 
     return all.where((p) {
       if (_filterInstitucion != null && _filterInstitucion!.isNotEmpty) {
-        if (!_cleanInst(p.institucion)
-            .toLowerCase()
-            .contains(_filterInstitucion!.toLowerCase())) { return false; }
+        if (!_cleanInst(
+          p.institucion,
+        ).toLowerCase().contains(_filterInstitucion!.toLowerCase())) {
+          return false;
+        }
       }
       if (_filterProductos.isNotEmpty) {
         final pp = p.productos.split(',').map((s) => s.trim()).toSet();
@@ -310,14 +352,20 @@ class _ProyectosViewState extends State<ProyectosView>
         if (p.modalidadCompra != _filterModalidad) return false;
       }
       if (_filterEstado != null && _filterEstado!.isNotEmpty) {
-        if (p.estado != _filterEstado) { return false; }
+        if (p.estado != _filterEstado) {
+          return false;
+        }
       }
       if (_filterReclamo != null) {
         if (_filterReclamo == 'Pendiente') {
           if (!p.reclamos.any((r) => r.estado == 'Pendiente')) return false;
         } else {
-          if (!p.reclamos.any((r) => r.estado != 'Pendiente' &&
-              (r.fechaRespuesta != null || (r.descripcionRespuesta?.isNotEmpty == true)))) {
+          if (!p.reclamos.any(
+            (r) =>
+                r.estado != 'Pendiente' &&
+                (r.fechaRespuesta != null ||
+                    (r.descripcionRespuesta?.isNotEmpty == true)),
+          )) {
             return false;
           }
         }
@@ -331,7 +379,8 @@ class _ProyectosViewState extends State<ProyectosView>
         if (!ft.isAfter(now) || !ft.isBefore(limite)) return false;
       }
       if (_filterEncadenado != null) {
-        final encadenado = p.proyectoContinuacionId?.isNotEmpty == true ||
+        final encadenado =
+            p.proyectoContinuacionId?.isNotEmpty == true ||
             all.any((o) => o.proyectoContinuacionId == p.id);
         if (_filterEncadenado! != encadenado) return false;
       }
@@ -343,29 +392,43 @@ class _ProyectosViewState extends State<ProyectosView>
           final fechaFin = p.fechaTermino;
           if (fechaFin == null) return false;
           final q = ((fechaFin.month - 1) ~/ 3) + 1;
-          if (fechaFin.year != _filterQuarterYear || q != _filterQuarterQ) return false;
+          if (fechaFin.year != _filterQuarterYear || q != _filterQuarterQ) {
+            return false;
+          }
           final graceDate = fechaFin.add(const Duration(days: 90));
           if (graceDate.isAfter(DateTime.now())) return false;
-          if (p.proyectoContinuacionId != null && p.proyectoContinuacionId!.isNotEmpty) return false;
+          if (p.proyectoContinuacionId != null &&
+              p.proyectoContinuacionId!.isNotEmpty) {
+            return false;
+          }
           final inst = p.institucion.trim().toLowerCase();
-          final tieneRenovacion = renovadas!.contains(inst) ||
-              all.any((o) =>
-                  o.id != p.id &&
-                  o.idsOrdenesCompra.isNotEmpty &&
-                  o.institucion.trim().toLowerCase() == inst &&
-                  (o.fechaInicio ?? o.fechaCreacion) != null &&
-                  (o.fechaInicio ?? o.fechaCreacion)!.isAfter(fechaFin));
+          final tieneRenovacion =
+              renovadas!.contains(inst) ||
+              all.any(
+                (o) =>
+                    o.id != p.id &&
+                    o.idsOrdenesCompra.isNotEmpty &&
+                    o.institucion.trim().toLowerCase() == inst &&
+                    (o.fechaInicio ?? o.fechaCreacion) != null &&
+                    (o.fechaInicio ?? o.fechaCreacion)!.isAfter(fechaFin),
+              );
           if (tieneRenovacion) return false;
         } else {
-          if (_filterQuarterOnlyWithOC && p.idsOrdenesCompra.isEmpty) return false;
+          if (_filterQuarterOnlyWithOC && p.idsOrdenesCompra.isEmpty) {
+            return false;
+          }
           if (_filterQuarterOnlyIngresos &&
               p.estado != EstadoProyecto.vigente &&
               p.estado != EstadoProyecto.xVencer &&
-              p.estado != EstadoProyecto.finalizado) { return false; }
+              p.estado != EstadoProyecto.finalizado) {
+            return false;
+          }
           final fecha = p.fechaInicio ?? p.fechaCreacion;
           if (fecha == null) return false;
           final q = ((fecha.month - 1) ~/ 3) + 1;
-          if (fecha.year != _filterQuarterYear || q != _filterQuarterQ) return false;
+          if (fecha.year != _filterQuarterYear || q != _filterQuarterQ) {
+            return false;
+          }
         }
       }
       return true;
@@ -374,95 +437,153 @@ class _ProyectosViewState extends State<ProyectosView>
 
   static int _vencerDias(String periodo) {
     switch (periodo) {
-      case '30 días': return 30;
-      case '3 meses': return 90;
-      case '6 meses': return 180;
-      default: return 365;
+      case '30 días':
+        return 30;
+      case '3 meses':
+        return 90;
+      case '6 meses':
+        return 180;
+      default:
+        return 365;
     }
   }
-
 
   void _showExportMenu(BuildContext context) {
     final filtered = _applySorting(_applyFilters(_proyectos));
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
       builder: (_) => Padding(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Container(width: 36, height: 4,
-              decoration: BoxDecoration(color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2))),
-          const SizedBox(height: 16),
-          Text('Exportar proyectos',
-              style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w700,
-                  color: const Color(0xFF1E293B))),
-          const SizedBox(height: 4),
-          Text('${filtered.length} proyecto${filtered.length != 1 ? 's' : ''}${_hasActiveFilters ? ' (con filtros aplicados)' : ''}',
-              style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500)),
-          const SizedBox(height: 16),
-          _exportOption(Icons.table_chart_outlined, 'Exportar a Excel (CSV)',
-              'Abrir en Excel o Google Sheets', () {
-            Navigator.pop(context);
-            _exportCSV(filtered);
-          }),
-          const SizedBox(height: 8),
-          _exportOption(Icons.print_outlined, 'Imprimir / PDF',
-              'Genera una tabla HTML lista para imprimir o guardar como PDF', () {
-            Navigator.pop(context);
-            _exportPDF(filtered);
-          }),
-        ]),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Exportar proyectos',
+              style: GoogleFonts.inter(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF1E293B),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${filtered.length} proyecto${filtered.length != 1 ? 's' : ''}${_hasActiveFilters ? ' (con filtros aplicados)' : ''}',
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                color: Colors.grey.shade500,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _exportOption(
+              Icons.table_chart_outlined,
+              'Exportar a Excel (CSV)',
+              'Abrir en Excel o Google Sheets',
+              () {
+                Navigator.pop(context);
+                _exportCSV(filtered);
+              },
+            ),
+            const SizedBox(height: 8),
+            _exportOption(
+              Icons.print_outlined,
+              'Imprimir / PDF',
+              'Genera una tabla HTML lista para imprimir o guardar como PDF',
+              () {
+                Navigator.pop(context);
+                _exportPDF(filtered);
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
 
   bool get _hasActiveFilters =>
-      _filterInstitucion != null || _filterProductos.isNotEmpty ||
-      _filterModalidad != null || _filterEstado != null ||
-      _filterReclamo != null || _filterVencer != null ||
+      _filterInstitucion != null ||
+      _filterProductos.isNotEmpty ||
+      _filterModalidad != null ||
+      _filterEstado != null ||
+      _filterReclamo != null ||
+      _filterVencer != null ||
       _filterEncadenado != null ||
       _filterQuarterYear != null;
 
-  Widget _exportOption(IconData icon, String title, String subtitle, VoidCallback onTap) {
+  Widget _exportOption(
+    IconData icon,
+    String title,
+    String subtitle,
+    VoidCallback onTap,
+  ) {
     return ListTile(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       tileColor: const Color(0xFFF8FAFC),
       leading: Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-            color: const Color(0xFF5B21B6).withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(8)),
-        child: Icon(icon, size: 18, color: const Color(0xFF5B21B6)),
+          color: const Color(0xFF007AFF).withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(icon, size: 18, color: const Color(0xFF007AFF)),
       ),
-      title: Text(title, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600,
-          color: const Color(0xFF1E293B))),
-      subtitle: Text(subtitle, style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500)),
+      title: Text(
+        title,
+        style: GoogleFonts.inter(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: const Color(0xFF1E293B),
+        ),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500),
+      ),
       onTap: onTap,
     );
   }
 
   void _exportCSV(List<Proyecto> proyectos) {
     final buf = StringBuffer();
-    buf.writeln('ID,Institución,Productos,Modalidad,Estado,Valor Mensual,Fecha Inicio,Fecha Término');
+    buf.writeln(
+      'ID,Institución,Productos,Modalidad,Estado,Valor Mensual,Fecha Inicio,Fecha Término',
+    );
     for (final p in proyectos) {
       String esc(String s) => '"${s.replaceAll('"', '""')}"';
-      buf.writeln([
-        esc(p.id),
-        esc(_cleanInst(p.institucion)),
-        esc(p.productos),
-        esc(p.modalidadCompra),
-        esc(p.estado),
-        p.valorMensual?.toStringAsFixed(0) ?? '',
-        p.fechaInicio != null ? '${p.fechaInicio!.day}/${p.fechaInicio!.month}/${p.fechaInicio!.year}' : '',
-        p.fechaTermino != null ? '${p.fechaTermino!.day}/${p.fechaTermino!.month}/${p.fechaTermino!.year}' : '',
-      ].join(','));
+      buf.writeln(
+        [
+          esc(p.id),
+          esc(_cleanInst(p.institucion)),
+          esc(p.productos),
+          esc(p.modalidadCompra),
+          esc(p.estado),
+          p.valorMensual?.toStringAsFixed(0) ?? '',
+          p.fechaInicio != null
+              ? '${p.fechaInicio!.day}/${p.fechaInicio!.month}/${p.fechaInicio!.year}'
+              : '',
+          p.fechaTermino != null
+              ? '${p.fechaTermino!.day}/${p.fechaTermino!.month}/${p.fechaTermino!.year}'
+              : '',
+        ].join(','),
+      );
     }
     // Prepend UTF-8 BOM so Excel auto-detects encoding and renders accents correctly
     final bytes = utf8.encode('\uFEFF${buf.toString()}');
-    final blob = web.Blob([bytes.toJS].toJS,
-        web.BlobPropertyBag(type: 'text/csv;charset=utf-8;'));
+    final blob = web.Blob(
+      [bytes.toJS].toJS,
+      web.BlobPropertyBag(type: 'text/csv;charset=utf-8;'),
+    );
     final url = web.URL.createObjectURL(blob);
     final anchor = web.document.createElement('a') as web.HTMLAnchorElement
       ..href = url
@@ -486,6 +607,7 @@ class _ProyectosViewState extends State<ProyectosView>
       }
       return buf.toString();
     }
+
     String fmtVal(double? v) => v != null ? '\$${fmtNum(v)}' : '—';
     String esc(String s) => s
         .replaceAll('&', '&amp;')
@@ -496,16 +618,30 @@ class _ProyectosViewState extends State<ProyectosView>
     final now = DateTime.now();
     final all = _proyectos; // use full list for KPIs, filtered list for table
 
-    final kpiTotal      = all.length;
-    final kpiActivos    = all.where((p) =>
-        p.estado == EstadoProyecto.vigente || p.estado == EstadoProyecto.xVencer).length;
-    final kpiVigentes   = all.where((p) => p.estado == EstadoProyecto.vigente).length;
-    final kpiXVencer    = all.where((p) => p.estado == EstadoProyecto.xVencer).length;
+    final kpiTotal = all.length;
+    final kpiActivos = all
+        .where(
+          (p) =>
+              p.estado == EstadoProyecto.vigente ||
+              p.estado == EstadoProyecto.xVencer,
+        )
+        .length;
+    final kpiVigentes = all
+        .where((p) => p.estado == EstadoProyecto.vigente)
+        .length;
+    final kpiXVencer = all
+        .where((p) => p.estado == EstadoProyecto.xVencer)
+        .length;
     bool esPostulacion(Proyecto p) => p.estadoManual == 'En Evaluación';
     final kpiPostulacion = all.where(esPostulacion).length;
-    final kpiFinalizados = all.where((p) => p.estado == EstadoProyecto.finalizado).length;
+    final kpiFinalizados = all
+        .where((p) => p.estado == EstadoProyecto.finalizado)
+        .length;
 
-    final kpiValorTotal = all.fold<double>(0, (s, p) => s + (p.valorMensual ?? 0));
+    final kpiValorTotal = all.fold<double>(
+      0,
+      (s, p) => s + (p.valorMensual ?? 0),
+    );
     final kpiValorVigente = all
         .where((p) => p.estado == EstadoProyecto.vigente)
         .fold<double>(0, (s, p) => s + (p.valorMensual ?? 0));
@@ -514,25 +650,37 @@ class _ProyectosViewState extends State<ProyectosView>
         .fold<double>(0, (s, p) => s + (p.valorMensual ?? 0));
 
     final kpiReclPend = all.fold<int>(
-        0, (s, p) => s + p.reclamos.where((r) => r.estado == 'Pendiente').length);
+      0,
+      (s, p) => s + p.reclamos.where((r) => r.estado == 'Pendiente').length,
+    );
     final kpiReclResp = all.fold<int>(
-        0, (s, p) => s + p.reclamos.where((r) => r.estado == 'Respondido').length);
+      0,
+      (s, p) => s + p.reclamos.where((r) => r.estado == 'Respondido').length,
+    );
 
-    final kpiVencer30  = all.where((p) {
+    final kpiVencer30 = all.where((p) {
       final ft = p.fechaTermino;
-      return ft != null && ft.isAfter(now) && ft.isBefore(now.add(const Duration(days: 30)));
+      return ft != null &&
+          ft.isAfter(now) &&
+          ft.isBefore(now.add(const Duration(days: 30)));
     }).length;
-    final kpiVencer90  = all.where((p) {
+    final kpiVencer90 = all.where((p) {
       final ft = p.fechaTermino;
-      return ft != null && ft.isAfter(now) && ft.isBefore(now.add(const Duration(days: 90)));
+      return ft != null &&
+          ft.isAfter(now) &&
+          ft.isBefore(now.add(const Duration(days: 90)));
     }).length;
     final kpiVencer180 = all.where((p) {
       final ft = p.fechaTermino;
-      return ft != null && ft.isAfter(now) && ft.isBefore(now.add(const Duration(days: 180)));
+      return ft != null &&
+          ft.isAfter(now) &&
+          ft.isBefore(now.add(const Duration(days: 180)));
     }).length;
     final kpiVencer365 = all.where((p) {
       final ft = p.fechaTermino;
-      return ft != null && ft.isAfter(now) && ft.isBefore(now.add(const Duration(days: 365)));
+      return ft != null &&
+          ft.isAfter(now) &&
+          ft.isBefore(now.add(const Duration(days: 365)));
     }).length;
 
     String kpiCard(String label, String value, String color) =>
@@ -567,7 +715,7 @@ body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; color: #1E293
 table { width: 100%; border-collapse: collapse; }
 .table-title { font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase;
   letter-spacing: 0.5px; margin-bottom: 8px; }
-thead th { background: #5B21B6; color: #fff; padding: 7px 8px; text-align: left;
+thead th { background: #007AFF; color: #fff; padding: 7px 8px; text-align: left;
   font-size: 10px; font-weight: 700; }
 tbody td { padding: 6px 8px; border-bottom: 1px solid #E2E8F0; font-size: 10px; vertical-align: top; }
 tbody tr:nth-child(even) td { background: #F8FAFC; }
@@ -585,14 +733,14 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
   <h2>Resumen de proyectos</h2>
   <div class="kpi-group">
     ${kpiCard('Total', '$kpiTotal', '#1E293B')}
-    ${kpiCard('Activos', '$kpiActivos', '#5B21B6')}
+    ${kpiCard('Activos', '$kpiActivos', '#007AFF')}
     ${kpiCard('Vigentes', '$kpiVigentes', '#10B981')}
     ${kpiCard('X Vencer', '$kpiXVencer', '#F59E0B')}
     ${kpiCard('Postulación', '$kpiPostulacion', '#6366F1')}
     ${kpiCard('Finalizados', '$kpiFinalizados', '#64748B')}
   </div>
   <div class="kpi-group">
-    ${kpiCard('Valor Total', '\$${fmtNum(kpiValorTotal)}', '#5B21B6')}
+    ${kpiCard('Valor Total', '\$${fmtNum(kpiValorTotal)}', '#007AFF')}
     ${kpiCard('Valor Vigente', '\$${fmtNum(kpiValorVigente)}', '#10B981')}
     ${kpiCard('Valor Postulación', '\$${fmtNum(kpiValorPostulacion)}', '#6366F1')}
     ${kpiCard('Reclamos Pend.', '$kpiReclPend', '#EF4444')}
@@ -645,14 +793,21 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
     final url = web.URL.createObjectURL(blob);
     web.window.open(url, '_blank');
     // Revoke after a short delay to allow the new tab to load
-    Future.delayed(const Duration(seconds: 10), () => web.URL.revokeObjectURL(url));
+    Future.delayed(
+      const Duration(seconds: 10),
+      () => web.URL.revokeObjectURL(url),
+    );
   }
 
   // ── RESUMEN TAB content ────────────────────────────────────────────────────
 
   Widget _buildTabResumen(bool isMobile) {
-    final vigentes = _proyectos.where((p) => p.estado == EstadoProyecto.vigente).toList();
-    final xVencer = _proyectos.where((p) => p.estado == EstadoProyecto.xVencer).toList();
+    final vigentes = _proyectos
+        .where((p) => p.estado == EstadoProyecto.vigente)
+        .toList();
+    final xVencer = _proyectos
+        .where((p) => p.estado == EstadoProyecto.xVencer)
+        .toList();
     final activos = [...vigentes, ...xVencer];
 
     final reclamosPendientes = <({Proyecto proyecto, Reclamo reclamo})>[];
@@ -671,8 +826,14 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildKpiRow(activos.length, _proyectos,
-            reclamosPendientes.length, reclamosFinalizados, xVencer.length, isMobile),
+        _buildKpiRow(
+          activos.length,
+          _proyectos,
+          reclamosPendientes.length,
+          reclamosFinalizados,
+          xVencer.length,
+          isMobile,
+        ),
         if (reclamosPendientes.isNotEmpty) ...[
           const SizedBox(height: 24),
           _buildReclamosPendientes(reclamosPendientes, isMobile),
@@ -686,23 +847,42 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
   // ── KPI ROW ────────────────────────────────────────────────────────────────
 
   void _goToProyectosFiltered(String? estado) {
-    setState(() { _filterEstado = estado; _currentPage = 0; });
+    setState(() {
+      _filterEstado = estado;
+      _currentPage = 0;
+    });
     _tabController.animateTo(1);
   }
 
   void _goToReclamosFiltered(String reclamo) {
-    setState(() { _filterReclamo = reclamo; _currentPage = 0; });
+    setState(() {
+      _filterReclamo = reclamo;
+      _currentPage = 0;
+    });
     _tabController.animateTo(1);
   }
 
   void _goToVencerFiltered(int dias) {
-    final label = dias == 30 ? '30 días' : dias == 90 ? '3 meses' : dias == 180 ? '6 meses' : '12 meses';
-    setState(() { _filterVencer = label; _currentPage = 0; });
+    final label = dias == 30
+        ? '30 días'
+        : dias == 90
+        ? '3 meses'
+        : dias == 180
+        ? '6 meses'
+        : '12 meses';
+    setState(() {
+      _filterVencer = label;
+      _currentPage = 0;
+    });
     _tabController.animateTo(1);
   }
 
-  void _goToQuarterFiltered(int year, int quarter,
-      {bool onlyWithOC = false, bool onlyIngresos = false}) {
+  void _goToQuarterFiltered(
+    int year,
+    int quarter, {
+    bool onlyWithOC = false,
+    bool onlyIngresos = false,
+  }) {
     setState(() {
       _filterQuarterYear = year;
       _filterQuarterQ = quarter;
@@ -726,31 +906,47 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
     _tabController.animateTo(1);
   }
 
-  Widget _buildKpiRow(int activos, List<Proyecto> proyectos, int reclamosPend,
-      int reclamosFinalizados, int xVencer, bool isMobile) {
+  Widget _buildKpiRow(
+    int activos,
+    List<Proyecto> proyectos,
+    int reclamosPend,
+    int reclamosFinalizados,
+    int xVencer,
+    bool isMobile,
+  ) {
     final kpiCards = [
-      _ProyectosKpiCard(proyectos: proyectos, onNavigate: _goToProyectosFiltered),
-      _ValorMensualCard(proyectos: proyectos, onNavigate: _goToProyectosFiltered),
-      _ReclamosCard(pendientes: reclamosPend, finalizados: reclamosFinalizados, onNavigate: _goToReclamosFiltered),
+      _ProyectosKpiCard(
+        proyectos: proyectos,
+        onNavigate: _goToProyectosFiltered,
+      ),
+      _ValorMensualCard(
+        proyectos: proyectos,
+        onNavigate: _goToProyectosFiltered,
+      ),
+      _ReclamosCard(
+        pendientes: reclamosPend,
+        finalizados: reclamosFinalizados,
+        onNavigate: _goToReclamosFiltered,
+      ),
       _XVencerKpiCard(proyectos: proyectos, onNavigate: _goToVencerFiltered),
     ];
     Widget actionBadges() => Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            _actionBadge(
-              icon: Icons.file_download_outlined,
-              tooltip: 'Exportar',
-              onTap: () => _showExportMenu(context),
-            ),
-            const SizedBox(width: 6),
-            _actionBadge(
-              icon: Icons.refresh,
-              tooltip: 'Actualizar',
-              loading: _cargando,
-              onTap: _cargando ? null : () => _cargar(forceRefresh: true),
-            ),
-          ],
-        );
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        _actionBadge(
+          icon: Icons.file_download_outlined,
+          tooltip: 'Exportar',
+          onTap: () => _showExportMenu(context),
+        ),
+        const SizedBox(width: 6),
+        _actionBadge(
+          icon: Icons.refresh,
+          tooltip: 'Actualizar',
+          loading: _cargando,
+          onTap: _cargando ? null : () => _cargar(forceRefresh: true),
+        ),
+      ],
+    );
 
     // Mobile (< 600): carousel 2 por página
     // Tablet (600–899): grilla 2×2
@@ -770,17 +966,21 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(children: [
-            Expanded(child: kpiCards[0]),
-            const SizedBox(width: 14),
-            Expanded(child: kpiCards[1]),
-          ]),
+          Row(
+            children: [
+              Expanded(child: kpiCards[0]),
+              const SizedBox(width: 14),
+              Expanded(child: kpiCards[1]),
+            ],
+          ),
           const SizedBox(height: 12),
-          Row(children: [
-            Expanded(child: kpiCards[2]),
-            const SizedBox(width: 14),
-            Expanded(child: kpiCards[3]),
-          ]),
+          Row(
+            children: [
+              Expanded(child: kpiCards[2]),
+              const SizedBox(width: 14),
+              Expanded(child: kpiCards[3]),
+            ],
+          ),
           const SizedBox(height: 8),
           actionBadges(),
         ],
@@ -829,7 +1029,9 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
                   width: 14,
                   height: 14,
                   child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Color(0xFF5B21B6)),
+                    strokeWidth: 2,
+                    color: Color(0xFF007AFF),
+                  ),
                 )
               : Icon(icon, size: 14, color: const Color(0xFF64748B)),
         ),
@@ -841,57 +1043,90 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
   // ── RECLAMOS PENDIENTES ────────────────────────────────────────────────────
 
   Widget _buildReclamosPendientes(
-      List<({Proyecto proyecto, Reclamo reclamo})> items, bool isMobile) {
+    List<({Proyecto proyecto, Reclamo reclamo})> items,
+    bool isMobile,
+  ) {
     // Group by project, keeping earliest pending fechaReclamo
-    final Map<String, ({Proyecto proyecto, int count, DateTime? fecha})> byProject = {};
+    final Map<String, ({Proyecto proyecto, int count, DateTime? fecha})>
+    byProject = {};
     for (final item in items) {
       final id = item.proyecto.id;
       final fecha = item.reclamo.fechaReclamo;
       if (byProject.containsKey(id)) {
         final prev = byProject[id]!;
-        final earliest = (prev.fecha == null || (fecha != null && fecha.isBefore(prev.fecha!)))
-            ? fecha : prev.fecha;
-        byProject[id] = (proyecto: item.proyecto, count: prev.count + 1, fecha: earliest);
+        final earliest =
+            (prev.fecha == null ||
+                (fecha != null && fecha.isBefore(prev.fecha!)))
+            ? fecha
+            : prev.fecha;
+        byProject[id] = (
+          proyecto: item.proyecto,
+          count: prev.count + 1,
+          fecha: earliest,
+        );
       } else {
         byProject[id] = (proyecto: item.proyecto, count: 1, fecha: fecha);
       }
     }
     final proyectosConReclamos = byProject.values.toList();
 
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: const Color(0xFFFEF2F2),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            const Icon(Icons.warning_amber_rounded,
-                size: 14, color: Color(0xFFDC2626)),
-            const SizedBox(width: 6),
-            Text(
-              '${items.length} RECLAMO${items.length > 1 ? 'S' : ''} PENDIENTE${items.length > 1 ? 'S' : ''}',
-              style: GoogleFonts.inter(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: const Color(0xFFDC2626),
-                  letterSpacing: 0.3),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF2F2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.warning_amber_rounded,
+                    size: 14,
+                    color: Color(0xFFDC2626),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${items.length} RECLAMO${items.length > 1 ? 'S' : ''} PENDIENTE${items.length > 1 ? 'S' : ''}',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFFDC2626),
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ]),
+          ],
         ),
-      ]),
-      const SizedBox(height: 10),
-      ...proyectosConReclamos.map((entry) =>
-          _buildReclamoPendienteCard(entry.proyecto, entry.count, entry.fecha, isMobile)),
-    ]);
+        const SizedBox(height: 10),
+        ...proyectosConReclamos.map(
+          (entry) => _buildReclamoPendienteCard(
+            entry.proyecto,
+            entry.count,
+            entry.fecha,
+            isMobile,
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildReclamoPendienteCard(
-      Proyecto proyecto, int count, DateTime? fechaIngreso, bool isMobile) {
+    Proyecto proyecto,
+    int count,
+    DateTime? fechaIngreso,
+    bool isMobile,
+  ) {
     String? fechaStr;
     if (fechaIngreso != null) {
-      fechaStr = 'Ingresado el ${fechaIngreso.day.toString().padLeft(2, '0')}/'
+      fechaStr =
+          'Ingresado el ${fechaIngreso.day.toString().padLeft(2, '0')}/'
           '${fechaIngreso.month.toString().padLeft(2, '0')}/'
           '${fechaIngreso.year}';
     }
@@ -904,78 +1139,108 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
           color: Colors.white,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(color: const Color(0xFFFECACA), width: 1),
-          boxShadow: [BoxShadow(
+          boxShadow: [
+            BoxShadow(
               color: Colors.black.withValues(alpha: 0.03),
-              blurRadius: 4, offset: const Offset(0, 1))],
-        ),
-        child: Row(children: [
-          const Icon(Icons.gavel_outlined, size: 15, color: Color(0xFFDC2626)),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  _cleanInst(proyecto.institucion),
-                  style: GoogleFonts.inter(
-                      fontSize: 13, fontWeight: FontWeight.w600,
-                      color: const Color(0xFF1E293B)),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (fechaStr != null) ...[
-                  const SizedBox(height: 2),
-                  Text(fechaStr,
-                      style: GoogleFonts.inter(
-                          fontSize: 11, color: Colors.grey.shade500)),
-                ],
-              ],
-            ),
-          ),
-          if (count > 1) ...[
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFEF2F2),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text('$count',
-                  style: GoogleFonts.inter(
-                      fontSize: 11, fontWeight: FontWeight.w700,
-                      color: const Color(0xFFDC2626))),
+              blurRadius: 4,
+              offset: const Offset(0, 1),
             ),
           ],
-          const SizedBox(width: 8),
-          Icon(Icons.chevron_right, size: 16, color: Colors.grey.shade300),
-        ]),
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.gavel_outlined,
+              size: 15,
+              color: Color(0xFFDC2626),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _cleanInst(proyecto.institucion),
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF1E293B),
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (fechaStr != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      fechaStr,
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        color: Colors.grey.shade500,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (count > 1) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF2F2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '$count',
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFFDC2626),
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(width: 8),
+            Icon(Icons.chevron_right, size: 16, color: Colors.grey.shade300),
+          ],
+        ),
       ),
     );
   }
 
-  static const _cfBase = 'https://us-central1-licitaciones-prod.cloudfunctions.net';
+  static const _cfBase =
+      'https://us-central1-licitaciones-prod.cloudfunctions.net';
 
   /// Para proyectos en Evaluación con idLicitacion pero sin fechaPublicacion,
   /// obtiene las fechas desde OCDS y las guarda en Firestore automáticamente.
   Future<void> _sincronizarPostulacionDesdeOcds() async {
-    final pendientes = _proyectos.where((p) =>
-        p.estadoManual == 'En Evaluación' &&
-        p.idLicitacion != null &&
-        p.idLicitacion!.isNotEmpty &&
-        (p.fechaPublicacion == null || p.fechaConsultasInicio == null)).toList();
+    final pendientes = _proyectos
+        .where(
+          (p) =>
+              p.estadoManual == 'En Evaluación' &&
+              p.idLicitacion != null &&
+              p.idLicitacion!.isNotEmpty &&
+              (p.fechaPublicacion == null || p.fechaConsultasInicio == null),
+        )
+        .toList();
 
     if (pendientes.isEmpty) return;
 
     bool huboActualizaciones = false;
     for (final p in pendientes) {
       try {
-        final resp = await http.get(
-            Uri.parse('$_cfBase/buscarLicitacionPorId?id=${Uri.encodeComponent(p.idLicitacion!)}'))
+        final resp = await http
+            .get(
+              Uri.parse(
+                '$_cfBase/buscarLicitacionPorId?id=${Uri.encodeComponent(p.idLicitacion!)}',
+              ),
+            )
             .timeout(const Duration(seconds: 15));
         if (resp.statusCode != 200) continue;
 
         final data = json.decode(resp.body) as Map<String, dynamic>;
-        final releases = (data['releases'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+        final releases =
+            (data['releases'] as List?)?.cast<Map<String, dynamic>>() ?? [];
         if (releases.isEmpty) continue;
         final tender = releases.last['tender'] as Map<String, dynamic>? ?? {};
 
@@ -984,18 +1249,32 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
         final ap = tender['awardPeriod'] as Map<String, dynamic>?;
 
         final updates = <String, dynamic>{'id': p.id};
-        if (p.fechaPublicacion == null && tp?['startDate'] != null) updates['fechaPublicacion'] = tp!['startDate'];
-        if (p.fechaCierre == null && tp?['endDate'] != null)         updates['fechaCierre'] = tp!['endDate'];
-        if (p.fechaConsultasInicio == null && eq?['startDate'] != null) updates['fechaConsultasInicio'] = eq!['startDate'];
-        if (p.fechaConsultas == null && eq?['endDate'] != null)         updates['fechaConsultas'] = eq!['endDate'];
-        if (p.fechaAdjudicacion == null && ap?['startDate'] != null)    updates['fechaAdjudicacion'] = ap!['startDate'];
-        if (p.fechaAdjudicacionFin == null && ap?['endDate'] != null)   updates['fechaAdjudicacionFin'] = ap!['endDate'];
+        if (p.fechaPublicacion == null && tp?['startDate'] != null) {
+          updates['fechaPublicacion'] = tp!['startDate'];
+        }
+        if (p.fechaCierre == null && tp?['endDate'] != null) {
+          updates['fechaCierre'] = tp!['endDate'];
+        }
+        if (p.fechaConsultasInicio == null && eq?['startDate'] != null) {
+          updates['fechaConsultasInicio'] = eq!['startDate'];
+        }
+        if (p.fechaConsultas == null && eq?['endDate'] != null) {
+          updates['fechaConsultas'] = eq!['endDate'];
+        }
+        if (p.fechaAdjudicacion == null && ap?['startDate'] != null) {
+          updates['fechaAdjudicacion'] = ap!['startDate'];
+        }
+        if (p.fechaAdjudicacionFin == null && ap?['endDate'] != null) {
+          updates['fechaAdjudicacionFin'] = ap!['endDate'];
+        }
 
         if (updates.length <= 1) continue;
 
-        await http.post(Uri.parse('$_cfBase/actualizarProyecto'),
-            headers: {'Content-Type': 'application/json'},
-            body: json.encode(updates));
+        await http.post(
+          Uri.parse('$_cfBase/actualizarProyecto'),
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode(updates),
+        );
         huboActualizaciones = true;
       } catch (_) {}
     }
@@ -1005,13 +1284,21 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
 
   // ── GANTT HELPERS ──────────────────────────────────────────────────────────
 
-  DateTime startOf(Proyecto p, {required bool isRuta, required bool isPostulacion}) {
+  DateTime startOf(
+    Proyecto p, {
+    required bool isRuta,
+    required bool isPostulacion,
+  }) {
     if (isPostulacion) return p.fechaPublicacion!;
     if (isRuta) return p.fechaInicioRuta!;
     return p.fechaInicio!;
   }
 
-  DateTime endOf(Proyecto p, {required bool isRuta, required bool isPostulacion}) {
+  DateTime endOf(
+    Proyecto p, {
+    required bool isRuta,
+    required bool isPostulacion,
+  }) {
     if (isPostulacion) return p.fechaCierre!;
     if (isRuta) return p.fechaTerminoRuta!;
     return p.fechaTermino!;
@@ -1024,9 +1311,19 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
     final isPostulacion = _ganttMode == 'postulacion';
 
     bool hasDates(Proyecto p) {
-      if (isPostulacion) return p.fechaPublicacion != null && p.fechaCierre != null && p.fechaCierre!.isAfter(p.fechaPublicacion!);
-      if (isRuta) return p.fechaInicioRuta != null && p.fechaTerminoRuta != null && p.fechaTerminoRuta!.isAfter(p.fechaInicioRuta!);
-      return p.fechaInicio != null && p.fechaTermino != null && p.fechaTermino!.isAfter(p.fechaInicio!);
+      if (isPostulacion) {
+        return p.fechaPublicacion != null &&
+            p.fechaCierre != null &&
+            p.fechaCierre!.isAfter(p.fechaPublicacion!);
+      }
+      if (isRuta) {
+        return p.fechaInicioRuta != null &&
+            p.fechaTerminoRuta != null &&
+            p.fechaTerminoRuta!.isAfter(p.fechaInicioRuta!);
+      }
+      return p.fechaInicio != null &&
+          p.fechaTermino != null &&
+          p.fechaTermino!.isAfter(p.fechaInicio!);
     }
 
     // Pre-filter by estado before date check
@@ -1035,49 +1332,85 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
         : proyectos.where((p) => p.estado == EstadoProyecto.vigente).toList();
 
     final withDates = byEstado.where(hasDates).toList()
-      ..sort((a, b) => startOf(a, isRuta: isRuta, isPostulacion: isPostulacion)
-          .compareTo(startOf(b, isRuta: isRuta, isPostulacion: isPostulacion)));
+      ..sort(
+        (a, b) => startOf(
+          a,
+          isRuta: isRuta,
+          isPostulacion: isPostulacion,
+        ).compareTo(startOf(b, isRuta: isRuta, isPostulacion: isPostulacion)),
+      );
 
     final String emptyMsg = isPostulacion
         ? 'Ningún proyecto en estado En Evaluación tiene fechas de publicación y cierre registradas.'
         : isRuta
-            ? 'Ningún proyecto tiene fechas de ruta de implementación registradas.'
-            : '';
+        ? 'Ningún proyecto tiene fechas de ruta de implementación registradas.'
+        : '';
 
     if (withDates.isEmpty && _ganttMode == 'contrato') return const SizedBox();
     if (withDates.isEmpty) {
-      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        _buildGanttHeader(isMobile, autoStart: DateTime.now(), autoEnd: DateTime.now(), stepMonths: 1),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6, offset: const Offset(0, 2))],
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildGanttHeader(
+            isMobile,
+            autoStart: DateTime.now(),
+            autoEnd: DateTime.now(),
+            stepMonths: 1,
           ),
-          child: Row(children: [
-            Icon(Icons.info_outline, size: 16, color: Colors.grey.shade400),
-            const SizedBox(width: 8),
-            Expanded(child: Text(emptyMsg, style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade500))),
-          ]),
-        ),
-      ]);
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline, size: 16, color: Colors.grey.shade400),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    emptyMsg,
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      color: Colors.grey.shade500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
     }
 
-    DateTime startOf2(Proyecto p) => startOf(p, isRuta: isRuta, isPostulacion: isPostulacion);
+    DateTime startOf2(Proyecto p) =>
+        startOf(p, isRuta: isRuta, isPostulacion: isPostulacion);
     // Bar ends at fechaCierre (cierre recepción ofertas); adjudicación is a separate milestone.
-    DateTime endOf2(Proyecto p) => endOf(p, isRuta: isRuta, isPostulacion: isPostulacion);
+    DateTime endOf2(Proyecto p) =>
+        endOf(p, isRuta: isRuta, isPostulacion: isPostulacion);
 
     final dataStart = startOf2(withDates.first);
-    final dataEnd = withDates.map((p) => endOf2(p)).reduce((a, b) => a.isAfter(b) ? a : b);
+    final dataEnd = withDates
+        .map((p) => endOf2(p))
+        .reduce((a, b) => a.isAfter(b) ? a : b);
     // Add 2-week padding on each side for visual comfort
     final autoStart = dataStart.subtract(const Duration(days: 14));
     final autoEnd = dataEnd.add(const Duration(days: 14));
     final rangeStart = _ganttWindowStart ?? autoStart;
     final rangeEnd = _ganttWindowEnd ?? autoEnd;
-    final totalDays =
-        rangeEnd.difference(rangeStart).inDays.toDouble().clamp(1.0, 36500.0);
+    final totalDays = rangeEnd
+        .difference(rangeStart)
+        .inDays
+        .toDouble()
+        .clamp(1.0, 36500.0);
     final spanMonths = (totalDays / 30).round();
 
     // Adaptive step: yearly for long spans, quarterly, or monthly
@@ -1099,8 +1432,18 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
     const headerH = 36.0;
 
     const monthNames = [
-      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
-      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'
+      'Ene',
+      'Feb',
+      'Mar',
+      'Abr',
+      'May',
+      'Jun',
+      'Jul',
+      'Ago',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dic',
     ];
 
     List<({double frac, String label, bool isMajor})> buildMarkers() {
@@ -1128,8 +1471,8 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
         final label = stepMonths >= 12
             ? yearStr
             : isMajor
-                ? '${monthNames[cursor.month - 1]}\n$yearStr'
-                : monthNames[cursor.month - 1];
+            ? '${monthNames[cursor.month - 1]}\n$yearStr'
+            : monthNames[cursor.month - 1];
         markers.add((frac: frac, label: label, isMajor: isMajor));
         var nextMonth = cursor.month + stepMonths;
         var nextYear = cursor.year;
@@ -1144,14 +1487,17 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
 
     // Day-level ticks for short spans (postulación / ruta)
     final bool useDayMarkers = (isPostulacion || isRuta) && totalDays <= 60;
-    List<({double frac, String label, bool isMajor})> buildDayMarkers(int stepDays) {
+    List<({double frac, String label, bool isMajor})> buildDayMarkers(
+      int stepDays,
+    ) {
       final result = <({double frac, String label, bool isMajor})>[];
       var cursor = DateTime(rangeStart.year, rangeStart.month, rangeStart.day);
       while (cursor.isBefore(rangeEnd)) {
         final days = cursor.difference(rangeStart).inDays.toDouble();
         final frac = (days / totalDays).clamp(0.0, 1.0);
         final isMajor = cursor.day == 1 || stepDays >= 7;
-        final label = '${cursor.day.toString().padLeft(2, '0')}/${cursor.month.toString().padLeft(2, '0')}';
+        final label =
+            '${cursor.day.toString().padLeft(2, '0')}/${cursor.month.toString().padLeft(2, '0')}';
         result.add((frac: frac, label: label, isMajor: isMajor));
         cursor = cursor.add(Duration(days: stepDays));
       }
@@ -1171,450 +1517,729 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
       return 30;
     }
 
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _buildGanttHeader(isMobile, autoStart: autoStart, autoEnd: autoEnd, stepMonths: stepMonths),
-      const SizedBox(height: 12),
-      Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildGanttHeader(
+          isMobile,
+          autoStart: autoStart,
+          autoEnd: autoEnd,
+          stepMonths: stepMonths,
+        ),
+        const SizedBox(height: 12),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
                 color: Colors.black.withValues(alpha: 0.05),
                 blurRadius: 6,
-                offset: const Offset(0, 2))
-          ],
-        ),
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-        child: LayoutBuilder(builder: (ctx, constraints) {
-          final chartW = (constraints.maxWidth - labelW - dateW - 16)
-              .clamp(40.0, 10000.0);
-          final markers = useDayMarkers ? buildDayMarkers(adaptiveStepDays(chartW)) : buildMarkers();
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+          child: LayoutBuilder(
+            builder: (ctx, constraints) {
+              final chartW = (constraints.maxWidth - labelW - dateW - 16).clamp(
+                40.0,
+                10000.0,
+              );
+              final markers = useDayMarkers
+                  ? buildDayMarkers(adaptiveStepDays(chartW))
+                  : buildMarkers();
 
-          // Today fraction
-          final todayDays = DateTime.now()
-              .difference(rangeStart)
-              .inDays
-              .toDouble()
-              .clamp(0.0, totalDays);
-          final todayFrac = todayDays / totalDays;
+              // Today fraction
+              final todayDays = DateTime.now()
+                  .difference(rangeStart)
+                  .inDays
+                  .toDouble()
+                  .clamp(0.0, totalDays);
+              final todayFrac = todayDays / totalDays;
 
-          Widget todayLine() {
-            if (todayFrac <= 0 || todayFrac >= 1) return const SizedBox();
-            return Positioned(
-              left: todayFrac * chartW,
-              top: 0,
-              bottom: 0,
-              width: 1.5,
-              child: Container(
-                  color: const Color(0xFF5B21B6).withValues(alpha: 0.55)),
-            );
-          }
-
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // ── Header row ──
-              Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                SizedBox(width: labelW + 8),
-                SizedBox(
-                  width: chartW,
-                  height: headerH,
-                  child: Stack(
-                    clipBehavior: Clip.hardEdge,
-                    children: [
-                      // Tick lines
-                      ...markers.map((m) => Positioned(
-                            left: m.frac * chartW,
-                            top: m.isMajor ? 0 : headerH * 0.4,
-                            bottom: 0,
-                            width: m.isMajor ? 1.5 : 1,
-                            child: Container(
-                                color: m.isMajor
-                                    ? Colors.grey.shade300
-                                    : Colors.grey.shade200),
-                          )),
-                      // Today tick in header
-                      if (todayFrac > 0 && todayFrac < 1)
-                        Positioned(
-                          left: todayFrac * chartW,
-                          top: 0,
-                          bottom: 0,
-                          width: 1.5,
-                          child: Container(
-                              color: const Color(0xFF5B21B6)
-                                  .withValues(alpha: 0.55)),
-                        ),
-                      // Labels
-                      ...markers.asMap().entries.map((entry) {
-                        final idx = entry.key;
-                        final m = entry.value;
-                        final left =
-                            (m.frac * chartW + 4).clamp(0.0, chartW - 38.0);
-                        // Stagger odd day-marker labels lower to prevent overlap on mobile
-                        final top = (useDayMarkers && idx.isOdd) ? 14.0 : 0.0;
-                        return Positioned(
-                          left: left,
-                          top: top,
-                          child: Text(
-                            m.label,
-                            style: GoogleFonts.inter(
-                              fontSize: m.isMajor ? 10 : 9,
-                              fontWeight: m.isMajor
-                                  ? FontWeight.w600
-                                  : FontWeight.normal,
-                              color: m.isMajor
-                                  ? Colors.grey.shade600
-                                  : Colors.grey.shade400,
-                              height: 1.3,
-                            ),
-                          ),
-                        );
-                      }),
-                    ],
+              Widget todayLine() {
+                if (todayFrac <= 0 || todayFrac >= 1) return const SizedBox();
+                return Positioned(
+                  left: todayFrac * chartW,
+                  top: 0,
+                  bottom: 0,
+                  width: 1.5,
+                  child: Container(
+                    color: const Color(0xFF007AFF).withValues(alpha: 0.55),
                   ),
-                ),
-              ]),
-              const Divider(height: 1, thickness: 1, color: Color(0xFFF1F5F9)),
-              // ── Project rows ──
-              ...withDates.map((p) {
-                final startDays = startOf2(p)
-                    .difference(rangeStart)
-                    .inDays
-                    .toDouble()
-                    .clamp(0.0, totalDays);
-                final endDays = endOf2(p)
-                    .difference(rangeStart)
-                    .inDays
-                    .toDouble()
-                    .clamp(0.0, totalDays);
-                final leftFrac = startDays / totalDays;
-                final widthFrac =
-                    ((endDays - startDays) / totalDays).clamp(0.0, 1.0);
+                );
+              }
 
-                const barColor = Color(0xFF5B21B6);
-
-                final instFull = p.institucion.split('|').first.trim();
-                final instDisplay = instFull
-                    .replaceAll(RegExp(r'\bI(?:LUSTRE)?\b\.?\s+MUNICIPALIDAD\b', caseSensitive: false), 'I.M.')
-                    .replaceAll(RegExp(r'\bMUNICIPALIDAD\b', caseSensitive: false), 'Mpal.');
-
-                final isExpanded = _ganttExpandedRows.contains(p.id);
-
-                // Milestone helpers for postulación
-                Widget milestoneRow() {
-                  if (!isPostulacion || !isExpanded) return const SizedBox();
-                  const milestoneH = 32.0;
-                  final milestones = <({DateTime date, String label, Color color})>[];
-                  if (p.fechaConsultas != null) milestones.add((date: p.fechaConsultas!, label: 'Consultas', color: const Color(0xFF0EA5E9)));
-                  if (p.fechaAdjudicacion != null) milestones.add((date: p.fechaAdjudicacion!, label: 'Adjudicación', color: const Color(0xFFF59E0B)));
-                  if (milestones.isEmpty) return const SizedBox();
-                  return SizedBox(
-                    height: milestoneH,
-                    child: Row(children: [
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ── Header row ──
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
                       SizedBox(width: labelW + 8),
                       SizedBox(
                         width: chartW,
-                        height: milestoneH,
-                        child: Stack(clipBehavior: Clip.hardEdge, children: [
-                          ...markers.map((m) => Positioned(
-                                left: m.frac * chartW, top: 0, bottom: 0, width: 1,
-                                child: Container(color: Colors.grey.shade100))),
-                          todayLine(),
-                          ...milestones.map((ms) {
-                            final msDays = ms.date.difference(rangeStart).inDays.toDouble().clamp(0.0, totalDays);
-                            final msFrac = msDays / totalDays;
-                            final labelLeft = (msFrac * chartW - 24).clamp(0.0, chartW - 56.0);
-                            return Stack(children: [
-                              Positioned(
-                                left: msFrac * chartW - 1,
-                                top: 0, bottom: 4, width: 2,
-                                child: Container(color: ms.color.withValues(alpha: 0.7)),
-                              ),
-                              Positioned(
-                                left: labelLeft, top: 4,
+                        height: headerH,
+                        child: Stack(
+                          clipBehavior: Clip.hardEdge,
+                          children: [
+                            // Tick lines
+                            ...markers.map(
+                              (m) => Positioned(
+                                left: m.frac * chartW,
+                                top: m.isMajor ? 0 : headerH * 0.4,
+                                bottom: 0,
+                                width: m.isMajor ? 1.5 : 1,
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                  decoration: BoxDecoration(color: ms.color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(3)),
-                                  child: Text(ms.label,
-                                      style: GoogleFonts.inter(fontSize: 8, fontWeight: FontWeight.w600, color: ms.color)),
-                                ),
-                              ),
-                            ]);
-                          }),
-                        ]),
-                      ),
-                    ]),
-                  );
-                }
-
-                // ── Milestone bottom sheet helper (mobile expand) ─────────
-                void showMilestoneSheet(String label, DateTime? inicio, DateTime? fin, Color color) {
-                  showModalBottomSheet(
-                    context: context,
-                    backgroundColor: Colors.transparent,
-                    builder: (_) => Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Container(
-                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Center(child: Container(width: 32, height: 3, margin: const EdgeInsets.only(bottom: 14),
-                              decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)))),
-                          Row(children: [
-                            Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-                            const SizedBox(width: 8),
-                            Text(label, style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B))),
-                          ]),
-                          const SizedBox(height: 12),
-                          if (inicio != null) Padding(
-                            padding: const EdgeInsets.only(bottom: 6),
-                            child: Row(children: [
-                              Icon(Icons.play_circle_outline, size: 14, color: Colors.grey.shade400),
-                              const SizedBox(width: 6),
-                              Text('Inicio  ', style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500)),
-                              Text(_fmtDt(inicio), style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF374151), fontWeight: FontWeight.w500)),
-                            ]),
-                          ),
-                          if (fin != null) Row(children: [
-                            Icon(Icons.stop_circle_outlined, size: 14, color: Colors.grey.shade400),
-                            const SizedBox(width: 6),
-                            Text('Fin      ', style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500)),
-                            Text(_fmtDt(fin), style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF374151), fontWeight: FontWeight.w500)),
-                          ]),
-                        ]),
-                      ),
-                    ),
-                  );
-                }
-
-                // Mobile-only: expanded detail row with tappable milestones
-                Widget mobileExpandedRow() {
-                  if (!isMobile || !isPostulacion || !isExpanded) return const SizedBox();
-                  final hasMilestones = p.fechaConsultas != null || p.fechaAdjudicacion != null;
-                  if (!hasMilestones) return const SizedBox();
-
-                  Widget chip(String label, DateTime? inicio, DateTime? fin, Color color) {
-                    if (inicio == null && fin == null) return const SizedBox();
-                    final rangeText = (inicio != null && fin != null)
-                        ? '${_fmtDt(inicio)} – ${_fmtDt(fin)}'
-                        : _fmtDt(inicio ?? fin);
-                    return GestureDetector(
-                      onTap: () => showMilestoneSheet(label, inicio, fin, color),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Container(width: 6, height: 6, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-                        const SizedBox(width: 4),
-                        Text('$label: ', style: GoogleFonts.inter(fontSize: 9, color: Colors.grey.shade500)),
-                        Text(rangeText, style: GoogleFonts.inter(fontSize: 9, color: color, fontWeight: FontWeight.w500)),
-                      ]),
-                    );
-                  }
-
-                  return Padding(
-                    padding: EdgeInsets.only(left: (isPostulacion ? 16.0 : 0) + labelW + 16, bottom: 6),
-                    child: Wrap(spacing: 14, runSpacing: 4, children: [
-                      if (p.fechaConsultas != null || p.fechaConsultasInicio != null)
-                        chip('Consultas', p.fechaConsultasInicio, p.fechaConsultas, const Color(0xFF0EA5E9)),
-                      if (p.fechaAdjudicacion != null || p.fechaAdjudicacionFin != null)
-                        chip('Adjudicación', p.fechaAdjudicacion, p.fechaAdjudicacionFin, const Color(0xFFF59E0B)),
-                    ]),
-                  );
-                }
-
-                // ── Bar row (all sizes) ───────────────────────────────────
-                final barTooltip = isPostulacion
-                    ? 'Publicación: ${_fmtDt(startOf2(p))}\nCierre recepción: ${_fmtDt(endOf2(p))}'
-                    : isRuta
-                        ? 'Inicio: ${_fmtDt(startOf2(p))}\nFin: ${_fmtDt(endOf2(p))}'
-                        : 'Inicio: ${_formatDate(startOf2(p))}\nFin: ${_formatDate(endOf2(p))}';
-
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      height: rowH,
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          // Expand toggle (postulación only)
-                          if (isPostulacion)
-                            GestureDetector(
-                              onTap: () => setState(() {
-                                if (isExpanded) {
-                                  _ganttExpandedRows.remove(p.id);
-                                } else {
-                                  _ganttExpandedRows.add(p.id);
-                                }
-                              }),
-                              child: SizedBox(
-                                width: 16,
-                                child: Icon(
-                                  isExpanded ? Icons.expand_less : Icons.expand_more,
-                                  size: 14,
-                                  color: Colors.grey.shade400,
+                                  color: m.isMajor
+                                      ? Colors.grey.shade300
+                                      : Colors.grey.shade200,
                                 ),
                               ),
                             ),
-                          // Label column — tapping navigates to project
-                          GestureDetector(
-                            onTap: () => _openEditDialog(p),
-                            child: Tooltip(
-                              message: instFull,
-                              preferBelow: true,
-                              child: SizedBox(
-                                width: isPostulacion ? labelW - 16 : labelW,
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      instDisplay,
-                                      style: GoogleFonts.inter(
-                                        fontSize: isMobile ? 10 : 11,
-                                        color: const Color(0xFF374151),
-                                        height: 1.3,
+                            // Today tick in header
+                            if (todayFrac > 0 && todayFrac < 1)
+                              Positioned(
+                                left: todayFrac * chartW,
+                                top: 0,
+                                bottom: 0,
+                                width: 1.5,
+                                child: Container(
+                                  color: const Color(
+                                    0xFF007AFF,
+                                  ).withValues(alpha: 0.55),
+                                ),
+                              ),
+                            // Labels
+                            ...markers.asMap().entries.map((entry) {
+                              final idx = entry.key;
+                              final m = entry.value;
+                              final left = (m.frac * chartW + 4).clamp(
+                                0.0,
+                                chartW - 38.0,
+                              );
+                              // Stagger odd day-marker labels lower to prevent overlap on mobile
+                              final top = (useDayMarkers && idx.isOdd)
+                                  ? 14.0
+                                  : 0.0;
+                              return Positioned(
+                                left: left,
+                                top: top,
+                                child: Text(
+                                  m.label,
+                                  style: GoogleFonts.inter(
+                                    fontSize: m.isMajor ? 10 : 9,
+                                    fontWeight: m.isMajor
+                                        ? FontWeight.w600
+                                        : FontWeight.normal,
+                                    color: m.isMajor
+                                        ? Colors.grey.shade600
+                                        : Colors.grey.shade400,
+                                    height: 1.3,
+                                  ),
+                                ),
+                              );
+                            }),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Divider(
+                    height: 1,
+                    thickness: 1,
+                    color: Color(0xFFF1F5F9),
+                  ),
+                  // ── Project rows ──
+                  ...withDates.map((p) {
+                    final startDays = startOf2(p)
+                        .difference(rangeStart)
+                        .inDays
+                        .toDouble()
+                        .clamp(0.0, totalDays);
+                    final endDays = endOf2(p)
+                        .difference(rangeStart)
+                        .inDays
+                        .toDouble()
+                        .clamp(0.0, totalDays);
+                    final leftFrac = startDays / totalDays;
+                    final widthFrac = ((endDays - startDays) / totalDays).clamp(
+                      0.0,
+                      1.0,
+                    );
+
+                    const barColor = Color(0xFF007AFF);
+
+                    final instFull = p.institucion.split('|').first.trim();
+                    final instDisplay = instFull
+                        .replaceAll(
+                          RegExp(
+                            r'\bI(?:LUSTRE)?\b\.?\s+MUNICIPALIDAD\b',
+                            caseSensitive: false,
+                          ),
+                          'I.M.',
+                        )
+                        .replaceAll(
+                          RegExp(r'\bMUNICIPALIDAD\b', caseSensitive: false),
+                          'Mpal.',
+                        );
+
+                    final isExpanded = _ganttExpandedRows.contains(p.id);
+
+                    // Milestone helpers for postulación
+                    Widget milestoneRow() {
+                      if (!isPostulacion || !isExpanded) {
+                        return const SizedBox();
+                      }
+                      const milestoneH = 32.0;
+                      final milestones =
+                          <({DateTime date, String label, Color color})>[];
+                      if (p.fechaConsultas != null) {
+                        milestones.add((
+                          date: p.fechaConsultas!,
+                          label: 'Consultas',
+                          color: const Color(0xFF0EA5E9),
+                        ));
+                      }
+                      if (p.fechaAdjudicacion != null) {
+                        milestones.add((
+                          date: p.fechaAdjudicacion!,
+                          label: 'Adjudicación',
+                          color: const Color(0xFFF59E0B),
+                        ));
+                      }
+                      if (milestones.isEmpty) return const SizedBox();
+                      return SizedBox(
+                        height: milestoneH,
+                        child: Row(
+                          children: [
+                            SizedBox(width: labelW + 8),
+                            SizedBox(
+                              width: chartW,
+                              height: milestoneH,
+                              child: Stack(
+                                clipBehavior: Clip.hardEdge,
+                                children: [
+                                  ...markers.map(
+                                    (m) => Positioned(
+                                      left: m.frac * chartW,
+                                      top: 0,
+                                      bottom: 0,
+                                      width: 1,
+                                      child: Container(
+                                        color: Colors.grey.shade100,
                                       ),
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
                                     ),
+                                  ),
+                                  todayLine(),
+                                  ...milestones.map((ms) {
+                                    final msDays = ms.date
+                                        .difference(rangeStart)
+                                        .inDays
+                                        .toDouble()
+                                        .clamp(0.0, totalDays);
+                                    final msFrac = msDays / totalDays;
+                                    final labelLeft = (msFrac * chartW - 24)
+                                        .clamp(0.0, chartW - 56.0);
+                                    return Stack(
+                                      children: [
+                                        Positioned(
+                                          left: msFrac * chartW - 1,
+                                          top: 0,
+                                          bottom: 4,
+                                          width: 2,
+                                          child: Container(
+                                            color: ms.color.withValues(
+                                              alpha: 0.7,
+                                            ),
+                                          ),
+                                        ),
+                                        Positioned(
+                                          left: labelLeft,
+                                          top: 4,
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 4,
+                                              vertical: 1,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: ms.color.withValues(
+                                                alpha: 0.12,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(3),
+                                            ),
+                                            child: Text(
+                                              ms.label,
+                                              style: GoogleFonts.inter(
+                                                fontSize: 8,
+                                                fontWeight: FontWeight.w600,
+                                                color: ms.color,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  }),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    // ── Milestone bottom sheet helper (mobile expand) ─────────
+                    void showMilestoneSheet(
+                      String label,
+                      DateTime? inicio,
+                      DateTime? fin,
+                      Color color,
+                    ) {
+                      showModalBottomSheet(
+                        context: context,
+                        backgroundColor: Colors.transparent,
+                        builder: (_) => Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Container(
+                            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Center(
+                                  child: Container(
+                                    width: 32,
+                                    height: 3,
+                                    margin: const EdgeInsets.only(bottom: 14),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey.shade300,
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ),
+                                ),
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 10,
+                                      height: 10,
+                                      decoration: BoxDecoration(
+                                        color: color,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
                                     Text(
-                                      (isPostulacion || isRuta)
-                                          ? _fmtDt(startOf2(p))
-                                          : _fmtDateShort(startOf2(p)),
+                                      label,
                                       style: GoogleFonts.inter(
-                                        fontSize: 9,
-                                        color: Colors.grey.shade400,
-                                        height: 1.3,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                        color: const Color(0xFF1E293B),
                                       ),
                                     ),
                                   ],
                                 ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          // Chart area — tooltip shows exact date range
-                          Tooltip(
-                            message: barTooltip,
-                            preferBelow: true,
-                            child: SizedBox(
-                              width: chartW,
-                              height: rowH,
-                              child: Stack(
-                                clipBehavior: Clip.hardEdge,
-                                children: [
-                                  // Track
-                                  Positioned(
-                                    top: (rowH - barH) / 2,
-                                    height: barH,
-                                    left: 0,
-                                    right: 0,
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: Colors.grey.shade50,
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
+                                const SizedBox(height: 12),
+                                if (inicio != null)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 6),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.play_circle_outline,
+                                          size: 14,
+                                          color: Colors.grey.shade400,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          'Inicio  ',
+                                          style: GoogleFonts.inter(
+                                            fontSize: 12,
+                                            color: Colors.grey.shade500,
+                                          ),
+                                        ),
+                                        Text(
+                                          _fmtDt(inicio),
+                                          style: GoogleFonts.inter(
+                                            fontSize: 13,
+                                            color: const Color(0xFF374151),
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  // Grid lines
-                                  ...markers.map((m) => Positioned(
-                                        left: m.frac * chartW,
-                                        top: 0,
-                                        bottom: 0,
-                                        width: m.isMajor ? 1.5 : 1,
+                                if (fin != null)
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.stop_circle_outlined,
+                                        size: 14,
+                                        color: Colors.grey.shade400,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        'Fin      ',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade500,
+                                        ),
+                                      ),
+                                      Text(
+                                        _fmtDt(fin),
+                                        style: GoogleFonts.inter(
+                                          fontSize: 13,
+                                          color: const Color(0xFF374151),
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    }
+
+                    // Mobile-only: expanded detail row with tappable milestones
+                    Widget mobileExpandedRow() {
+                      if (!isMobile || !isPostulacion || !isExpanded) {
+                        return const SizedBox();
+                      }
+                      final hasMilestones =
+                          p.fechaConsultas != null ||
+                          p.fechaAdjudicacion != null;
+                      if (!hasMilestones) return const SizedBox();
+
+                      Widget chip(
+                        String label,
+                        DateTime? inicio,
+                        DateTime? fin,
+                        Color color,
+                      ) {
+                        if (inicio == null && fin == null) {
+                          return const SizedBox();
+                        }
+                        final rangeText = (inicio != null && fin != null)
+                            ? '${_fmtDt(inicio)} – ${_fmtDt(fin)}'
+                            : _fmtDt(inicio ?? fin);
+                        return GestureDetector(
+                          onTap: () =>
+                              showMilestoneSheet(label, inicio, fin, color),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 6,
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  color: color,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                '$label: ',
+                                style: GoogleFonts.inter(
+                                  fontSize: 9,
+                                  color: Colors.grey.shade500,
+                                ),
+                              ),
+                              Text(
+                                rangeText,
+                                style: GoogleFonts.inter(
+                                  fontSize: 9,
+                                  color: color,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+
+                      return Padding(
+                        padding: EdgeInsets.only(
+                          left: (isPostulacion ? 16.0 : 0) + labelW + 16,
+                          bottom: 6,
+                        ),
+                        child: Wrap(
+                          spacing: 14,
+                          runSpacing: 4,
+                          children: [
+                            if (p.fechaConsultas != null ||
+                                p.fechaConsultasInicio != null)
+                              chip(
+                                'Consultas',
+                                p.fechaConsultasInicio,
+                                p.fechaConsultas,
+                                const Color(0xFF0EA5E9),
+                              ),
+                            if (p.fechaAdjudicacion != null ||
+                                p.fechaAdjudicacionFin != null)
+                              chip(
+                                'Adjudicación',
+                                p.fechaAdjudicacion,
+                                p.fechaAdjudicacionFin,
+                                const Color(0xFFF59E0B),
+                              ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    // ── Bar row (all sizes) ───────────────────────────────────
+                    final barTooltip = isPostulacion
+                        ? 'Publicación: ${_fmtDt(startOf2(p))}\nCierre recepción: ${_fmtDt(endOf2(p))}'
+                        : isRuta
+                        ? 'Inicio: ${_fmtDt(startOf2(p))}\nFin: ${_fmtDt(endOf2(p))}'
+                        : 'Inicio: ${_formatDate(startOf2(p))}\nFin: ${_formatDate(endOf2(p))}';
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(
+                          height: rowH,
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              // Expand toggle (postulación only)
+                              if (isPostulacion)
+                                GestureDetector(
+                                  onTap: () => setState(() {
+                                    if (isExpanded) {
+                                      _ganttExpandedRows.remove(p.id);
+                                    } else {
+                                      _ganttExpandedRows.add(p.id);
+                                    }
+                                  }),
+                                  child: SizedBox(
+                                    width: 16,
+                                    child: Icon(
+                                      isExpanded
+                                          ? Icons.expand_less
+                                          : Icons.expand_more,
+                                      size: 14,
+                                      color: Colors.grey.shade400,
+                                    ),
+                                  ),
+                                ),
+                              // Label column — tapping navigates to project
+                              GestureDetector(
+                                onTap: () => _openEditDialog(p),
+                                child: Tooltip(
+                                  message: instFull,
+                                  preferBelow: true,
+                                  child: SizedBox(
+                                    width: isPostulacion ? labelW - 16 : labelW,
+                                    child: Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          instDisplay,
+                                          style: GoogleFonts.inter(
+                                            fontSize: isMobile ? 10 : 11,
+                                            color: const Color(0xFF374151),
+                                            height: 1.3,
+                                          ),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        Text(
+                                          (isPostulacion || isRuta)
+                                              ? _fmtDt(startOf2(p))
+                                              : _fmtDateShort(startOf2(p)),
+                                          style: GoogleFonts.inter(
+                                            fontSize: 9,
+                                            color: Colors.grey.shade400,
+                                            height: 1.3,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              // Chart area — tooltip shows exact date range
+                              Tooltip(
+                                message: barTooltip,
+                                preferBelow: true,
+                                child: SizedBox(
+                                  width: chartW,
+                                  height: rowH,
+                                  child: Stack(
+                                    clipBehavior: Clip.hardEdge,
+                                    children: [
+                                      // Track
+                                      Positioned(
+                                        top: (rowH - barH) / 2,
+                                        height: barH,
+                                        left: 0,
+                                        right: 0,
                                         child: Container(
+                                          decoration: BoxDecoration(
+                                            color: Colors.grey.shade50,
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      // Grid lines
+                                      ...markers.map(
+                                        (m) => Positioned(
+                                          left: m.frac * chartW,
+                                          top: 0,
+                                          bottom: 0,
+                                          width: m.isMajor ? 1.5 : 1,
+                                          child: Container(
                                             color: m.isMajor
                                                 ? Colors.grey.shade200
-                                                : Colors.grey.shade100),
-                                      )),
-                                  // Today line
-                                  todayLine(),
-                                  // Bar
-                                  Positioned(
-                                    left: leftFrac * chartW,
-                                    width: (widthFrac * chartW).clamp(4.0, chartW),
-                                    top: (rowH - barH) / 2,
-                                    height: barH,
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: barColor,
-                                        borderRadius: BorderRadius.circular(4),
+                                                : Colors.grey.shade100,
+                                          ),
+                                        ),
                                       ),
-                                    ),
+                                      // Today line
+                                      todayLine(),
+                                      // Bar
+                                      Positioned(
+                                        left: leftFrac * chartW,
+                                        width: (widthFrac * chartW).clamp(
+                                          4.0,
+                                          chartW,
+                                        ),
+                                        top: (rowH - barH) / 2,
+                                        height: barH,
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            color: barColor,
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ],
+                                ),
                               ),
-                            ),
+                              const SizedBox(width: 8),
+                              // End date
+                              SizedBox(
+                                width: dateW,
+                                child: Text(
+                                  (isPostulacion || isRuta)
+                                      ? _fmtDt(endOf2(p))
+                                      : _fmtDateShort(endOf2(p)),
+                                  style: GoogleFonts.inter(
+                                    fontSize: 10,
+                                    color: Colors.grey.shade500,
+                                  ),
+                                  textAlign: TextAlign.right,
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 8),
-                          // End date
-                          SizedBox(
-                            width: dateW,
-                            child: Text(
-                              (isPostulacion || isRuta)
-                                  ? _fmtDt(endOf2(p))
-                                  : _fmtDateShort(endOf2(p)),
-                              style: GoogleFonts.inter(
-                                fontSize: 10,
-                                color: Colors.grey.shade500,
-                              ),
-                              textAlign: TextAlign.right,
-                            ),
+                        ),
+                        if (!isMobile) milestoneRow(),
+                        mobileExpandedRow(),
+                      ],
+                    );
+                  }),
+                  const SizedBox(height: 4),
+                  const Divider(
+                    height: 1,
+                    thickness: 1,
+                    color: Color(0xFFF1F5F9),
+                  ),
+                  const SizedBox(height: 8),
+                  // Legend
+                  if (isMobile)
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 4,
+                      children: [
+                        _legendItem(
+                          const Color(0xFF007AFF),
+                          isPostulacion ? 'Publicación → Cierre' : 'Período',
+                        ),
+                        if (isPostulacion) ...[
+                          _legendItem(
+                            const Color(0xFF0EA5E9),
+                            'Consultas',
+                            isLine: true,
+                          ),
+                          _legendItem(
+                            const Color(0xFFF59E0B),
+                            'Adjudicación',
+                            isLine: true,
                           ),
                         ],
-                      ),
+                        _legendItem(
+                          const Color(0xFF007AFF).withValues(alpha: 0.55),
+                          'Hoy',
+                          isLine: true,
+                        ),
+                      ],
+                    )
+                  else
+                    Row(
+                      children: [
+                        SizedBox(width: (isPostulacion ? 16 : 0) + labelW + 8),
+                        _legendItem(
+                          const Color(0xFF007AFF),
+                          isPostulacion ? 'Publicación → Cierre' : 'Período',
+                        ),
+                        if (isPostulacion) ...[
+                          const SizedBox(width: 14),
+                          _legendItem(
+                            const Color(0xFF0EA5E9),
+                            'Consultas',
+                            isLine: true,
+                          ),
+                          const SizedBox(width: 14),
+                          _legendItem(
+                            const Color(0xFFF59E0B),
+                            'Adjudicación',
+                            isLine: true,
+                          ),
+                        ],
+                        const SizedBox(width: 14),
+                        _legendItem(
+                          const Color(0xFF007AFF).withValues(alpha: 0.55),
+                          'Hoy',
+                          isLine: true,
+                        ),
+                      ],
                     ),
-                    if (!isMobile) milestoneRow(),
-                    mobileExpandedRow(),
-                  ],
-                );
-              }),
-              const SizedBox(height: 4),
-              const Divider(height: 1, thickness: 1, color: Color(0xFFF1F5F9)),
-              const SizedBox(height: 8),
-              // Legend
-              if (isMobile)
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 4,
-                  children: [
-                    _legendItem(const Color(0xFF5B21B6), isPostulacion ? 'Publicación → Cierre' : 'Período'),
-                    if (isPostulacion) ...[
-                      _legendItem(const Color(0xFF0EA5E9), 'Consultas', isLine: true),
-                      _legendItem(const Color(0xFFF59E0B), 'Adjudicación', isLine: true),
-                    ],
-                    _legendItem(const Color(0xFF5B21B6).withValues(alpha: 0.55), 'Hoy', isLine: true),
-                  ],
-                )
-              else
-                Row(children: [
-                  SizedBox(width: (isPostulacion ? 16 : 0) + labelW + 8),
-                  _legendItem(const Color(0xFF5B21B6), isPostulacion ? 'Publicación → Cierre' : 'Período'),
-                  if (isPostulacion) ...[
-                    const SizedBox(width: 14),
-                    _legendItem(const Color(0xFF0EA5E9), 'Consultas', isLine: true),
-                    const SizedBox(width: 14),
-                    _legendItem(const Color(0xFFF59E0B), 'Adjudicación', isLine: true),
-                  ],
-                  const SizedBox(width: 14),
-                  _legendItem(const Color(0xFF5B21B6).withValues(alpha: 0.55), 'Hoy', isLine: true),
-                ]),
-            ],
-          );
-        }),
-      ),
-    ]);
+                ],
+              );
+            },
+          ),
+        ),
+      ],
+    );
   }
 
-  Widget _buildGanttHeader(bool isMobile, {
+  Widget _buildGanttHeader(
+    bool isMobile, {
     DateTime? autoStart,
     DateTime? autoEnd,
     int stepMonths = 3,
   }) {
-    const activeColor = Color(0xFF5B21B6);
+    const activeColor = Color(0xFF007AFF);
     const inactiveColor = Color(0xFF94A3B8);
     final tabs = [
       ('contrato', 'Contrato'),
@@ -1646,8 +2271,16 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
       final newMonths = (curMonths + deltaMonths).clamp(1, 120);
       final center = ws.add(Duration(days: we.difference(ws).inDays ~/ 2));
       setState(() {
-        _ganttWindowStart = DateTime(center.year, center.month - newMonths ~/ 2, center.day);
-        _ganttWindowEnd = DateTime(center.year, center.month + (newMonths - newMonths ~/ 2), center.day);
+        _ganttWindowStart = DateTime(
+          center.year,
+          center.month - newMonths ~/ 2,
+          center.day,
+        );
+        _ganttWindowEnd = DateTime(
+          center.year,
+          center.month + (newMonths - newMonths ~/ 2),
+          center.day,
+        );
       });
     }
 
@@ -1655,14 +2288,20 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
       final btn = GestureDetector(
         onTap: onTap,
         child: Container(
-          width: 26, height: 26,
+          width: 26,
+          height: 26,
           decoration: BoxDecoration(
             color: onTap != null ? const Color(0xFFF1F5F9) : Colors.transparent,
             borderRadius: BorderRadius.circular(5),
             border: Border.all(color: Colors.grey.shade200),
           ),
-          child: Icon(icon, size: 14,
-              color: onTap != null ? const Color(0xFF475569) : Colors.grey.shade300),
+          child: Icon(
+            icon,
+            size: 14,
+            color: onTap != null
+                ? const Color(0xFF475569)
+                : Colors.grey.shade300,
+          ),
         ),
       );
       return tooltip != null ? Tooltip(message: tooltip, child: btn) : btn;
@@ -1696,15 +2335,23 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
                 color: isActive ? Colors.white : Colors.transparent,
                 borderRadius: BorderRadius.circular(6),
                 boxShadow: isActive
-                    ? [BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 4, offset: const Offset(0, 1))]
+                    ? [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.08),
+                          blurRadius: 4,
+                          offset: const Offset(0, 1),
+                        ),
+                      ]
                     : [],
               ),
-              child: Text(t.$2,
-                  style: GoogleFonts.inter(
-                    fontSize: 12,
-                    fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
-                    color: isActive ? activeColor : inactiveColor,
-                  )),
+              child: Text(
+                t.$2,
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
+                  color: isActive ? activeColor : inactiveColor,
+                ),
+              ),
             ),
           );
         }).toList(),
@@ -1713,9 +2360,17 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
 
     // Nav buttons row (null-safe: only shown when window is defined)
     List<Widget> navButtons() => [
-      navBtn(Icons.chevron_left, () => shiftWindow(-stepMonths), tooltip: 'Retroceder'),
+      navBtn(
+        Icons.chevron_left,
+        () => shiftWindow(-stepMonths),
+        tooltip: 'Retroceder',
+      ),
       const SizedBox(width: 4),
-      navBtn(Icons.chevron_right, () => shiftWindow(stepMonths), tooltip: 'Avanzar'),
+      navBtn(
+        Icons.chevron_right,
+        () => shiftWindow(stepMonths),
+        tooltip: 'Avanzar',
+      ),
       const SizedBox(width: 6),
       navBtn(Icons.remove, () => zoomWindow(stepMonths * 2), tooltip: 'Alejar'),
       const SizedBox(width: 4),
@@ -1723,13 +2378,24 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
       if (hasWindow) ...[
         const SizedBox(width: 4),
         GestureDetector(
-          onTap: () => setState(() { _ganttWindowStart = null; _ganttWindowEnd = null; }),
+          onTap: () => setState(() {
+            _ganttWindowStart = null;
+            _ganttWindowEnd = null;
+          }),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
             decoration: BoxDecoration(
-                color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(5),
-                border: Border.all(color: Colors.grey.shade200)),
-            child: Text('Reset', style: GoogleFonts.inter(fontSize: 10, color: const Color(0xFF475569))),
+              color: const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(5),
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            child: Text(
+              'Reset',
+              style: GoogleFonts.inter(
+                fontSize: 10,
+                color: const Color(0xFF475569),
+              ),
+            ),
           ),
         ),
       ],
@@ -1739,14 +2405,20 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
     final titleWidget = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Línea de Tiempo',
-            style: GoogleFonts.inter(
-                fontSize: 15, fontWeight: FontWeight.w700,
-                color: const Color(0xFF1E293B))),
+        Text(
+          'Línea de Tiempo',
+          style: GoogleFonts.inter(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            color: const Color(0xFF1E293B),
+          ),
+        ),
         if ((subtitles[_ganttMode] ?? '').isNotEmpty) ...[
           const SizedBox(height: 2),
-          Text(subtitles[_ganttMode]!,
-              style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500)),
+          Text(
+            subtitles[_ganttMode]!,
+            style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500),
+          ),
         ],
       ],
     );
@@ -1780,48 +2452,61 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
   }
 
   Widget _legendItem(Color color, String label, {bool isLine = false}) {
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      isLine
-          ? Container(
-              width: 2,
-              height: 12,
-              color: color,
-              margin: const EdgeInsets.symmetric(horizontal: 3),
-            )
-          : Container(
-              width: 10,
-              height: 10,
-              decoration: BoxDecoration(
-                  color: color, borderRadius: BorderRadius.circular(2)),
-            ),
-      const SizedBox(width: 5),
-      Text(label,
-          style: GoogleFonts.inter(
-              fontSize: 11, color: Colors.grey.shade500)),
-    ]);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        isLine
+            ? Container(
+                width: 2,
+                height: 12,
+                color: color,
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+              )
+            : Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: color,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500),
+        ),
+      ],
+    );
   }
 
   // ── PROYECTOS TAB content ──────────────────────────────────────────────────
 
-  Widget _buildTabProyectos(bool isMobile) {
+  Widget _buildTabProyectos(bool isMobile, {bool hideFilterRow = false}) {
     final filtered = _applySorting(_applyFilters(_proyectos));
     final totalPages = (filtered.length / _pageSize).ceil();
     final pageStart = _currentPage * _pageSize;
     final pageEnd = (pageStart + _pageSize).clamp(0, filtered.length);
-    final pageItems =
-        filtered.isEmpty ? <Proyecto>[] : filtered.sublist(pageStart, pageEnd);
+    final pageItems = filtered.isEmpty
+        ? <Proyecto>[]
+        : filtered.sublist(pageStart, pageEnd);
 
     final total = _proyectos.length;
-    final enEvaluacion = _proyectos.where((p) => p.estadoManual == 'En Evaluación').length;
-    final vigentes = _proyectos.where((p) => p.estado == EstadoProyecto.vigente).length;
+    final enEvaluacion = _proyectos
+        .where((p) => p.estadoManual == 'En Evaluación')
+        .length;
+    final vigentes = _proyectos
+        .where((p) => p.estado == EstadoProyecto.vigente)
+        .length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildSummaryRow(total, enEvaluacion, vigentes, isMobile),
         const SizedBox(height: 16),
-        _buildFilterRow(_proyectos, isMobile),
-        const SizedBox(height: 16),
+        if (!hideFilterRow) ...[
+          _buildFilterRow(_proyectos, isMobile),
+          const SizedBox(height: 16),
+        ],
         if (filtered.isEmpty)
           _buildEmptyState()
         else if (isMobile || MediaQuery.of(context).size.width < 800)
@@ -1838,137 +2523,145 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isMobileFab = screenWidth < 700;
-    final isMobileAppBar = screenWidth < 700;
-    final hPadAppBar = isMobileAppBar ? 20.0 : 32.0;
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      appBar: buildBreadcrumbAppBar(
-        context: context,
-        hPad: hPadAppBar,
-        onOpenMenu: openAppDrawer,
-        crumbs: [BreadcrumbItem('Proyectos')],
-        actions: const [HelpToggleButton()],
-      ),
-      floatingActionButton: isMobileFab
-          ? FloatingActionButton(
-              onPressed: _openCreateDialog,
-              backgroundColor: _primaryColor,
-              foregroundColor: Colors.white,
-              elevation: 4,
-              child: const Icon(Icons.add, size: 24),
-            )
-          : null,
-      body: LayoutBuilder(builder: (context, constraints) {
-        final isMobile = constraints.maxWidth < 900;
-        final hPad = isMobile ? 20.0 : 32.0;
 
-        return _cargando
-                  ? SingleChildScrollView(
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 880),
-                          child: _buildSkeletonDashboard(hPad),
-                        ),
-                      ),
-                    )
-                  : _error != null
-                      ? Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.error_outline,
-                                  size: 48, color: Colors.grey.shade400),
-                              const SizedBox(height: 12),
-                              Text('Error al cargar proyectos',
-                                  style: GoogleFonts.inter(
-                                      color: Colors.red.shade600)),
-                              const SizedBox(height: 8),
-                              TextButton.icon(
-                                onPressed: _cargar,
-                                icon: const Icon(Icons.refresh, size: 16),
-                                label: Text('Reintentar',
-                                    style: GoogleFonts.inter()),
-                              ),
-                            ],
-                          ),
-                        )
-                      : SingleChildScrollView(
-                          child: Center(
-                            child: ConstrainedBox(
-                              constraints:
-                                  const BoxConstraints(maxWidth: 880),
-                              child: Padding(
-                                padding: EdgeInsets.fromLTRB(
-                                    hPad, isMobile ? 16 : 24, hPad, 48),
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
-                                  children: [
-                                    // Tab bar — Apple style matching HomeView
-                                    Container(
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius:
-                                            BorderRadius.circular(12),
-                                      ),
-                                      child: TabBar(
-                                        controller: _tabController,
-                                        isScrollable: false,
-                                        tabAlignment: TabAlignment.fill,
-                                        overlayColor: WidgetStateProperty.all(Colors.transparent),
-                                        labelStyle: GoogleFonts.inter(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w600),
-                                        unselectedLabelStyle:
-                                            GoogleFonts.inter(
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.w400),
-                                        labelColor: _primaryColor,
-                                        unselectedLabelColor:
-                                            Colors.grey.shade400,
-                                        indicatorColor: _primaryColor,
-                                        indicatorSize:
-                                            TabBarIndicatorSize.tab,
-                                        dividerColor: Colors.transparent,
-                                        tabs: const [
-                                          Tab(text: 'Resumen'),
-                                          Tab(text: 'Proyectos'),
-                                          Tab(text: 'Documentación'),
-                                          Tab(text: 'Radar'),
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(height: 20),
-                                    // Tab content inline (no TabBarView)
-                                    AnimatedBuilder(
-                                      animation: _tabController,
-                                      builder: (_, __) {
-                                        if (_tabController.index == 0) {
-                                          return _buildTabResumen(isMobile);
-                                        }
-                                        if (_tabController.index == 2) {
-                                          return _buildTabDocumentacion(isMobile);
-                                        }
-                                        if (_tabController.index == 3) {
-                                          return _buildTabRadar(isMobile);
-                                        }
-                                        return _buildTabProyectos(isMobile);
-                                      },
-                                    ),
-                                  ],
-                                ),
-                              ),
+    return Container(
+      color: const Color(0xFFF2F2F7),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isMobile = constraints.maxWidth < 900;
+          final isWidescreen = constraints.maxWidth >= 1100;
+          final hPad = isMobile ? 20.0 : 32.0;
+
+          if (_cargando) {
+            return SingleChildScrollView(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 880),
+                  child: _buildSkeletonDashboard(hPad),
+                ),
+              ),
+            );
+          }
+
+          if (_error != null) {
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.error_outline,
+                    size: 48,
+                    color: Colors.grey.shade400,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Error al cargar proyectos',
+                    style: GoogleFonts.inter(color: Colors.red.shade600),
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: _cargar,
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: Text('Reintentar', style: GoogleFonts.inter()),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          // Layout Principal
+          final content = Padding(
+            padding: EdgeInsets.fromLTRB(hPad, isMobile ? 80 : 24, hPad, 48),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Tab bar — Apple style matching HomeView
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: TabBar(
+                    controller: _tabController,
+                    isScrollable: false,
+                    tabAlignment: TabAlignment.fill,
+                    overlayColor: WidgetStateProperty.all(Colors.transparent),
+                    labelStyle: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    unselectedLabelStyle: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w400,
+                    ),
+                    labelColor: _primaryColor,
+                    unselectedLabelColor: Colors.grey.shade400,
+                    indicatorColor: _primaryColor,
+                    indicatorSize: TabBarIndicatorSize.tab,
+                    dividerColor: Colors.transparent,
+                    tabs: const [
+                      Tab(text: 'Resumen'),
+                      Tab(text: 'Proyectos'),
+                      Tab(text: 'Documentación'),
+                      Tab(text: 'Radar'),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                // Tab content inline
+                AnimatedBuilder(
+                  animation: _tabController,
+                  builder: (_, __) {
+                    final idx = _tabController.index;
+                    if (idx == 0) return _buildTabResumen(isMobile);
+                    if (idx == 2) return _buildTabDocumentacion(isMobile);
+                    if (idx == 3) return _buildTabRadar(isMobile);
+
+                    // El Tab de Proyectos es el único que recibe el Split Layout en Widescreen
+                    if (isWidescreen) {
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SizedBox(width: 280, child: _buildFilterSidebar()),
+                          const SizedBox(width: 32),
+                          Expanded(
+                            child: _buildTabProyectos(
+                              false,
+                              hideFilterRow: true,
                             ),
                           ),
-                        );
-      }),
+                        ],
+                      );
+                    }
+
+                    return _buildTabProyectos(isMobile);
+                  },
+                ),
+              ],
+            ),
+          );
+
+          return SingleChildScrollView(
+            child: isWidescreen
+                ? content
+                : Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 880),
+                      child: content,
+                    ),
+                  ),
+          );
+        },
+      ),
     );
   }
 
   Widget _buildSummaryRow(
-      int total, int enEvaluacion, int vigentes, bool isMobile) {
+    int total,
+    int enEvaluacion,
+    int vigentes,
+    bool isMobile,
+  ) {
     final summaryCard = Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
@@ -1976,18 +2669,33 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 6,
-              offset: const Offset(0, 2))
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
         ],
       ),
       child: Row(
         children: [
-          Expanded(child: _summaryChip('Total $total', null, const Color(0xFF1E293B))),
+          Expanded(
+            child: _summaryChip('Total $total', null, const Color(0xFF1E293B)),
+          ),
           _divider(),
-          Expanded(child: _summaryChip('En Evaluación $enEvaluacion', const Color(0xFF0EA5E9), const Color(0xFF0EA5E9))),
+          Expanded(
+            child: _summaryChip(
+              'En Evaluación $enEvaluacion',
+              const Color(0xFF0EA5E9),
+              const Color(0xFF0EA5E9),
+            ),
+          ),
           _divider(),
-          Expanded(child: _summaryChip('Vigentes $vigentes', const Color(0xFF10B981), const Color(0xFF10B981))),
+          Expanded(
+            child: _summaryChip(
+              'Vigentes $vigentes',
+              const Color(0xFF10B981),
+              const Color(0xFF10B981),
+            ),
+          ),
         ],
       ),
     );
@@ -2004,8 +2712,7 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
         style: ElevatedButton.styleFrom(
           backgroundColor: _primaryColor,
           foregroundColor: Colors.white,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           padding: const EdgeInsets.symmetric(horizontal: 16),
           elevation: 0,
         ),
@@ -2032,38 +2739,41 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
       children: [
         if (dotColor != null) ...[
           Container(
-              width: 8,
-              height: 8,
-              decoration:
-                  BoxDecoration(color: dotColor, shape: BoxShape.circle)),
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
+          ),
           const SizedBox(width: 6),
         ],
         Flexible(
-          child: Text(label,
-              style: GoogleFonts.inter(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                  color: textColor),
-              overflow: TextOverflow.ellipsis),
+          child: Text(
+            label,
+            style: GoogleFonts.inter(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: textColor,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
       ],
     );
   }
 
   Widget _divider() => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        child:
-            Container(width: 1, height: 16, color: Colors.grey.shade200),
-      );
+    padding: const EdgeInsets.symmetric(horizontal: 12),
+    child: Container(width: 1, height: 16, color: Colors.grey.shade200),
+  );
 
   Widget _buildFilterRow(List<Proyecto> all, bool isMobile) {
-    final activeCount = [
-      _filterInstitucion,
-      _filterModalidad,
-      _filterEstado,
-      _filterReclamo,
-      _filterVencer,
-    ].where((v) => v != null).length +
+    final activeCount =
+        [
+          _filterInstitucion,
+          _filterModalidad,
+          _filterEstado,
+          _filterReclamo,
+          _filterVencer,
+        ].where((v) => v != null).length +
         (_filterProductos.isNotEmpty ? 1 : 0) +
         (_filterQuarterYear != null ? 1 : 0) +
         (_filterEncadenado != null ? 1 : 0);
@@ -2073,48 +2783,85 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
     // Active filter chips shown inline
     final activeChips = <Widget>[
       if (_filterInstitucion != null)
-        _activeChip(_filterInstitucion!.split('|').first.trim(),
-            () => setState(() { _filterInstitucion = null; _currentPage = 0; })),
+        _activeChip(
+          _filterInstitucion!.split('|').first.trim(),
+          () => setState(() {
+            _filterInstitucion = null;
+            _currentPage = 0;
+          }),
+        ),
       if (_filterProductos.isNotEmpty)
-        _activeChip(_filterProductos.join(', '),
-            () => setState(() { _filterProductos = {}; _currentPage = 0; })),
+        _activeChip(
+          _filterProductos.join(', '),
+          () => setState(() {
+            _filterProductos = {};
+            _currentPage = 0;
+          }),
+        ),
       if (_filterModalidad != null)
-        _activeChip(_filterModalidad!,
-            () => setState(() { _filterModalidad = null; _currentPage = 0; })),
+        _activeChip(
+          _filterModalidad!,
+          () => setState(() {
+            _filterModalidad = null;
+            _currentPage = 0;
+          }),
+        ),
       if (_filterEstado != null)
         _activeChip(
-            _filterEstado!,
-            () => setState(() { _filterEstado = null; _currentPage = 0; })),
+          _filterEstado!,
+          () => setState(() {
+            _filterEstado = null;
+            _currentPage = 0;
+          }),
+        ),
       if (_filterReclamo != null)
-        _activeChip('Reclamo: $_filterReclamo',
-            () => setState(() { _filterReclamo = null; _currentPage = 0; })),
+        _activeChip(
+          'Reclamo: $_filterReclamo',
+          () => setState(() {
+            _filterReclamo = null;
+            _currentPage = 0;
+          }),
+        ),
       if (_filterVencer != null)
-        _activeChip('Vencer: $_filterVencer',
-            () => setState(() { _filterVencer = null; _currentPage = 0; })),
+        _activeChip(
+          'Vencer: $_filterVencer',
+          () => setState(() {
+            _filterVencer = null;
+            _currentPage = 0;
+          }),
+        ),
       if (_filterEncadenado != null)
-        _activeChip(_filterEncadenado! ? 'Encadenados' : 'Sin encadenar',
-            () => setState(() { _filterEncadenado = null; _currentPage = 0; })),
+        _activeChip(
+          _filterEncadenado! ? 'Encadenados' : 'Sin encadenar',
+          () => setState(() {
+            _filterEncadenado = null;
+            _currentPage = 0;
+          }),
+        ),
       if (_filterQuarterYear != null && _filterQuarterQ != null)
         _activeChip(
-            _filterQuarterIsChurn
-                ? 'Pérdidas Q$_filterQuarterQ · $_filterQuarterYear'
-                : 'Q$_filterQuarterQ · $_filterQuarterYear',
-            () => setState(() {
-              _filterQuarterYear = null;
-              _filterQuarterQ = null;
-              _filterQuarterOnlyWithOC = false;
-              _filterQuarterIsChurn = false;
-              _filterQuarterOnlyIngresos = false;
-              _currentPage = 0;
-            })),
+          _filterQuarterIsChurn
+              ? 'Pérdidas Q$_filterQuarterQ · $_filterQuarterYear'
+              : 'Q$_filterQuarterQ · $_filterQuarterYear',
+          () => setState(() {
+            _filterQuarterYear = null;
+            _filterQuarterQ = null;
+            _filterQuarterOnlyWithOC = false;
+            _filterQuarterIsChurn = false;
+            _filterQuarterOnlyIngresos = false;
+            _currentPage = 0;
+          }),
+        ),
     ];
 
     final filterButton = GestureDetector(
       onTap: () => _showFiltersSheet(all),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
         decoration: BoxDecoration(
-          color: hasFilters ? _primaryColor.withValues(alpha: 0.08) : Colors.white,
+          color: hasFilters
+              ? _primaryColor.withValues(alpha: 0.08)
+              : Colors.white,
           border: Border.all(
             color: hasFilters ? _primaryColor : Colors.grey.shade200,
             width: hasFilters ? 1.5 : 1.0,
@@ -2124,17 +2871,36 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.tune_rounded, size: 15,
-                color: hasFilters ? _primaryColor : Colors.grey.shade500),
+            Icon(
+              Icons.tune_rounded,
+              size: 15,
+              color: hasFilters ? _primaryColor : const Color(0xFF64748B),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              'Filtros',
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: hasFilters ? _primaryColor : const Color(0xFF64748B),
+              ),
+            ),
             if (activeCount > 0) ...[
-              const SizedBox(width: 5),
+              const SizedBox(width: 6),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
                 decoration: BoxDecoration(
-                    color: _primaryColor, borderRadius: BorderRadius.circular(10)),
-                child: Text('$activeCount',
-                    style: GoogleFonts.inter(
-                        fontSize: 10, fontWeight: FontWeight.w600, color: Colors.white)),
+                  color: _primaryColor,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '$activeCount',
+                  style: GoogleFonts.inter(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
               ),
             ],
           ],
@@ -2150,10 +2916,11 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
-                children: activeChips
-                    .expand((c) => [c, const SizedBox(width: 6)])
-                    .toList()
-                  ..removeLast(),
+                children:
+                    activeChips
+                        .expand((c) => [c, const SizedBox(width: 6)])
+                        .toList()
+                      ..removeLast(),
               ),
             ),
           )
@@ -2177,7 +2944,9 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
                   ? _primaryColor.withValues(alpha: 0.08)
                   : Colors.white,
               border: Border.all(
-                color: _sortColumn == null ? _primaryColor : Colors.grey.shade200,
+                color: _sortColumn == null
+                    ? _primaryColor
+                    : Colors.grey.shade200,
                 width: _sortColumn == null ? 1.5 : 1.0,
               ),
               borderRadius: BorderRadius.circular(20),
@@ -2186,9 +2955,13 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
-                  _estadoSortAsc ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
+                  _estadoSortAsc
+                      ? Icons.arrow_upward_rounded
+                      : Icons.arrow_downward_rounded,
                   size: 13,
-                  color: _sortColumn == null ? _primaryColor : Colors.grey.shade500,
+                  color: _sortColumn == null
+                      ? _primaryColor
+                      : Colors.grey.shade500,
                 ),
                 const SizedBox(width: 4),
                 Text(
@@ -2196,7 +2969,9 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
                   style: GoogleFonts.inter(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color: _sortColumn == null ? _primaryColor : Colors.grey.shade500,
+                    color: _sortColumn == null
+                        ? _primaryColor
+                        : Colors.grey.shade500,
                   ),
                 ),
               ],
@@ -2225,33 +3000,58 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
           children: [
             Center(
               child: Container(
-                width: 36, height: 4,
-                decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(2)),
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
             ),
             const SizedBox(height: 20),
-            Text('Ordenar por Estado', style: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
+            Text(
+              'Ordenar por Estado',
+              style: GoogleFonts.inter(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF1E293B),
+              ),
+            ),
             const SizedBox(height: 6),
-            Text('Elige el orden de prioridad de los estados', style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400)),
+            Text(
+              'Elige el orden de prioridad de los estados',
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                color: Colors.grey.shade400,
+              ),
+            ),
             const SizedBox(height: 20),
             _sortOpcionEstado(
               label: 'Descendente',
-              subtitle: 'En Evaluación → Vigente → X Vencer → Sin Fecha → Finalizado',
+              subtitle:
+                  'En Evaluación → Vigente → X Vencer → Sin Fecha → Finalizado',
               icon: Icons.arrow_downward_rounded,
               selected: !_estadoSortAsc,
               onTap: () {
-                setState(() { _estadoSortAsc = false; _sortColumn = null; });
+                setState(() {
+                  _estadoSortAsc = false;
+                  _sortColumn = null;
+                });
                 Navigator.pop(context);
               },
             ),
             const SizedBox(height: 10),
             _sortOpcionEstado(
               label: 'Ascendente',
-              subtitle: 'Finalizado → Sin Fecha → X Vencer → Vigente → En Evaluación',
+              subtitle:
+                  'Finalizado → Sin Fecha → X Vencer → Vigente → En Evaluación',
               icon: Icons.arrow_upward_rounded,
               selected: _estadoSortAsc,
               onTap: () {
-                setState(() { _estadoSortAsc = true; _sortColumn = null; });
+                setState(() {
+                  _estadoSortAsc = true;
+                  _sortColumn = null;
+                });
                 Navigator.pop(context);
               },
             ),
@@ -2273,34 +3073,60 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
-          color: selected ? _primaryColor.withValues(alpha: 0.06) : Colors.white,
+          color: selected
+              ? _primaryColor.withValues(alpha: 0.06)
+              : Colors.white,
           border: Border.all(
             color: selected ? _primaryColor : Colors.grey.shade200,
             width: selected ? 1.5 : 1.0,
           ),
           borderRadius: BorderRadius.circular(14),
         ),
-        child: Row(children: [
-          Container(
-            width: 32, height: 32,
-            decoration: BoxDecoration(
-              color: selected ? _primaryColor.withValues(alpha: 0.10) : Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(8),
+        child: Row(
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: selected
+                    ? _primaryColor.withValues(alpha: 0.10)
+                    : Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                icon,
+                size: 16,
+                color: selected ? _primaryColor : Colors.grey.shade400,
+              ),
             ),
-            child: Icon(icon, size: 16, color: selected ? _primaryColor : Colors.grey.shade400),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(label, style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600,
-                  color: selected ? _primaryColor : const Color(0xFF1E293B))),
-              const SizedBox(height: 2),
-              Text(subtitle, style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
-            ]),
-          ),
-          if (selected)
-            Icon(Icons.check_circle_rounded, size: 18, color: _primaryColor),
-        ]),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: GoogleFonts.inter(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: selected ? _primaryColor : const Color(0xFF1E293B),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      color: Colors.grey.shade400,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (selected)
+              Icon(Icons.check_circle_rounded, size: 18, color: _primaryColor),
+          ],
+        ),
       ),
     );
   }
@@ -2316,13 +3142,16 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(label,
-              style: GoogleFonts.inter(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: _primaryColor),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis),
+          Text(
+            label,
+            style: GoogleFonts.inter(
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              color: _primaryColor,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
           const SizedBox(width: 4),
           GestureDetector(
             onTap: onRemove,
@@ -2334,9 +3163,6 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
   }
 
   void _showFiltersSheet(List<Proyecto> all) {
-    final modalidades = _cfgModalidades;
-    final estados = _cfgEstados.map((e) => e.nombre).toList();
-    final allProducts = _cfgProductos.map((p) => p.abreviatura).toList()..sort();
     // Deduplicate case-insensitively so names differing only in casing/spaces don't repeat
     final instSeen = <String>{};
     final instituciones = <String>[];
@@ -2353,104 +3179,24 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
       useSafeArea: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSheet) {
-          // local copies to update sheet live
+          // Wrapper to refresh both sheet and main view
           void applyAndRefresh(VoidCallback fn) {
-            fn();
+            setState(fn);
             setSheet(() {});
           }
 
-          Widget sectionTitle(String t) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text(t,
-                    style: GoogleFonts.inter(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        color: const Color(0xFF475569))),
-              );
-
-          Widget chipGroup(
-              List<String> items, String? selected,
-              void Function(String?) onTap,
-              {String Function(String)? label}) {
-            return Wrap(spacing: 6, runSpacing: 6, children: [
-              for (final item in items)
-                GestureDetector(
-                  onTap: () {
-                    applyAndRefresh(() => setState(() {
-                          if (selected == item) {
-                            onTap(null);
-                          } else {
-                            onTap(item);
-                          }
-                          _currentPage = 0;
-                        }));
-                  },
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: selected == item
-                          ? _primaryColor
-                          : Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(label?.call(item) ?? item,
-                        style: GoogleFonts.inter(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            color: selected == item
-                                ? Colors.white
-                                : Colors.grey.shade700)),
-                  ),
-                ),
-            ]);
-          }
-
-          Widget multiChipGroup(List<String> items, Set<String> selected) {
-            return Wrap(spacing: 6, runSpacing: 6, children: [
-              for (final item in items)
-                GestureDetector(
-                  onTap: () {
-                    applyAndRefresh(() => setState(() {
-                          if (selected.contains(item)) {
-                            _filterProductos = Set.from(selected)..remove(item);
-                          } else {
-                            _filterProductos = Set.from(selected)..add(item);
-                          }
-                          _currentPage = 0;
-                        }));
-                  },
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: selected.contains(item)
-                          ? _primaryColor
-                          : Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(item,
-                        style: GoogleFonts.inter(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            color: selected.contains(item)
-                                ? Colors.white
-                                : Colors.grey.shade700)),
-                  ),
-                ),
-            ]);
-          }
-
-          final activeCount = [
-            _filterInstitucion,
-            _filterModalidad,
-            _filterEstado,
-            _filterReclamo,
-            _filterVencer,
-          ].where((v) => v != null).length +
+          final activeCount =
+              [
+                _filterInstitucion,
+                _filterModalidad,
+                _filterEstado,
+                _filterReclamo,
+                _filterVencer,
+              ].where((v) => v != null).length +
               (_filterProductos.isNotEmpty ? 1 : 0);
 
           return DraggableScrollableSheet(
@@ -2460,174 +3206,88 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
             expand: false,
             builder: (_, scrollCtrl) => Column(
               children: [
-                // Handle + header (ProyectoFormDialog style)
+                // Header
                 Padding(
                   padding: const EdgeInsets.fromLTRB(24, 12, 12, 0),
-                  child: Column(children: [
-                    Center(
-                      child: Container(
-                          width: 32, height: 3,
+                  child: Column(
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 32,
+                          height: 3,
                           decoration: BoxDecoration(
-                              color: Colors.grey.shade300,
-                              borderRadius: BorderRadius.circular(2))),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(children: [
-                      Expanded(
-                        child: Row(children: [
-                          Text('Filtros',
-                              style: GoogleFonts.inter(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                  color: const Color(0xFF1E293B))),
-                          if (activeCount > 0) ...[
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 7, vertical: 2),
-                              decoration: BoxDecoration(
-                                  color: _primaryColor,
-                                  borderRadius: BorderRadius.circular(10)),
-                              child: Text('$activeCount',
-                                  style: GoogleFonts.inter(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.white)),
-                            ),
-                          ],
-                        ]),
-                      ),
-                      if (activeCount > 0)
-                        TextButton(
-                          onPressed: () {
-                            applyAndRefresh(() => _clearFilters());
-                          },
-                          style: TextButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 8)),
-                          child: Text('Limpiar',
-                              style: GoogleFonts.inter(
-                                  fontSize: 13, color: Colors.red.shade400)),
+                            color: Colors.grey.shade300,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
                         ),
-                      IconButton(
-                        icon: const Icon(Icons.close, size: 20),
-                        onPressed: () => Navigator.pop(ctx),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        color: Colors.grey.shade500,
                       ),
-                      const SizedBox(width: 4),
-                    ]),
-                    const SizedBox(height: 12),
-                    const Divider(height: 1),
-                  ]),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Row(
+                              children: [
+                                Text(
+                                  'Filtros',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                    color: const Color(0xFF1E293B),
+                                  ),
+                                ),
+                                if (activeCount > 0) ...[
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 7,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: _primaryColor,
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Text(
+                                      '$activeCount',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          if (activeCount > 0)
+                            TextButton(
+                              onPressed: () =>
+                                  applyAndRefresh(() => _clearFilters()),
+                              child: Text(
+                                'Limpiar',
+                                style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  color: Colors.red.shade400,
+                                ),
+                              ),
+                            ),
+                          IconButton(
+                            icon: const Icon(Icons.close, size: 20),
+                            onPressed: () => Navigator.pop(ctx),
+                            color: Colors.grey.shade500,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      const Divider(height: 1),
+                    ],
+                  ),
                 ),
-                // Scrollable content
                 Expanded(
                   child: ListView(
                     controller: scrollCtrl,
                     padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
-                    children: [
-                      // Institución
-                      sectionTitle('Institución'),
-                      GestureDetector(
-                        onTap: () async {
-                          final sel = await showDialog<String>(
-                            context: ctx,
-                            builder: (_) => _FilterSearchDialog(
-                              hint: 'Institución',
-                              value: _filterInstitucion,
-                              items: instituciones,
-                              displayLabel: (s) => s,
-                            ),
-                          );
-                          if (sel == '\x00') {
-                            applyAndRefresh(() => setState(
-                                () { _filterInstitucion = null; _currentPage = 0; }));
-                          } else if (sel != null) {
-                            applyAndRefresh(() => setState(
-                                () { _filterInstitucion = sel; _currentPage = 0; }));
-                          }
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: _filterInstitucion != null
-                                ? _primaryColor.withValues(alpha: 0.06)
-                                : const Color(0xFFF8FAFC),
-                            border: Border.all(
-                                color: _filterInstitucion != null
-                                    ? _primaryColor.withValues(alpha: 0.3)
-                                    : Colors.grey.shade200),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(children: [
-                            Expanded(
-                              child: Text(
-                                _filterInstitucion != null
-                                    ? _filterInstitucion!.split('|').first.trim()
-                                    : 'Seleccionar institución…',
-                                style: GoogleFonts.inter(
-                                    fontSize: 13,
-                                    color: _filterInstitucion != null
-                                        ? const Color(0xFF1E293B)
-                                        : Colors.grey.shade400),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            Icon(
-                              _filterInstitucion != null
-                                  ? Icons.close
-                                  : Icons.search,
-                              size: 16,
-                              color: _filterInstitucion != null
-                                  ? _primaryColor
-                                  : Colors.grey.shade400,
-                            ),
-                          ]),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-
-                      // Productos
-                      sectionTitle('Productos'),
-                      multiChipGroup(allProducts, _filterProductos),
-                      const SizedBox(height: 20),
-
-                      // Contratación
-                      sectionTitle('Contratación'),
-                      chipGroup(modalidades, _filterModalidad,
-                          (v) => _filterModalidad = v),
-                      const SizedBox(height: 20),
-
-                      // Estado
-                      sectionTitle('Estado'),
-                      chipGroup(estados, _filterEstado,
-                          (v) => _filterEstado = v),
-                      const SizedBox(height: 20),
-
-                      // Reclamos
-                      sectionTitle('Reclamos'),
-                      chipGroup(const ['Pendiente', 'Respondido'],
-                          _filterReclamo, (v) => _filterReclamo = v),
-                      const SizedBox(height: 20),
-
-                      // Por Vencer
-                      sectionTitle('Por Vencer'),
-                      chipGroup(
-                          const ['30 días', '3 meses', '6 meses', '12 meses'],
-                          _filterVencer, (v) => _filterVencer = v),
-                      const SizedBox(height: 20),
-
-                      // Encadenamiento
-                      sectionTitle('Encadenamiento'),
-                      chipGroup(
-                        const ['Encadenados', 'Sin encadenar'],
-                        _filterEncadenado == null ? null
-                            : (_filterEncadenado! ? 'Encadenados' : 'Sin encadenar'),
-                        (v) => _filterEncadenado = v == null ? null : v == 'Encadenados',
-                      ),
-                    ],
+                    children: _buildFilterContentList(ctx, applyAndRefresh),
                   ),
                 ),
               ],
@@ -2638,57 +3298,398 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
     );
   }
 
+  Widget _buildFilterSidebar() {
+    final activeCount = [
+      _filterInstitucion,
+      _filterModalidad,
+      _filterEstado,
+      _filterReclamo,
+      _filterVencer,
+    ].where((v) => v != null).length +
+    (_filterProductos.isNotEmpty ? 1 : 0);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+            child: Row(
+              children: [
+                Text(
+                  'Filtros',
+                  style: GoogleFonts.inter(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF1D1D1F),
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                if (activeCount > 0) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _primaryColor,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      '$activeCount',
+                      style: GoogleFonts.inter(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+                const Spacer(),
+                if (activeCount > 0)
+                  GestureDetector(
+                    onTap: () => setState(() => _clearFilters()),
+                    child: Text(
+                      'Limpiar',
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: Colors.red.shade400,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          // We use a Column inside a single child view, or shrinkWrap the list
+          ListView(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(20),
+            children: _buildFilterContentList(context, (fn) => setState(fn)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildFilterContentList(
+    BuildContext ctx,
+    Function(VoidCallback) applyAndRefresh,
+  ) {
+    final allProducts = _cfgProductos.map((p) => p.abreviatura).toList()
+      ..sort();
+    final modalidades = _cfgModalidades;
+    final estados = _cfgEstados.map((e) => e.nombre).toList();
+
+    return [
+      _filterSectionTitle('Institución'),
+      _filterInstitucionSelector(ctx, _proyectos, applyAndRefresh),
+      const SizedBox(height: 20),
+      _filterSectionTitle('Productos'),
+      _multiChipGroup(allProducts, _filterProductos, applyAndRefresh),
+      const SizedBox(height: 20),
+      _filterSectionTitle('Contratación'),
+      _chipGroup(
+        modalidades,
+        _filterModalidad,
+        (v) => _filterModalidad = v,
+        applyAndRefresh,
+      ),
+      const SizedBox(height: 20),
+      _filterSectionTitle('Estado'),
+      _chipGroup(
+        estados,
+        _filterEstado,
+        (v) => _filterEstado = v,
+        applyAndRefresh,
+      ),
+      const SizedBox(height: 20),
+      _filterSectionTitle('Reclamos'),
+      _chipGroup(
+        const ['Pendiente', 'Respondido'],
+        _filterReclamo,
+        (v) => _filterReclamo = v,
+        applyAndRefresh,
+      ),
+      const SizedBox(height: 20),
+      _filterSectionTitle('Vencimiento'),
+      _chipGroup(
+        const ['30 días', '3 meses', '6 meses', '12 meses'],
+        _filterVencer,
+        (v) => _filterVencer = v,
+        applyAndRefresh,
+      ),
+      const SizedBox(height: 20),
+      _filterSectionTitle('Encadenamiento'),
+      _chipGroup(
+        const ['Encadenados', 'Sin encadenar'],
+        _filterEncadenado == null
+            ? null
+            : (_filterEncadenado! ? 'Encadenados' : 'Sin encadenar'),
+        (v) => _filterEncadenado = v == null ? null : v == 'Encadenados',
+        applyAndRefresh,
+      ),
+    ];
+  }
+
+  Widget _filterSectionTitle(String t) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Text(
+      t,
+      style: GoogleFonts.inter(
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+        color: const Color(0xFF64748B),
+        letterSpacing: 0.3,
+      ),
+    ),
+  );
+
+  Widget _chipGroup(
+    List<String> items,
+    String? selected,
+    void Function(String?) onTap,
+    Function(VoidCallback) applyAndRefresh,
+  ) {
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        for (final item in items)
+          GestureDetector(
+            onTap: () {
+              applyAndRefresh(() {
+                if (selected == item) {
+                  onTap(null);
+                } else {
+                  onTap(item);
+                }
+                _currentPage = 0;
+              });
+            },
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: selected == item
+                    ? _primaryColor
+                    : const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                item,
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: selected == item
+                      ? Colors.white
+                      : const Color(0xFF475569),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _multiChipGroup(
+    List<String> items,
+    Set<String> selected,
+    Function(VoidCallback) applyAndRefresh,
+  ) {
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        for (final item in items)
+          GestureDetector(
+            onTap: () {
+              applyAndRefresh(() {
+                if (selected.contains(item)) {
+                  _filterProductos = Set.from(selected)..remove(item);
+                } else {
+                  _filterProductos = Set.from(selected)..add(item);
+                }
+                _currentPage = 0;
+              });
+            },
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: selected.contains(item)
+                    ? _primaryColor
+                    : const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                item,
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: selected.contains(item)
+                      ? Colors.white
+                      : const Color(0xFF475569),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _filterInstitucionSelector(
+    BuildContext ctx,
+    List<Proyecto> all,
+    Function(VoidCallback) applyAndRefresh,
+  ) {
+    final instituciones = all.map((p) => p.institucion).toSet().toList()
+      ..sort();
+    return GestureDetector(
+      onTap: () async {
+        final sel = await showDialog<String>(
+          context: ctx,
+          builder: (_) => _FilterSearchDialog(
+            hint: 'Institución',
+            value: _filterInstitucion,
+            items: instituciones,
+            displayLabel: (s) => s,
+          ),
+        );
+        if (sel == '\x00') {
+          applyAndRefresh(() {
+            _filterInstitucion = null;
+            _currentPage = 0;
+          });
+        } else if (sel != null) {
+          applyAndRefresh(() {
+            _filterInstitucion = sel;
+            _currentPage = 0;
+          });
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: _filterInstitucion != null
+              ? _primaryColor.withValues(alpha: 0.06)
+              : const Color(0xFFF8FAFC),
+          border: Border.all(
+            color: _filterInstitucion != null
+                ? _primaryColor.withValues(alpha: 0.3)
+                : Colors.grey.shade200,
+          ),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                _filterInstitucion != null
+                    ? _filterInstitucion!.split('|').first.trim()
+                    : 'Seleccionar…',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  color: _filterInstitucion != null
+                      ? const Color(0xFF1E293B)
+                      : Colors.grey.shade400,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Icon(
+              _filterInstitucion != null ? Icons.close : Icons.search,
+              size: 14,
+              color: _filterInstitucion != null
+                  ? _primaryColor
+                  : Colors.grey.shade400,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ── Documentación tab ───────────────────────────────────────────────────────
 
   List<_DocItem> _buildDocItems(List<Proyecto> proyectos) {
     final items = <_DocItem>[];
     for (final p in proyectos) {
       final estadoItem = _cfgEstados.firstWhere(
-          (e) => e.nombre == p.estado,
-          orElse: () => EstadoItem(nombre: p.estado, color: '64748B'));
+        (e) => e.nombre == p.estado,
+        orElse: () => EstadoItem(nombre: p.estado, color: '64748B'),
+      );
       final color = estadoItem.colorValue;
 
       for (final doc in p.documentos) {
         final tipo = doc.tipo.isNotEmpty ? doc.tipo : 'Documento';
-        items.add(_DocItem(
-          tipoDoc: tipo,
-          proyecto: p,
-          descripcion: doc.nombre?.isNotEmpty == true ? doc.nombre! : tipo,
-          fecha: null,
-          labelFecha: null,
-          urls: [doc.url],
-          color: color,
-        ));
+        items.add(
+          _DocItem(
+            tipoDoc: tipo,
+            proyecto: p,
+            descripcion: doc.nombre?.isNotEmpty == true ? doc.nombre! : tipo,
+            fecha: null,
+            labelFecha: null,
+            urls: [doc.url],
+            color: color,
+            tabTarget: 'Documentos',
+          ),
+        );
       }
       for (final cert in p.certificados) {
-        items.add(_DocItem(
-          tipoDoc: 'Certificado',
-          proyecto: p,
-          descripcion: cert.descripcion,
-          fecha: cert.fechaEmision,
-          labelFecha: 'Emisión',
-          urls: cert.url != null ? [cert.url!] : [],
-          color: color,
-        ));
+        items.add(
+          _DocItem(
+            tipoDoc: 'Certificado',
+            proyecto: p,
+            descripcion: cert.descripcion,
+            fecha: cert.fechaEmision,
+            labelFecha: 'Emisión',
+            urls: cert.url != null ? [cert.url!] : [],
+            color: color,
+            tabTarget: 'Certificados',
+          ),
+        );
       }
       for (final rec in p.reclamos) {
         final tipoDoc = rec.estado == 'Respondido'
             ? 'Reclamo Respondido'
             : 'Reclamo Pendiente';
-        items.add(_DocItem(
-          tipoDoc: tipoDoc,
-          proyecto: p,
-          descripcion: rec.descripcion,
-          fecha: rec.fechaReclamo,
-          labelFecha: 'Ingreso',
-          fechaSecundaria: rec.fechaRespuesta,
-          labelFechaSecundaria: rec.fechaRespuesta != null ? 'Respuesta' : null,
-          urls: [
-            ...rec.documentos.map((d) => d.url).where((u) => u.isNotEmpty),
-            ...rec.documentosRespuesta.map((d) => d.url).where((u) => u.isNotEmpty),
-          ],
-          color: color,
-        ));
+        items.add(
+          _DocItem(
+            tipoDoc: tipoDoc,
+            proyecto: p,
+            descripcion: rec.descripcion,
+            fecha: rec.fechaReclamo,
+            labelFecha: 'Ingreso',
+            fechaSecundaria: rec.fechaRespuesta,
+            labelFechaSecundaria: rec.fechaRespuesta != null
+                ? 'Respuesta'
+                : null,
+            urls: [
+              ...rec.documentos.map((d) => d.url).where((u) => u.isNotEmpty),
+              ...rec.documentosRespuesta
+                  .map((d) => d.url)
+                  .where((u) => u.isNotEmpty),
+            ],
+            color: color,
+            tabTarget: 'Reclamos',
+          ),
+        );
       }
     }
     return items;
@@ -2698,7 +3699,11 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
     return all.where((item) {
       final p = item.proyecto;
       if (_docFilterInstitucion != null && _docFilterInstitucion!.isNotEmpty) {
-        if (!p.institucion.toLowerCase().contains(_docFilterInstitucion!.toLowerCase())) return false;
+        if (!p.institucion.toLowerCase().contains(
+          _docFilterInstitucion!.toLowerCase(),
+        )) {
+          return false;
+        }
       }
       if (_docFilterProductos.isNotEmpty) {
         final pp = p.productos.split(',').map((s) => s.trim()).toSet();
@@ -2721,12 +3726,20 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
 
   Widget _buildTabRadar(bool isMobile) {
     // Win rate calculado desde Firestore (sin BQ)
-    final conLicitacion = _proyectos.where((p) => p.idLicitacion != null && p.idLicitacion!.isNotEmpty).toList();
-    final ganados = conLicitacion.where((p) => p.idsOrdenesCompra.isNotEmpty).length;
-    final perdidos = conLicitacion.where((p) => p.idsOrdenesCompra.isEmpty && p.completado).length;
-    final enCurso  = conLicitacion.where((p) => p.idsOrdenesCompra.isEmpty && !p.completado).length;
-    final total    = ganados + perdidos;
-    final winRate  = total > 0 ? (ganados / total * 100) : 0.0;
+    final conLicitacion = _proyectos
+        .where((p) => p.idLicitacion != null && p.idLicitacion!.isNotEmpty)
+        .toList();
+    final ganados = conLicitacion
+        .where((p) => p.idsOrdenesCompra.isNotEmpty)
+        .length;
+    final perdidos = conLicitacion
+        .where((p) => p.idsOrdenesCompra.isEmpty && p.completado)
+        .length;
+    final enCurso = conLicitacion
+        .where((p) => p.idsOrdenesCompra.isEmpty && !p.completado)
+        .length;
+    final total = ganados + perdidos;
+    final winRate = total > 0 ? (ganados / total * 100) : 0.0;
     final montoGanado = _proyectos
         .where((p) => p.idsOrdenesCompra.isNotEmpty && p.montoTotalOC != null)
         .fold<double>(0, (s, p) => s + p.montoTotalOC!);
@@ -2759,8 +3772,18 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
             height: 200,
             child: _ClientesChartCard(
               proyectos: _proyectos,
-              onQuarterTap: (y, q, {bool onlyWithOC = false, bool onlyIngresos = false}) =>
-                  _goToQuarterFiltered(y, q, onlyWithOC: onlyWithOC, onlyIngresos: onlyIngresos),
+              onQuarterTap:
+                  (
+                    y,
+                    q, {
+                    bool onlyWithOC = false,
+                    bool onlyIngresos = false,
+                  }) => _goToQuarterFiltered(
+                    y,
+                    q,
+                    onlyWithOC: onlyWithOC,
+                    onlyIngresos: onlyIngresos,
+                  ),
               onChurnQuarterTap: (y, q) => _goToChurnQuarterFiltered(y, q),
             ),
           ),
@@ -2769,8 +3792,18 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
             height: 200,
             child: _FacturacionChartCard(
               proyectos: _proyectos,
-              onQuarterTap: (y, q, {bool onlyWithOC = false, bool onlyIngresos = false}) =>
-                  _goToQuarterFiltered(y, q, onlyWithOC: onlyWithOC, onlyIngresos: onlyIngresos),
+              onQuarterTap:
+                  (
+                    y,
+                    q, {
+                    bool onlyWithOC = false,
+                    bool onlyIngresos = false,
+                  }) => _goToQuarterFiltered(
+                    y,
+                    q,
+                    onlyWithOC: onlyWithOC,
+                    onlyIngresos: onlyIngresos,
+                  ),
             ),
           ),
         ] else
@@ -2782,17 +3815,38 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
                 Expanded(
                   child: _ClientesChartCard(
                     proyectos: _proyectos,
-                    onQuarterTap: (y, q, {bool onlyWithOC = false, bool onlyIngresos = false}) =>
-                        _goToQuarterFiltered(y, q, onlyWithOC: onlyWithOC, onlyIngresos: onlyIngresos),
-                    onChurnQuarterTap: (y, q) => _goToChurnQuarterFiltered(y, q),
+                    onQuarterTap:
+                        (
+                          y,
+                          q, {
+                          bool onlyWithOC = false,
+                          bool onlyIngresos = false,
+                        }) => _goToQuarterFiltered(
+                          y,
+                          q,
+                          onlyWithOC: onlyWithOC,
+                          onlyIngresos: onlyIngresos,
+                        ),
+                    onChurnQuarterTap: (y, q) =>
+                        _goToChurnQuarterFiltered(y, q),
                   ),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
                   child: _FacturacionChartCard(
                     proyectos: _proyectos,
-                    onQuarterTap: (y, q, {bool onlyWithOC = false, bool onlyIngresos = false}) =>
-                        _goToQuarterFiltered(y, q, onlyWithOC: onlyWithOC, onlyIngresos: onlyIngresos),
+                    onQuarterTap:
+                        (
+                          y,
+                          q, {
+                          bool onlyWithOC = false,
+                          bool onlyIngresos = false,
+                        }) => _goToQuarterFiltered(
+                          y,
+                          q,
+                          onlyWithOC: onlyWithOC,
+                          onlyIngresos: onlyIngresos,
+                        ),
                   ),
                 ),
               ],
@@ -2823,14 +3877,17 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
     final totalPages = (filtered.length / _pageSize).ceil();
     final pageStart = _docCurrentPage * _pageSize;
     final pageEnd = (pageStart + _pageSize).clamp(0, filtered.length);
-    final pageItems = filtered.isEmpty ? <_DocItem>[] : filtered.sublist(pageStart, pageEnd);
+    final pageItems = filtered.isEmpty
+        ? <_DocItem>[]
+        : filtered.sublist(pageStart, pageEnd);
 
     // Active doc filter count
-    final activeCount = [
-      _docFilterInstitucion,
-      _docFilterModalidad,
-      _docFilterEstado,
-    ].where((v) => v != null).length +
+    final activeCount =
+        [
+          _docFilterInstitucion,
+          _docFilterModalidad,
+          _docFilterEstado,
+        ].where((v) => v != null).length +
         (_docFilterProductos.isNotEmpty ? 1 : 0) +
         (_docFilterTipos.isNotEmpty ? 1 : 0);
     final hasFilters = activeCount > 0;
@@ -2843,26 +3900,39 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         decoration: BoxDecoration(
-          color: hasFilters ? _primaryColor.withValues(alpha: 0.08) : Colors.white,
+          color: hasFilters
+              ? _primaryColor.withValues(alpha: 0.08)
+              : Colors.white,
           border: Border.all(
-              color: hasFilters ? _primaryColor : Colors.grey.shade200,
-              width: hasFilters ? 1.5 : 1.0),
+            color: hasFilters ? _primaryColor : Colors.grey.shade200,
+            width: hasFilters ? 1.5 : 1.0,
+          ),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.tune_rounded, size: 15,
-                color: hasFilters ? _primaryColor : Colors.grey.shade500),
+            Icon(
+              Icons.tune_rounded,
+              size: 15,
+              color: hasFilters ? _primaryColor : Colors.grey.shade500,
+            ),
             if (activeCount > 0) ...[
               const SizedBox(width: 5),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                 decoration: BoxDecoration(
-                    color: _primaryColor, borderRadius: BorderRadius.circular(10)),
-                child: Text('$activeCount',
-                    style: GoogleFonts.inter(
-                        fontSize: 10, fontWeight: FontWeight.w600, color: Colors.white)),
+                  color: _primaryColor,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '$activeCount',
+                  style: GoogleFonts.inter(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
               ),
             ],
           ],
@@ -2877,23 +3947,50 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
-                children: [
-                  if (_docFilterInstitucion != null)
-                    _activeChip(_docFilterInstitucion!.split('|').first.trim(),
-                        () => setState(() { _docFilterInstitucion = null; _docCurrentPage = 0; })),
-                  if (_docFilterProductos.isNotEmpty)
-                    _activeChip(_docFilterProductos.join(', '),
-                        () => setState(() { _docFilterProductos = {}; _docCurrentPage = 0; })),
-                  if (_docFilterModalidad != null)
-                    _activeChip(_docFilterModalidad!,
-                        () => setState(() { _docFilterModalidad = null; _docCurrentPage = 0; })),
-                  if (_docFilterEstado != null)
-                    _activeChip(_docFilterEstado!,
-                        () => setState(() { _docFilterEstado = null; _docCurrentPage = 0; })),
-                  if (_docFilterTipos.isNotEmpty)
-                    _activeChip(_docFilterTipos.join(', '),
-                        () => setState(() { _docFilterTipos = {}; _docCurrentPage = 0; })),
-                ].expand((c) => [c, const SizedBox(width: 6)]).toList()..removeLast(),
+                children:
+                    [
+                        if (_docFilterInstitucion != null)
+                          _activeChip(
+                            _docFilterInstitucion!.split('|').first.trim(),
+                            () => setState(() {
+                              _docFilterInstitucion = null;
+                              _docCurrentPage = 0;
+                            }),
+                          ),
+                        if (_docFilterProductos.isNotEmpty)
+                          _activeChip(
+                            _docFilterProductos.join(', '),
+                            () => setState(() {
+                              _docFilterProductos = {};
+                              _docCurrentPage = 0;
+                            }),
+                          ),
+                        if (_docFilterModalidad != null)
+                          _activeChip(
+                            _docFilterModalidad!,
+                            () => setState(() {
+                              _docFilterModalidad = null;
+                              _docCurrentPage = 0;
+                            }),
+                          ),
+                        if (_docFilterEstado != null)
+                          _activeChip(
+                            _docFilterEstado!,
+                            () => setState(() {
+                              _docFilterEstado = null;
+                              _docCurrentPage = 0;
+                            }),
+                          ),
+                        if (_docFilterTipos.isNotEmpty)
+                          _activeChip(
+                            _docFilterTipos.join(', '),
+                            () => setState(() {
+                              _docFilterTipos = {};
+                              _docCurrentPage = 0;
+                            }),
+                          ),
+                      ].expand((c) => [c, const SizedBox(width: 6)]).toList()
+                      ..removeLast(),
               ),
             ),
           )
@@ -2901,7 +3998,9 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
           const Spacer(),
         if (hasFilters) ...[
           GestureDetector(
-            onTap: () => setState(() { _clearDocFilters(); }),
+            onTap: () => setState(() {
+              _clearDocFilters();
+            }),
             child: Icon(Icons.close, size: 15, color: Colors.grey.shade400),
           ),
           const SizedBox(width: 6),
@@ -2919,7 +4018,9 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
               borderRadius: BorderRadius.circular(20),
             ),
             child: Icon(
-              _docSortAscending ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
+              _docSortAscending
+                  ? Icons.arrow_upward_rounded
+                  : Icons.arrow_downward_rounded,
               size: 15,
               color: Colors.grey.shade600,
             ),
@@ -2946,7 +4047,10 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
             ),
             Text(
               '${_docCurrentPage + 1} / $totalPages',
-              style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                color: const Color(0xFF64748B),
+              ),
             ),
             IconButton(
               icon: const Icon(Icons.chevron_right),
@@ -2967,18 +4071,41 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
-              color: Colors.white, borderRadius: BorderRadius.circular(12),
-              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05),
-                  blurRadius: 6, offset: const Offset(0, 2))]),
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
           child: Row(
             children: [
-              Expanded(child: _summaryChip('Total ${allItems.length}', null, const Color(0xFF1E293B))),
+              Expanded(
+                child: _summaryChip(
+                  'Total ${allItems.length}',
+                  null,
+                  const Color(0xFF1E293B),
+                ),
+              ),
               _divider(),
-              Expanded(child: _summaryChip('Certificados ${allItems.where((i) => i.tipoDoc == 'Certificado').length}',
-                  const Color(0xFF0EA5E9), const Color(0xFF0EA5E9))),
+              Expanded(
+                child: _summaryChip(
+                  'Certificados ${allItems.where((i) => i.tipoDoc == 'Certificado').length}',
+                  const Color(0xFF0EA5E9),
+                  const Color(0xFF0EA5E9),
+                ),
+              ),
               _divider(),
-              Expanded(child: _summaryChip('Reclamos ${allItems.where((i) => i.tipoDoc.startsWith('Reclamo')).length}',
-                  const Color(0xFFEF4444), const Color(0xFFEF4444))),
+              Expanded(
+                child: _summaryChip(
+                  'Reclamos ${allItems.where((i) => i.tipoDoc.startsWith('Reclamo')).length}',
+                  const Color(0xFFEF4444),
+                  const Color(0xFFEF4444),
+                ),
+              ),
             ],
           ),
         ),
@@ -2992,21 +4119,34 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.description_outlined, size: 56, color: Colors.grey.shade300),
+                  Icon(
+                    Icons.description_outlined,
+                    size: 56,
+                    color: Colors.grey.shade300,
+                  ),
                   const SizedBox(height: 12),
-                  Text('Sin documentos',
-                      style: GoogleFonts.inter(fontSize: 16, color: Colors.grey.shade500,
-                          fontWeight: FontWeight.w500)),
+                  Text(
+                    'Sin documentos',
+                    style: GoogleFonts.inter(
+                      fontSize: 16,
+                      color: Colors.grey.shade500,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
                 ],
               ),
             ),
           )
         else
           Column(
-            children: pageItems.map((item) => Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _buildDocCard(item, isMobile),
-            )).toList(),
+            children: pageItems
+                .map(
+                  (item) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _buildDocCard(item, isMobile),
+                  ),
+                )
+                .toList(),
           ),
         docPagination(),
       ],
@@ -3018,20 +4158,24 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
     final idLabel = p.idLicitacion?.isNotEmpty == true
         ? p.idLicitacion
         : p.idCotizacion?.isNotEmpty == true
-            ? p.idCotizacion
-            : p.idsOrdenesCompra.isNotEmpty
-                ? p.idsOrdenesCompra.first
-                : null;
+        ? p.idCotizacion
+        : p.idsOrdenesCompra.isNotEmpty
+        ? p.idsOrdenesCompra.first
+        : null;
 
     return GestureDetector(
-      onTap: () => _openEditDialog(p),
+      onTap: () => _openEditDialog(p, tab: item.tabTarget),
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
-          boxShadow: [BoxShadow(
+          boxShadow: [
+            BoxShadow(
               color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 6, offset: const Offset(0, 2))],
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -3039,31 +4183,54 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
             // Header strip: tipo + ID/modalidad
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
-              child: Row(children: [
-                Container(width: 8, height: 8,
-                    decoration: BoxDecoration(color: item.color, shape: BoxShape.circle)),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(item.tipoDoc,
-                      style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600,
-                          color: item.color),
-                      overflow: TextOverflow.ellipsis),
-                ),
-                const SizedBox(width: 8),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (idLabel != null)
-                      Text(idLabel,
-                          style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400),
-                          overflow: TextOverflow.ellipsis),
-                    Text(p.modalidadCompra,
-                        style: GoogleFonts.inter(fontSize: 9, color: Colors.grey.shade300),
-                        overflow: TextOverflow.ellipsis),
-                  ],
-                ),
-              ]),
+              child: Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: item.color,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      item.tipoDoc,
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: item.color,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (idLabel != null)
+                        Text(
+                          idLabel,
+                          style: GoogleFonts.inter(
+                            fontSize: 10,
+                            color: Colors.grey.shade400,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      Text(
+                        p.modalidadCompra,
+                        style: GoogleFonts.inter(
+                          fontSize: 9,
+                          color: Colors.grey.shade300,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
             // Body
             Padding(
@@ -3072,21 +4239,39 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Document description (main title)
-                  Text(item.descripcion,
-                      style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600,
-                          color: const Color(0xFF1E293B)),
-                      maxLines: 2, overflow: TextOverflow.ellipsis),
+                  Text(
+                    item.descripcion,
+                    style: GoogleFonts.inter(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF1E293B),
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   // Institution (small)
                   const SizedBox(height: 2),
-                  Text(_cleanInst(p.institucion),
-                      style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade400),
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  Text(
+                    _cleanInst(p.institucion),
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: Colors.grey.shade400,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   // Products
                   if (p.productos.isNotEmpty) ...[
                     const SizedBox(height: 2),
-                    Text(p.productos,
-                        style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade400),
-                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                    Text(
+                      p.productos,
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: Colors.grey.shade400,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ],
                   // Dates
                   if (item.fecha != null || item.fechaSecundaria != null) ...[
@@ -3099,24 +4284,39 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.calendar_today_outlined,
-                                  size: 11, color: Colors.grey.shade400),
+                              Icon(
+                                Icons.calendar_today_outlined,
+                                size: 11,
+                                color: Colors.grey.shade400,
+                              ),
                               const SizedBox(width: 3),
-                              Text('${item.labelFecha}: ${_formatDate(item.fecha)}',
-                                  style: GoogleFonts.inter(
-                                      fontSize: 11, color: Colors.grey.shade500)),
+                              Text(
+                                '${item.labelFecha}: ${_formatDate(item.fecha)}',
+                                style: GoogleFonts.inter(
+                                  fontSize: 11,
+                                  color: Colors.grey.shade500,
+                                ),
+                              ),
                             ],
                           ),
-                        if (item.fechaSecundaria != null && item.labelFechaSecundaria != null)
+                        if (item.fechaSecundaria != null &&
+                            item.labelFechaSecundaria != null)
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.check_circle_outline,
-                                  size: 11, color: Colors.grey.shade400),
+                              Icon(
+                                Icons.check_circle_outline,
+                                size: 11,
+                                color: Colors.grey.shade400,
+                              ),
                               const SizedBox(width: 3),
-                              Text('${item.labelFechaSecundaria}: ${_formatDate(item.fechaSecundaria)}',
-                                  style: GoogleFonts.inter(
-                                      fontSize: 11, color: Colors.grey.shade500)),
+                              Text(
+                                '${item.labelFechaSecundaria}: ${_formatDate(item.fechaSecundaria)}',
+                                style: GoogleFonts.inter(
+                                  fontSize: 11,
+                                  color: Colors.grey.shade500,
+                                ),
+                              ),
                             ],
                           ),
                       ],
@@ -3134,30 +4334,45 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
                         return MouseRegion(
                           cursor: SystemMouseCursors.click,
                           child: GestureDetector(
-                          onTap: () {
-                            web.window.open(url, '_blank');
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                            decoration: BoxDecoration(
-                              color: _primaryColor.withValues(alpha: 0.07),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                  color: _primaryColor.withValues(alpha: 0.2)),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.open_in_new, size: 12, color: _primaryColor),
-                                const SizedBox(width: 4),
-                                Text(item.urls.length > 1 ? 'Doc ${idx + 1}' : 'Ver documento',
+                            onTap: () {
+                              web.window.open(url, '_blank');
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _primaryColor.withValues(alpha: 0.07),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: _primaryColor.withValues(alpha: 0.2),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.open_in_new,
+                                    size: 12,
+                                    color: _primaryColor,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    item.urls.length > 1
+                                        ? 'Ficha ${idx + 1}'
+                                        : 'Ver ficha',
                                     style: GoogleFonts.inter(
-                                        fontSize: 11, fontWeight: FontWeight.w500,
-                                        color: _primaryColor)),
-                              ],
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w500,
+                                      color: _primaryColor,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                        ));
+                        );
                       }).toList(),
                     ),
                   ],
@@ -3173,7 +4388,8 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
   void _showDocFiltersSheet(List<String> tipoOptions) {
     final modalidades = _cfgModalidades;
     final estados = _cfgEstados.map((e) => e.nombre).toList();
-    final allProducts = _cfgProductos.map((p) => p.abreviatura).toList()..sort();
+    final allProducts = _cfgProductos.map((p) => p.abreviatura).toList()
+      ..sort();
     final instSeen2 = <String>{};
     final instituciones = <String>[];
     for (final p in _proyectos) {
@@ -3189,7 +4405,8 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
       useSafeArea: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSheet) {
           void applyAndRefresh(VoidCallback fn) {
@@ -3198,74 +4415,123 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
           }
 
           Widget sectionTitle(String t) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text(t,
-                    style: GoogleFonts.inter(
-                        fontSize: 13, fontWeight: FontWeight.w500,
-                        color: const Color(0xFF475569))),
-              );
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              t,
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: const Color(0xFF475569),
+              ),
+            ),
+          );
 
-          Widget chipGroup(List<String> items, String? selected,
-              void Function(String?) onTap) {
-            return Wrap(spacing: 6, runSpacing: 6, children: [
-              for (final item in items)
-                GestureDetector(
-                  onTap: () {
-                    applyAndRefresh(() => setState(() {
+          Widget chipGroup(
+            List<String> items,
+            String? selected,
+            void Function(String?) onTap,
+          ) {
+            return Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final item in items)
+                  GestureDetector(
+                    onTap: () {
+                      applyAndRefresh(
+                        () => setState(() {
                           onTap(selected == item ? null : item);
                           _docCurrentPage = 0;
-                        }));
-                  },
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: selected == item ? _primaryColor : Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(item,
+                        }),
+                      );
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: selected == item
+                            ? _primaryColor
+                            : Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        item,
                         style: GoogleFonts.inter(
-                            fontSize: 12, fontWeight: FontWeight.w500,
-                            color: selected == item ? Colors.white : Colors.grey.shade700)),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: selected == item
+                              ? Colors.white
+                              : Colors.grey.shade700,
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-            ]);
+              ],
+            );
           }
 
-          Widget multiChipGroup(List<String> items, Set<String> selected,
-              void Function(Set<String>) onChanged) {
-            return Wrap(spacing: 6, runSpacing: 6, children: [
-              for (final item in items)
-                GestureDetector(
-                  onTap: () {
-                    applyAndRefresh(() => setState(() {
+          Widget multiChipGroup(
+            List<String> items,
+            Set<String> selected,
+            void Function(Set<String>) onChanged,
+          ) {
+            return Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final item in items)
+                  GestureDetector(
+                    onTap: () {
+                      applyAndRefresh(
+                        () => setState(() {
                           final next = Set<String>.from(selected);
-                          if (next.contains(item)) { next.remove(item); } else { next.add(item); }
+                          if (next.contains(item)) {
+                            next.remove(item);
+                          } else {
+                            next.add(item);
+                          }
                           onChanged(next);
                           _docCurrentPage = 0;
-                        }));
-                  },
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: selected.contains(item) ? _primaryColor : Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(item,
+                        }),
+                      );
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: selected.contains(item)
+                            ? _primaryColor
+                            : Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        item,
                         style: GoogleFonts.inter(
-                            fontSize: 12, fontWeight: FontWeight.w500,
-                            color: selected.contains(item) ? Colors.white : Colors.grey.shade700)),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: selected.contains(item)
+                              ? Colors.white
+                              : Colors.grey.shade700,
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-            ]);
+              ],
+            );
           }
 
-          final activeCount = [
-            _docFilterInstitucion,
-            _docFilterModalidad,
-            _docFilterEstado,
-          ].where((v) => v != null).length +
+          final activeCount =
+              [
+                _docFilterInstitucion,
+                _docFilterModalidad,
+                _docFilterEstado,
+              ].where((v) => v != null).length +
               (_docFilterProductos.isNotEmpty ? 1 : 0) +
               (_docFilterTipos.isNotEmpty ? 1 : 0);
 
@@ -3278,57 +4544,88 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(24, 12, 12, 0),
-                  child: Column(children: [
-                    Center(
-                      child: Container(
-                          width: 32, height: 3,
+                  child: Column(
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 32,
+                          height: 3,
                           decoration: BoxDecoration(
-                              color: Colors.grey.shade300,
-                              borderRadius: BorderRadius.circular(2))),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(children: [
-                      Expanded(
-                        child: Row(children: [
-                          Text('Filtros documentos',
-                              style: GoogleFonts.inter(fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                  color: const Color(0xFF1E293B))),
-                          if (activeCount > 0) ...[
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                              decoration: BoxDecoration(
-                                  color: _primaryColor,
-                                  borderRadius: BorderRadius.circular(10)),
-                              child: Text('$activeCount',
-                                  style: GoogleFonts.inter(fontSize: 11,
-                                      fontWeight: FontWeight.w600, color: Colors.white)),
-                            ),
-                          ],
-                        ]),
-                      ),
-                      if (activeCount > 0)
-                        TextButton(
-                          onPressed: () { applyAndRefresh(() => _clearDocFilters()); },
-                          style: TextButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 8)),
-                          child: Text('Limpiar',
-                              style: GoogleFonts.inter(fontSize: 13,
-                                  color: Colors.red.shade400)),
+                            color: Colors.grey.shade300,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
                         ),
-                      IconButton(
-                        icon: const Icon(Icons.close, size: 20),
-                        onPressed: () => Navigator.pop(ctx),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        color: Colors.grey.shade500,
                       ),
-                      const SizedBox(width: 4),
-                    ]),
-                    const SizedBox(height: 12),
-                    const Divider(height: 1),
-                  ]),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Row(
+                              children: [
+                                Text(
+                                  'Filtros documentos',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                    color: const Color(0xFF1E293B),
+                                  ),
+                                ),
+                                if (activeCount > 0) ...[
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 7,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: _primaryColor,
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Text(
+                                      '$activeCount',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          if (activeCount > 0)
+                            TextButton(
+                              onPressed: () {
+                                applyAndRefresh(() => _clearDocFilters());
+                              },
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                ),
+                              ),
+                              child: Text(
+                                'Limpiar',
+                                style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  color: Colors.red.shade400,
+                                ),
+                              ),
+                            ),
+                          IconButton(
+                            icon: const Icon(Icons.close, size: 20),
+                            onPressed: () => Navigator.pop(ctx),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            color: Colors.grey.shade500,
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      const Divider(height: 1),
+                    ],
+                  ),
                 ),
                 Expanded(
                   child: ListView(
@@ -3337,8 +4634,11 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
                     children: [
                       // Tipo de documento
                       sectionTitle('Tipo de documento'),
-                      multiChipGroup(tipoOptions, _docFilterTipos,
-                          (v) => _docFilterTipos = v),
+                      multiChipGroup(
+                        tipoOptions,
+                        _docFilterTipos,
+                        (v) => _docFilterTipos = v,
+                      ),
                       const SizedBox(height: 20),
 
                       // Institución
@@ -3355,65 +4655,96 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
                             ),
                           );
                           if (sel == '\x00') {
-                            applyAndRefresh(() => setState(
-                                () { _docFilterInstitucion = null; _docCurrentPage = 0; }));
+                            applyAndRefresh(
+                              () => setState(() {
+                                _docFilterInstitucion = null;
+                                _docCurrentPage = 0;
+                              }),
+                            );
                           } else if (sel != null) {
-                            applyAndRefresh(() => setState(
-                                () { _docFilterInstitucion = sel; _docCurrentPage = 0; }));
+                            applyAndRefresh(
+                              () => setState(() {
+                                _docFilterInstitucion = sel;
+                                _docCurrentPage = 0;
+                              }),
+                            );
                           }
                         },
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
                           decoration: BoxDecoration(
                             color: _docFilterInstitucion != null
                                 ? _primaryColor.withValues(alpha: 0.06)
                                 : const Color(0xFFF8FAFC),
                             border: Border.all(
-                                color: _docFilterInstitucion != null
-                                    ? _primaryColor.withValues(alpha: 0.3)
-                                    : Colors.grey.shade200),
+                              color: _docFilterInstitucion != null
+                                  ? _primaryColor.withValues(alpha: 0.3)
+                                  : Colors.grey.shade200,
+                            ),
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: Row(children: [
-                            Expanded(
-                              child: Text(
-                                _docFilterInstitucion != null
-                                    ? _docFilterInstitucion!.split('|').first.trim()
-                                    : 'Seleccionar institución…',
-                                style: GoogleFonts.inter(fontSize: 13,
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  _docFilterInstitucion != null
+                                      ? _docFilterInstitucion!
+                                            .split('|')
+                                            .first
+                                            .trim()
+                                      : 'Seleccionar institución…',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 13,
                                     color: _docFilterInstitucion != null
                                         ? const Color(0xFF1E293B)
-                                        : Colors.grey.shade400),
-                                overflow: TextOverflow.ellipsis,
+                                        : Colors.grey.shade400,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
-                            ),
-                            Icon(
-                              _docFilterInstitucion != null ? Icons.close : Icons.search,
-                              size: 16,
-                              color: _docFilterInstitucion != null
-                                  ? _primaryColor : Colors.grey.shade400,
-                            ),
-                          ]),
+                              Icon(
+                                _docFilterInstitucion != null
+                                    ? Icons.close
+                                    : Icons.search,
+                                size: 16,
+                                color: _docFilterInstitucion != null
+                                    ? _primaryColor
+                                    : Colors.grey.shade400,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                       const SizedBox(height: 20),
 
                       // Productos
                       sectionTitle('Productos'),
-                      multiChipGroup(allProducts, _docFilterProductos,
-                          (v) => _docFilterProductos = v),
+                      multiChipGroup(
+                        allProducts,
+                        _docFilterProductos,
+                        (v) => _docFilterProductos = v,
+                      ),
                       const SizedBox(height: 20),
 
                       // Contratación
                       sectionTitle('Contratación'),
-                      chipGroup(modalidades, _docFilterModalidad,
-                          (v) => _docFilterModalidad = v),
+                      chipGroup(
+                        modalidades,
+                        _docFilterModalidad,
+                        (v) => _docFilterModalidad = v,
+                      ),
                       const SizedBox(height: 20),
 
                       // Estado del proyecto
                       sectionTitle('Estado del proyecto'),
-                      chipGroup(estados, _docFilterEstado,
-                          (v) => _docFilterEstado = v),
+                      chipGroup(
+                        estados,
+                        _docFilterEstado,
+                        (v) => _docFilterEstado = v,
+                      ),
                     ],
                   ),
                 ),
@@ -3434,15 +4765,22 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
           children: [
             Icon(Icons.folder_outlined, size: 56, color: Colors.grey.shade300),
             const SizedBox(height: 12),
-            Text('No hay proyectos',
-                style: GoogleFonts.inter(
-                    fontSize: 16,
-                    color: Colors.grey.shade500,
-                    fontWeight: FontWeight.w500)),
+            Text(
+              'No hay proyectos',
+              style: GoogleFonts.inter(
+                fontSize: 16,
+                color: Colors.grey.shade500,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
             const SizedBox(height: 4),
-            Text('Crea el primer proyecto con el botón "Nuevo Proyecto"',
-                style: GoogleFonts.inter(
-                    fontSize: 13, color: Colors.grey.shade400)),
+            Text(
+              'Crea el primer proyecto con el botón "Nuevo Proyecto"',
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                color: Colors.grey.shade400,
+              ),
+            ),
           ],
         ),
       ),
@@ -3455,7 +4793,7 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
       'Productos',
       'Valor Mensual',
       'Fecha de Inicio',
-      'Fecha de Término'
+      'Fecha de Término',
     ];
     final flexes = [5, 2, 2, 2, 2];
 
@@ -3465,22 +4803,22 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 6,
-              offset: const Offset(0, 2))
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
         ],
       ),
       child: Column(
         children: [
           Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
               color: const Color(0xFFF8FAFC),
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(12)),
-              border: Border(
-                  bottom: BorderSide(color: Colors.grey.shade100)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(12),
+              ),
+              border: Border(bottom: BorderSide(color: Colors.grey.shade100)),
             ),
             child: Row(
               children: cols.asMap().entries.map((e) {
@@ -3509,8 +4847,8 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
                         Icon(
                           isActive
                               ? (_sortAscending
-                                  ? Icons.arrow_upward
-                                  : Icons.arrow_downward)
+                                    ? Icons.arrow_upward
+                                    : Icons.arrow_downward)
                               : Icons.unfold_more,
                           size: 13,
                           color: isActive
@@ -3539,8 +4877,7 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
     return InkWell(
       onTap: () => _openEditDialog(p),
       child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
         decoration: BoxDecoration(
           border: isLast
               ? null
@@ -3556,20 +4893,24 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(_cleanInst(p.institucion),
-                      style: GoogleFonts.inter(
-                          fontSize: 13,
-                          color: const Color(0xFF1E293B)),
-                      overflow: TextOverflow.ellipsis),
+                  Text(
+                    _cleanInst(p.institucion),
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      color: const Color(0xFF1E293B),
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   const SizedBox(height: 2),
                   Text(
                     [
-                      if (_projectDisplayId(p) != null)
-                        _projectDisplayId(p)!,
+                      if (_projectDisplayId(p) != null) _projectDisplayId(p)!,
                       p.modalidadCompra,
                     ].join(' · '),
                     style: GoogleFonts.inter(
-                        fontSize: 11, color: Colors.grey.shade400),
+                      fontSize: 11,
+                      color: Colors.grey.shade400,
+                    ),
                     overflow: TextOverflow.ellipsis,
                   ),
                   if (p.reclamos.isNotEmpty) ...[
@@ -3579,24 +4920,30 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
                 ],
               ),
             ),
+            Expanded(flex: flexes[1], child: _productosCell(p.productos)),
             Expanded(
-                flex: flexes[1],
-                child: _productosCell(p.productos)),
+              flex: flexes[2],
+              child: Text(
+                p.valorMensual != null
+                    ? '\$ ${_fmt(p.valorMensual!.toInt())}'
+                    : '—',
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  color: const Color(0xFF1E293B),
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
             Expanded(
-                flex: flexes[2],
-                child: Text(
-                  p.valorMensual != null
-                      ? '\$ ${_fmt(p.valorMensual!.toInt())}'
-                      : '—',
-                  style: GoogleFonts.inter(
-                      fontSize: 13, color: const Color(0xFF1E293B)),
-                  overflow: TextOverflow.ellipsis,
-                )),
-            Expanded(
-                flex: flexes[3],
-                child: Text(_formatDate(p.fechaInicio),
-                    style: GoogleFonts.inter(
-                        fontSize: 13, color: Colors.grey.shade600))),
+              flex: flexes[3],
+              child: Text(
+                _formatDate(p.fechaInicio),
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+            ),
             Expanded(
               flex: flexes[4],
               child: Row(
@@ -3604,11 +4951,15 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
                   _fechaDot(p.fechaTermino, p.estado),
                   const SizedBox(width: 6),
                   Flexible(
-                      child: Text(_formatDate(p.fechaTermino),
-                          style: GoogleFonts.inter(
-                              fontSize: 13,
-                              color: Colors.grey.shade600),
-                          overflow: TextOverflow.ellipsis)),
+                    child: Text(
+                      _formatDate(p.fechaTermino),
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        color: Colors.grey.shade600,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -3620,15 +4971,14 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
 
   Widget _buildMobileCards(List<Proyecto> items) {
     if (items.isEmpty) return _buildEmptyState();
-    return Column(
-      children: items.map((p) => _buildMobileCard(p)).toList(),
-    );
+    return Column(children: items.map((p) => _buildMobileCard(p)).toList());
   }
 
   Widget _buildMobileCard(Proyecto p) {
     final estadoItem = _cfgEstados.firstWhere(
-        (e) => e.nombre == p.estado,
-        orElse: () => EstadoItem(nombre: p.estado, color: '64748B'));
+      (e) => e.nombre == p.estado,
+      orElse: () => EstadoItem(nombre: p.estado, color: '64748B'),
+    );
     final idLabel = _projectDisplayId(p);
 
     return GestureDetector(
@@ -3640,9 +4990,10 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 6,
-                offset: const Offset(0, 2))
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
           ],
         ),
         child: Column(
@@ -3657,17 +5008,24 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
               child: Row(
                 children: [
                   Container(
-                    width: 8, height: 8,
+                    width: 8,
+                    height: 8,
                     decoration: BoxDecoration(
-                        color: estadoItem.colorValue, shape: BoxShape.circle),
+                      color: estadoItem.colorValue,
+                      shape: BoxShape.circle,
+                    ),
                   ),
                   const SizedBox(width: 6),
                   Expanded(
-                    child: Text(p.estado,
-                        style: GoogleFonts.inter(
-                            fontSize: 11, fontWeight: FontWeight.w600,
-                            color: estadoItem.colorValue),
-                        overflow: TextOverflow.ellipsis),
+                    child: Text(
+                      p.estado,
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: estadoItem.colorValue,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Column(
@@ -3675,14 +5033,22 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       if (idLabel != null)
-                        Text(idLabel,
-                            style: GoogleFonts.inter(
-                                fontSize: 10, color: Colors.grey.shade400),
-                            overflow: TextOverflow.ellipsis),
-                      Text(p.modalidadCompra,
+                        Text(
+                          idLabel,
                           style: GoogleFonts.inter(
-                              fontSize: 9, color: Colors.grey.shade300),
-                          overflow: TextOverflow.ellipsis),
+                            fontSize: 10,
+                            color: Colors.grey.shade400,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      Text(
+                        p.modalidadCompra,
+                        style: GoogleFonts.inter(
+                          fontSize: 9,
+                          color: Colors.grey.shade300,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ],
                   ),
                 ],
@@ -3694,19 +5060,27 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(_cleanInst(p.institucion),
-                      style: GoogleFonts.inter(
-                          fontSize: 14, fontWeight: FontWeight.w600,
-                          color: const Color(0xFF1E293B)),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis),
+                  Text(
+                    _cleanInst(p.institucion),
+                    style: GoogleFonts.inter(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF1E293B),
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   if (p.productos.isNotEmpty) ...[
                     const SizedBox(height: 4),
-                    Text(p.productos,
-                        style: GoogleFonts.inter(
-                            fontSize: 12, color: Colors.grey.shade500),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
+                    Text(
+                      p.productos,
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: Colors.grey.shade500,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ],
                   const SizedBox(height: 8),
                   Wrap(
@@ -3715,21 +5089,31 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       if (p.valorMensual != null)
-                        Text('\$ ${_fmt(p.valorMensual!.toInt())}',
-                            style: GoogleFonts.inter(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                                color: Colors.grey.shade500)),
+                        Text(
+                          '\$ ${_fmt(p.valorMensual!.toInt())}',
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.grey.shade500,
+                          ),
+                        ),
                       if (p.fechaTermino != null)
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.calendar_today_outlined,
-                                size: 11, color: Colors.grey.shade400),
+                            Icon(
+                              Icons.calendar_today_outlined,
+                              size: 11,
+                              color: Colors.grey.shade400,
+                            ),
                             const SizedBox(width: 4),
-                            Text(_formatDate(p.fechaTermino),
-                                style: GoogleFonts.inter(
-                                    fontSize: 12, color: Colors.grey.shade500)),
+                            Text(
+                              _formatDate(p.fechaTermino),
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                color: Colors.grey.shade500,
+                              ),
+                            ),
                           ],
                         ),
                     ],
@@ -3749,8 +5133,7 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
       children: [
         Text(
           'Página ${_currentPage + 1} de $totalPages  ($totalItems proyectos)',
-          style:
-              GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade500),
+          style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade500),
         ),
         const SizedBox(width: 16),
         IconButton(
@@ -3773,14 +5156,25 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
 
   Widget _reclamoBadge(Proyecto p) {
     final hasPendiente = p.reclamos.any((r) => r.estado == 'Pendiente');
-    final color = hasPendiente ? const Color(0xFFDC2626) : const Color(0xFF10B981);
+    final color = hasPendiente
+        ? const Color(0xFFDC2626)
+        : const Color(0xFF10B981);
     final bg = hasPendiente ? const Color(0xFFFEF2F2) : const Color(0xFFF0FDF4);
     final label = hasPendiente ? 'Reclamo pendiente' : 'Reclamo respondido';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(4)),
-      child: Text(label,
-          style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w600, color: color)),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        label,
+        style: GoogleFonts.inter(
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
+      ),
     );
   }
 
@@ -3790,26 +5184,26 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
         .map((s) => s.trim())
         .where((s) => s.isNotEmpty)
         .toList();
-    return _ProductosChipsCell(
-        abrevs: abrevs, cfgProductos: _cfgProductos);
+    return _ProductosChipsCell(abrevs: abrevs, cfgProductos: _cfgProductos);
   }
 
   Widget _fechaDot(DateTime? fecha, String estado) {
     if (fecha == null) {
       return const SizedBox(width: 8, height: 8);
     }
-    final item = _cfgEstados.firstWhere((e) => e.nombre == estado,
-        orElse: () => EstadoItem(nombre: estado, color: '64748B'));
+    final item = _cfgEstados.firstWhere(
+      (e) => e.nombre == estado,
+      orElse: () => EstadoItem(nombre: estado, color: '64748B'),
+    );
     return Container(
-        width: 8,
-        height: 8,
-        decoration: BoxDecoration(
-            color: item.colorValue, shape: BoxShape.circle));
+      width: 8,
+      height: 8,
+      decoration: BoxDecoration(color: item.colorValue, shape: BoxShape.circle),
+    );
   }
 
   /// Strips the "CM: " prefix that Firestore stores in idCotizacion.
-  String _cleanCmId(String id) =>
-      id.startsWith('CM: ') ? id.substring(4) : id;
+  String _cleanCmId(String id) => id.startsWith('CM: ') ? id.substring(4) : id;
 
   /// Extracts the convenio marco ID from its URL (e.g. ".../id/5802363-3205ZEZE").
   String? _cmIdFromUrl(String? url) {
@@ -3831,8 +5225,18 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
   }
 
   static const _monthAbbr = [
-    'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
-    'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'
+    'Ene',
+    'Feb',
+    'Mar',
+    'Abr',
+    'May',
+    'Jun',
+    'Jul',
+    'Ago',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dic',
   ];
 
   String _fmtDateShort(DateTime? dt) {
@@ -3863,8 +5267,7 @@ tbody tr:nth-child(even) td { background: #F8FAFC; }
 class _ProductosChipsCell extends StatefulWidget {
   final List<String> abrevs;
   final List<ProductoItem> cfgProductos;
-  const _ProductosChipsCell(
-      {required this.abrevs, required this.cfgProductos});
+  const _ProductosChipsCell({required this.abrevs, required this.cfgProductos});
 
   @override
   State<_ProductosChipsCell> createState() => _ProductosChipsCellState();
@@ -3877,8 +5280,7 @@ class _ProductosChipsCellState extends State<_ProductosChipsCell> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => _checkOverflow());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkOverflow());
     _scrollCtrl.addListener(_checkOverflow);
   }
 
@@ -3886,8 +5288,7 @@ class _ProductosChipsCellState extends State<_ProductosChipsCell> {
     if (!_scrollCtrl.hasClients) return;
     final hasMore =
         _scrollCtrl.position.maxScrollExtent > 0 &&
-            _scrollCtrl.position.pixels <
-                _scrollCtrl.position.maxScrollExtent - 1;
+        _scrollCtrl.position.pixels < _scrollCtrl.position.maxScrollExtent - 1;
     if (hasMore != _hasOverflow) setState(() => _hasOverflow = hasMore);
   }
 
@@ -3909,23 +5310,27 @@ class _ProductosChipsCellState extends State<_ProductosChipsCell> {
               final cfg = widget.cfgProductos
                   .where((p) => p.abreviatura == abv)
                   .firstOrNull;
-              final bg =
-                  cfg != null ? cfg.bgColor : const Color(0xFFF2F2F7);
-              final fg =
-                  cfg != null ? cfg.fgColor : const Color(0xFF64748B);
+              final bg = cfg != null ? cfg.bgColor : const Color(0xFFF2F2F7);
+              final fg = cfg != null ? cfg.fgColor : const Color(0xFF64748B);
               return Padding(
                 padding: const EdgeInsets.only(right: 4),
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
-                      color: bg,
-                      borderRadius: BorderRadius.circular(5)),
-                  child: Text(abv,
-                      style: GoogleFonts.inter(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: fg)),
+                    color: bg,
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  child: Text(
+                    abv,
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: fg,
+                    ),
+                  ),
                 ),
               );
             }).toList(),
@@ -3945,7 +5350,7 @@ class _ProductosChipsCellState extends State<_ProductosChipsCell> {
                     end: Alignment.centerRight,
                     colors: [
                       Colors.white.withValues(alpha: 0),
-                      Colors.white.withValues(alpha: 0.85)
+                      Colors.white.withValues(alpha: 0.85),
                     ],
                   ),
                 ),
@@ -3961,81 +5366,36 @@ class _ProductosChipsCellState extends State<_ProductosChipsCell> {
 
 // ── Skeleton loading ──────────────────────────────────────────────────────────
 
-class _SkeletonBox extends StatefulWidget {
-  final double? width;
-  final double height;
-  final double radius;
-  const _SkeletonBox({this.width, this.height = 16, this.radius = 8});
-
-  @override
-  State<_SkeletonBox> createState() => _SkeletonBoxState();
-}
-
-class _SkeletonBoxState extends State<_SkeletonBox>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double> _anim;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 1100))
-      ..repeat(reverse: true);
-    _anim = CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut);
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _anim,
-      builder: (_, __) => Container(
-        width: widget.width,
-        height: widget.height,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(widget.radius),
-          color: Color.lerp(
-              const Color(0xFFEDF0F3), const Color(0xFFF7F9FB), _anim.value),
-        ),
-      ),
-    );
-  }
-}
 
 Widget _buildSkeletonDashboard(double hPad) {
   const gap = SizedBox(width: 14);
   const vGap = SizedBox(height: 14);
 
   Widget skCard({double height = 100}) => Container(
-        height: height,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withValues(alpha: 0.04),
-                blurRadius: 6,
-                offset: const Offset(0, 2))
-          ],
+    height: height,
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: 0.03),
+          blurRadius: 10,
+          offset: const Offset(0, 4),
         ),
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _SkeletonBox(width: 60, height: 10),
-            const SizedBox(height: 10),
-            _SkeletonBox(width: 120, height: 22, radius: 6),
-            const Spacer(),
-            _SkeletonBox(height: 8, radius: 4),
-          ],
-        ),
-      );
+      ],
+    ),
+    padding: const EdgeInsets.all(20),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SkeletonBox(width: 60, height: 10),
+        const SizedBox(height: 10),
+        SkeletonBox(width: 120, height: 22, radius: 6),
+        const Spacer(),
+        SkeletonBox(height: 8, radius: 4),
+      ],
+    ),
+  );
 
   return Padding(
     padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 48),
@@ -4050,13 +5410,15 @@ Widget _buildSkeletonDashboard(double hPad) {
             borderRadius: BorderRadius.circular(12),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Row(children: [
-            Expanded(child: _SkeletonBox(height: 28, radius: 8)),
-            gap,
-            Expanded(child: _SkeletonBox(height: 28, radius: 8)),
-            gap,
-            Expanded(child: _SkeletonBox(height: 28, radius: 8)),
-          ]),
+          child: Row(
+            children: [
+              Expanded(child: SkeletonBox(height: 28, radius: 8)),
+              gap,
+              Expanded(child: SkeletonBox(height: 28, radius: 8)),
+              gap,
+              Expanded(child: SkeletonBox(height: 28, radius: 8)),
+            ],
+          ),
         ),
         const SizedBox(height: 20),
         // KPI row: 4 cards
@@ -4075,11 +5437,14 @@ Widget _buildSkeletonDashboard(double hPad) {
         // Chart row: 2 cards
         SizedBox(
           height: 200,
-          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Expanded(child: skCard(height: 200)),
-            gap,
-            Expanded(child: skCard(height: 200)),
-          ]),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: skCard(height: 200)),
+              gap,
+              Expanded(child: skCard(height: 200)),
+            ],
+          ),
         ),
         const SizedBox(height: 20),
         // List skeleton rows
@@ -4092,13 +5457,15 @@ Widget _buildSkeletonDashboard(double hPad) {
               borderRadius: BorderRadius.circular(10),
             ),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            child: Row(children: [
-              _SkeletonBox(width: 8, height: 8, radius: 4),
-              const SizedBox(width: 12),
-              Expanded(child: _SkeletonBox(height: 12)),
-              const SizedBox(width: 24),
-              _SkeletonBox(width: 60, height: 12),
-            ]),
+            child: Row(
+              children: [
+                SkeletonBox(width: 8, height: 8, radius: 4),
+                const SizedBox(width: 12),
+                Expanded(child: SkeletonBox(height: 12)),
+                const SizedBox(width: 24),
+                SkeletonBox(width: 60, height: 12),
+              ],
+            ),
           ),
         ],
       ],
@@ -4147,13 +5514,15 @@ class _KpiCardShellState extends State<_KpiCardShell>
       vsync: this,
       duration: const Duration(milliseconds: 260),
     );
-    _iconScale = Tween<double>(begin: 0.72, end: 1.0).animate(
-      CurvedAnimation(parent: _iconCtrl, curve: Curves.easeOut),
-    );
+    _iconScale = Tween<double>(
+      begin: 0.72,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _iconCtrl, curve: Curves.easeOut));
     _iconOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
-          parent: _iconCtrl,
-          curve: const Interval(0.0, 0.55, curve: Curves.easeOut)),
+        parent: _iconCtrl,
+        curve: const Interval(0.0, 0.55, curve: Curves.easeOut),
+      ),
     );
     _iconCtrl.value = 1.0; // start fully visible, no animation on first build
   }
@@ -4177,7 +5546,9 @@ class _KpiCardShellState extends State<_KpiCardShell>
     final canTap = widget.onTap != null;
     return MouseRegion(
       cursor: canTap ? SystemMouseCursors.click : MouseCursor.defer,
-      onEnter: (_) { if (canTap) setState(() => _hovered = true); },
+      onEnter: (_) {
+        if (canTap) setState(() => _hovered = true);
+      },
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
         onTap: widget.onTap,
@@ -4193,85 +5564,96 @@ class _KpiCardShellState extends State<_KpiCardShell>
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: Colors.grey.shade100, width: 1),
           ),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Flexible(
-                  child: Text(widget.label,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Flexible(
+                    child: Text(
+                      widget.label,
                       style: GoogleFonts.inter(
-                          fontSize: 11,
-                          color: Colors.grey.shade500,
-                          fontWeight: FontWeight.w500),
-                      maxLines: 2),
-                ),
-                FadeTransition(
-                  opacity: _iconOpacity,
-                  child: ScaleTransition(
-                    scale: _iconScale,
-                    child: widget.icon,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            widget.value,
-            const SizedBox(height: 8),
-            // Bottom row: dots (left) + Apple-style arrow (right, hover only)
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => widget.onSwipe(true),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: ClipRect(
-                        child: Row(
-                          children: List.generate(widget.pageCount, (i) => AnimatedContainer(
-                            duration: const Duration(milliseconds: 200),
-                            width: i == widget.currentIndex ? 12 : 5,
-                            height: 4,
-                            margin: const EdgeInsets.only(right: 4),
-                            decoration: BoxDecoration(
-                              color: i == widget.currentIndex
-                                  ? widget.color
-                                  : Colors.grey.shade200,
-                              borderRadius: BorderRadius.circular(2),
-                            ),
-                          )),
-                        ),
+                        fontSize: 11,
+                        color: Colors.grey.shade500,
+                        fontWeight: FontWeight.w500,
                       ),
+                      maxLines: 2,
                     ),
-                    // Apple-style chevron — only when tappable and hovered
-                    if (canTap)
-                      AnimatedOpacity(
-                        opacity: _hovered ? 1.0 : 0.0,
-                        duration: const Duration(milliseconds: 180),
-                        child: AnimatedSlide(
-                          offset: _hovered ? Offset.zero : const Offset(0.3, 0),
-                          duration: const Duration(milliseconds: 180),
-                          curve: Curves.easeOut,
-                          child: Container(
-                            width: 20,
-                            height: 20,
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade100,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              Icons.chevron_right_rounded,
-                              size: 14,
-                              color: Colors.grey.shade500,
+                  ),
+                  FadeTransition(
+                    opacity: _iconOpacity,
+                    child: ScaleTransition(
+                      scale: _iconScale,
+                      child: widget.icon,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              widget.value,
+              const SizedBox(height: 8),
+              // Bottom row: dots (left) + Apple-style arrow (right, hover only)
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => widget.onSwipe(true),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: ClipRect(
+                          child: Row(
+                            children: List.generate(
+                              widget.pageCount,
+                              (i) => AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                width: i == widget.currentIndex ? 12 : 5,
+                                height: 4,
+                                margin: const EdgeInsets.only(right: 4),
+                                decoration: BoxDecoration(
+                                  color: i == widget.currentIndex
+                                      ? widget.color
+                                      : Colors.grey.shade200,
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
                             ),
                           ),
                         ),
                       ),
-                  ],
+                      // Apple-style chevron — only when tappable and hovered
+                      if (canTap)
+                        AnimatedOpacity(
+                          opacity: _hovered ? 1.0 : 0.0,
+                          duration: const Duration(milliseconds: 180),
+                          child: AnimatedSlide(
+                            offset: _hovered
+                                ? Offset.zero
+                                : const Offset(0.3, 0),
+                            duration: const Duration(milliseconds: 180),
+                            curve: Curves.easeOut,
+                            child: Container(
+                              width: 20,
+                              height: 20,
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade100,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                Icons.chevron_right_rounded,
+                                size: 14,
+                                color: Colors.grey.shade500,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ]),
+            ],
+          ),
         ),
       ),
     );
@@ -4282,7 +5664,11 @@ class _ReclamosCard extends StatefulWidget {
   final int pendientes;
   final int finalizados;
   final void Function(String)? onNavigate;
-  const _ReclamosCard({required this.pendientes, required this.finalizados, this.onNavigate});
+  const _ReclamosCard({
+    required this.pendientes,
+    required this.finalizados,
+    this.onNavigate,
+  });
 
   @override
   State<_ReclamosCard> createState() => _ReclamosCardState();
@@ -4295,11 +5681,19 @@ class _ReclamosCardState extends State<_ReclamosCard> {
   Widget build(BuildContext context) {
     final isPendientes = _idx == 0;
     final count = isPendientes ? widget.pendientes : widget.finalizados;
-    final label = isPendientes ? 'Reclamos\nPendientes' : 'Reclamos\nFinalizados';
+    final label = isPendientes
+        ? 'Reclamos\nPendientes'
+        : 'Reclamos\nFinalizados';
     final color = isPendientes
-        ? (widget.pendientes > 0 ? const Color(0xFFDC2626) : Colors.grey.shade400)
-        : (widget.finalizados > 0 ? const Color(0xFF10B981) : Colors.grey.shade400);
-    final iconData = isPendientes ? Icons.gavel_outlined : Icons.check_circle_outline;
+        ? (widget.pendientes > 0
+              ? const Color(0xFFDC2626)
+              : Colors.grey.shade400)
+        : (widget.finalizados > 0
+              ? const Color(0xFF10B981)
+              : Colors.grey.shade400);
+    final iconData = isPendientes
+        ? Icons.gavel_outlined
+        : Icons.check_circle_outline;
 
     return _KpiCardShell(
       label: label,
@@ -4308,16 +5702,20 @@ class _ReclamosCardState extends State<_ReclamosCard> {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.10),
-            borderRadius: BorderRadius.circular(8)),
+          color: color.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(8),
+        ),
         child: Icon(iconData, size: 15, color: color),
       ),
-      value: Text(count.toString(),
-          style: GoogleFonts.inter(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              letterSpacing: -0.5,
-              color: const Color(0xFF1E293B))),
+      value: Text(
+        count.toString(),
+        style: GoogleFonts.inter(
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+          letterSpacing: -0.5,
+          color: const Color(0xFF1E293B),
+        ),
+      ),
       pageCount: 2,
       currentIndex: _idx,
       onSwipe: (_) => setState(() => _idx = _idx == 0 ? 1 : 0),
@@ -4343,19 +5741,54 @@ class _ProyectosKpiCardState extends State<_ProyectosKpiCard> {
   int _idx = 3; // default: Postulación
 
   static const _pages = [
-    (label: 'Proyectos\nActivos',     estado: null as String?,            color: Color(0xFF5B21B6), activos: true),
-    (label: 'Proyectos\nVigentes',    estado: EstadoProyecto.vigente,     color: Color(0xFF10B981), activos: false),
-    (label: 'Proyectos\nX Vencer',    estado: EstadoProyecto.xVencer,     color: Color(0xFFF59E0B), activos: false),
-    (label: 'Proyectos\nEn Evaluación', estado: 'En Evaluación',            color: Color(0xFF6366F1), activos: false),
-    (label: 'Proyectos\nFinalizados', estado: EstadoProyecto.finalizado,  color: Color(0xFF64748B), activos: false),
-    (label: 'Proyectos\nTotal',       estado: null as String?,            color: Color(0xFF0EA5E9), activos: false),
+    (
+      label: 'Proyectos\nActivos',
+      estado: null as String?,
+      color: Color(0xFF007AFF),
+      activos: true,
+    ),
+    (
+      label: 'Proyectos\nVigentes',
+      estado: EstadoProyecto.vigente,
+      color: Color(0xFF10B981),
+      activos: false,
+    ),
+    (
+      label: 'Proyectos\nX Vencer',
+      estado: EstadoProyecto.xVencer,
+      color: Color(0xFFF59E0B),
+      activos: false,
+    ),
+    (
+      label: 'Proyectos\nEn Evaluación',
+      estado: 'En Evaluación',
+      color: Color(0xFF6366F1),
+      activos: false,
+    ),
+    (
+      label: 'Proyectos\nFinalizados',
+      estado: EstadoProyecto.finalizado,
+      color: Color(0xFF64748B),
+      activos: false,
+    ),
+    (
+      label: 'Proyectos\nTotal',
+      estado: null as String?,
+      color: Color(0xFF0EA5E9),
+      activos: false,
+    ),
   ];
 
   int _count() {
     final page = _pages[_idx];
     if (page.activos) {
-      return widget.proyectos.where((p) =>
-        p.estado == EstadoProyecto.vigente || p.estado == EstadoProyecto.xVencer).length;
+      return widget.proyectos
+          .where(
+            (p) =>
+                p.estado == EstadoProyecto.vigente ||
+                p.estado == EstadoProyecto.xVencer,
+          )
+          .length;
     }
     if (page.estado == null) return widget.proyectos.length;
     return widget.proyectos.where((p) => p.estado == page.estado).length;
@@ -4373,24 +5806,33 @@ class _ProyectosKpiCardState extends State<_ProyectosKpiCard> {
       icon: Container(
         padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(8)),
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
         child: Icon(Icons.folder_open_outlined, size: 15, color: color),
       ),
-      value: Text(count.toString(),
-          style: GoogleFonts.inter(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              letterSpacing: -0.5,
-              color: const Color(0xFF1E293B))),
+      value: Text(
+        count.toString(),
+        style: GoogleFonts.inter(
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+          letterSpacing: -0.5,
+          color: const Color(0xFF1E293B),
+        ),
+      ),
       pageCount: _pages.length,
       currentIndex: _idx,
-      onSwipe: (forward) => setState(() =>
-          _idx = forward ? (_idx + 1) % _pages.length : (_idx - 1 + _pages.length) % _pages.length),
-      onTap: widget.onNavigate == null ? null : () {
-        final page = _pages[_idx];
-        widget.onNavigate!(page.activos ? null : page.estado);
-      },
+      onSwipe: (forward) => setState(
+        () => _idx = forward
+            ? (_idx + 1) % _pages.length
+            : (_idx - 1 + _pages.length) % _pages.length,
+      ),
+      onTap: widget.onNavigate == null
+          ? null
+          : () {
+              final page = _pages[_idx];
+              widget.onNavigate!(page.activos ? null : page.estado);
+            },
     );
   }
 }
@@ -4410,9 +5852,9 @@ class _XVencerKpiCardState extends State<_XVencerKpiCard> {
   int _idx = 1; // default: 3 meses
 
   static const _periodos = [
-    (label: 'Por Vencer\n(30 días)',  dias: 30),
-    (label: 'Por Vencer\n(3 meses)',  dias: 90),
-    (label: 'Por Vencer\n(6 meses)',  dias: 180),
+    (label: 'Por Vencer\n(30 días)', dias: 30),
+    (label: 'Por Vencer\n(3 meses)', dias: 90),
+    (label: 'Por Vencer\n(6 meses)', dias: 180),
     (label: 'Por Vencer\n(12 meses)', dias: 365),
   ];
 
@@ -4420,7 +5862,10 @@ class _XVencerKpiCardState extends State<_XVencerKpiCard> {
     final now = DateTime.now();
     final limite = now.add(Duration(days: dias));
     return widget.proyectos.where((p) {
-      if (p.estado != EstadoProyecto.vigente && p.estado != EstadoProyecto.xVencer) return false;
+      if (p.estado != EstadoProyecto.vigente &&
+          p.estado != EstadoProyecto.xVencer) {
+        return false;
+      }
       final ft = p.fechaTermino;
       if (ft == null) return false;
       return ft.isAfter(now) && ft.isBefore(limite);
@@ -4440,21 +5885,30 @@ class _XVencerKpiCardState extends State<_XVencerKpiCard> {
       icon: Container(
         padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
-            color: activeColor.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(8)),
+          color: activeColor.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
         child: Icon(Icons.schedule_outlined, size: 15, color: activeColor),
       ),
-      value: Text(count.toString(),
-          style: GoogleFonts.inter(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              letterSpacing: -0.5,
-              color: const Color(0xFF1E293B))),
+      value: Text(
+        count.toString(),
+        style: GoogleFonts.inter(
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+          letterSpacing: -0.5,
+          color: const Color(0xFF1E293B),
+        ),
+      ),
       pageCount: _periodos.length,
       currentIndex: _idx,
-      onSwipe: (forward) => setState(() =>
-          _idx = forward ? (_idx + 1) % _periodos.length : (_idx - 1 + _periodos.length) % _periodos.length),
-      onTap: widget.onNavigate != null ? () => widget.onNavigate!(page.dias) : null,
+      onSwipe: (forward) => setState(
+        () => _idx = forward
+            ? (_idx + 1) % _periodos.length
+            : (_idx - 1 + _periodos.length) % _periodos.length,
+      ),
+      onTap: widget.onNavigate != null
+          ? () => widget.onNavigate!(page.dias)
+          : null,
     );
   }
 }
@@ -4474,10 +5928,30 @@ class _ValorMensualCardState extends State<_ValorMensualCard> {
   int _idx = 2; // default: Postulación
 
   static const _pages = [
-    (label: 'Valor Mensual\nVigente',     short: 'Vigente',     estado: EstadoProyecto.vigente,    color: Color(0xFF10B981)),
-    (label: 'Valor Mensual\nX Vencer',    short: 'X Vencer',    estado: EstadoProyecto.xVencer,    color: Color(0xFFF59E0B)),
-    (label: 'Valor Mensual\nEn Evaluación', short: 'En Evaluación', estado: 'En Evaluación',            color: Color(0xFF0EA5E9)),
-    (label: 'Valor Mensual\nTotal',       short: 'Total',       estado: null as String?,            color: Color(0xFF5B21B6)),
+    (
+      label: 'Valor Mensual\nVigente',
+      short: 'Vigente',
+      estado: EstadoProyecto.vigente,
+      color: Color(0xFF10B981),
+    ),
+    (
+      label: 'Valor Mensual\nX Vencer',
+      short: 'X Vencer',
+      estado: EstadoProyecto.xVencer,
+      color: Color(0xFFF59E0B),
+    ),
+    (
+      label: 'Valor Mensual\nEn Evaluación',
+      short: 'En Evaluación',
+      estado: 'En Evaluación',
+      color: Color(0xFF0EA5E9),
+    ),
+    (
+      label: 'Valor Mensual\nTotal',
+      short: 'Total',
+      estado: null as String?,
+      color: Color(0xFF007AFF),
+    ),
   ];
 
   static String _fmt(double n) {
@@ -4513,8 +5987,9 @@ class _ValorMensualCardState extends State<_ValorMensualCard> {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(8)),
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(8),
+        ),
         child: Icon(Icons.attach_money, size: 15, color: color),
       ),
       value: Tooltip(
@@ -4523,19 +5998,25 @@ class _ValorMensualCardState extends State<_ValorMensualCard> {
         child: Text(
           total > 0 ? _fmt(total) : '—',
           style: GoogleFonts.inter(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              letterSpacing: -0.5,
-              color: const Color(0xFF1E293B)),
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            letterSpacing: -0.5,
+            color: const Color(0xFF1E293B),
+          ),
         ),
       ),
       pageCount: _pages.length,
       currentIndex: _idx,
-      onSwipe: (forward) => setState(() =>
-          _idx = forward ? (_idx + 1) % _pages.length : (_idx - 1 + _pages.length) % _pages.length),
-      onTap: widget.onNavigate == null ? null : () {
-        widget.onNavigate!(_pages[_idx].estado);
-      },
+      onSwipe: (forward) => setState(
+        () => _idx = forward
+            ? (_idx + 1) % _pages.length
+            : (_idx - 1 + _pages.length) % _pages.length,
+      ),
+      onTap: widget.onNavigate == null
+          ? null
+          : () {
+              widget.onNavigate!(_pages[_idx].estado);
+            },
     );
   }
 }
@@ -4546,7 +6027,11 @@ class _KpiCarouselMobile extends StatefulWidget {
   final List<Widget> kpiCards;
   final List<Widget> chartCards;
   final Widget actionBadges;
-  const _KpiCarouselMobile({required this.kpiCards, required this.chartCards, required this.actionBadges});
+  const _KpiCarouselMobile({
+    required this.kpiCards,
+    required this.chartCards,
+    required this.actionBadges,
+  });
 
   @override
   State<_KpiCarouselMobile> createState() => _KpiCarouselMobileState();
@@ -4575,7 +6060,9 @@ class _KpiCarouselMobileState extends State<_KpiCarouselMobile> {
     if (pageIndex < _kpiPages) {
       final i = pageIndex * 2;
       final first = widget.kpiCards[i];
-      final second = i + 1 < widget.kpiCards.length ? widget.kpiCards[i + 1] : null;
+      final second = i + 1 < widget.kpiCards.length
+          ? widget.kpiCards[i + 1]
+          : null;
       return Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -4590,13 +6077,16 @@ class _KpiCarouselMobileState extends State<_KpiCarouselMobile> {
   }
 
   void _goTo(int page) {
-    _ctrl.animateToPage(page,
-        duration: const Duration(milliseconds: 280), curve: Curves.easeInOut);
+    _ctrl.animateToPage(
+      page,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeInOut,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    const primaryColor = Color(0xFF6D28D9);
+    const primaryColor = Color(0xFF007AFF);
     final total = _totalPages;
     return Column(
       children: [
@@ -4630,12 +6120,16 @@ class _KpiCarouselMobileState extends State<_KpiCarouselMobile> {
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.10),
-                                blurRadius: 6)
+                              color: Colors.black.withValues(alpha: 0.10),
+                              blurRadius: 6,
+                            ),
                           ],
                         ),
-                        child: const Icon(Icons.chevron_left_rounded,
-                            size: 20, color: primaryColor),
+                        child: const Icon(
+                          Icons.chevron_left_rounded,
+                          size: 20,
+                          color: primaryColor,
+                        ),
                       ),
                     ),
                   ),
@@ -4656,12 +6150,16 @@ class _KpiCarouselMobileState extends State<_KpiCarouselMobile> {
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.10),
-                                blurRadius: 6)
+                              color: Colors.black.withValues(alpha: 0.10),
+                              blurRadius: 6,
+                            ),
                           ],
                         ),
-                        child: const Icon(Icons.chevron_right_rounded,
-                            size: 20, color: primaryColor),
+                        child: const Icon(
+                          Icons.chevron_right_rounded,
+                          size: 20,
+                          color: primaryColor,
+                        ),
                       ),
                     ),
                   ),
@@ -4672,8 +6170,9 @@ class _KpiCarouselMobileState extends State<_KpiCarouselMobile> {
         const SizedBox(height: 10),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(total, (i) =>
-            AnimatedContainer(
+          children: List.generate(
+            total,
+            (i) => AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               width: i == _page ? 16 : 6,
               height: 5,
@@ -4697,8 +6196,10 @@ class _KpiCarouselMobileState extends State<_KpiCarouselMobile> {
 typedef _QData = ({String label, int year, int quarter, double value});
 
 List<_QData> _groupByQuarter(
-    List<Proyecto> proyectos, double Function(Proyecto) getValue,
-    {bool onlyWithOC = false}) {
+  List<Proyecto> proyectos,
+  double Function(Proyecto) getValue, {
+  bool onlyWithOC = false,
+}) {
   final map = <(int, int), double>{};
   for (final p in proyectos) {
     if (onlyWithOC && p.idsOrdenesCompra.isEmpty) continue;
@@ -4714,12 +6215,14 @@ List<_QData> _groupByQuarter(
       return yc != 0 ? yc : a.key.$2.compareTo(b.key.$2);
     });
   return entries
-      .map((e) => (
-            label: 'Q${e.key.$2}',
-            year: e.key.$1,
-            quarter: e.key.$2,
-            value: e.value,
-          ))
+      .map(
+        (e) => (
+          label: 'Q${e.key.$2}',
+          year: e.key.$1,
+          quarter: e.key.$2,
+          value: e.value,
+        ),
+      )
       .toList();
 }
 
@@ -4760,20 +6263,26 @@ List<_QData> _churnByQuarter(List<Proyecto> proyectos) {
 
     // Tiene renovación si hay otro proyecto con OC de la misma institución
     // cuyo fechaInicio es posterior a la fecha de término de éste
-    final tieneRenovacion = renovadas.contains(inst) ||
-        proyectos.any((o) =>
-            o.id != p.id &&
-            o.idsOrdenesCompra.isNotEmpty &&
-            o.institucion.trim().toLowerCase() == inst &&
-            (o.fechaInicio ?? o.fechaCreacion) != null &&
-            (o.fechaInicio ?? o.fechaCreacion)!.isAfter(fechaFin));
+    final tieneRenovacion =
+        renovadas.contains(inst) ||
+        proyectos.any(
+          (o) =>
+              o.id != p.id &&
+              o.idsOrdenesCompra.isNotEmpty &&
+              o.institucion.trim().toLowerCase() == inst &&
+              (o.fechaInicio ?? o.fechaCreacion) != null &&
+              (o.fechaInicio ?? o.fechaCreacion)!.isAfter(fechaFin),
+        );
 
     // Período de gracia: 90 días desde fechaTermino antes de contar como churn
     final graceDate = fechaFin.add(const Duration(days: 90));
     if (graceDate.isAfter(DateTime.now())) continue;
 
     // Encadenado explícitamente → no es churn
-    if (p.proyectoContinuacionId != null && p.proyectoContinuacionId!.isNotEmpty) continue;
+    if (p.proyectoContinuacionId != null &&
+        p.proyectoContinuacionId!.isNotEmpty) {
+      continue;
+    }
 
     if (!tieneRenovacion) {
       final q = ((fechaFin.month - 1) ~/ 3) + 1;
@@ -4788,12 +6297,14 @@ List<_QData> _churnByQuarter(List<Proyecto> proyectos) {
       return yc != 0 ? yc : a.key.$2.compareTo(b.key.$2);
     });
   return entries
-      .map((e) => (
-            label: 'Q${e.key.$2}',
-            year: e.key.$1,
-            quarter: e.key.$2,
-            value: e.value,
-          ))
+      .map(
+        (e) => (
+          label: 'Q${e.key.$2}',
+          year: e.key.$1,
+          quarter: e.key.$2,
+          value: e.value,
+        ),
+      )
       .toList();
 }
 
@@ -4805,8 +6316,12 @@ List<_QData> _churnByQuarter(List<Proyecto> proyectos) {
   List<double> positive,
   List<double> churn,
   List<(int, int)> keys,
-}) _mergeDivergingData(List<_QData> positiveData, List<_QData> churnData,
-    {bool abbreviated = false}) {
+})
+_mergeDivergingData(
+  List<_QData> positiveData,
+  List<_QData> churnData, {
+  bool abbreviated = false,
+}) {
   final keys = <(int, int)>{};
   for (final d in [...positiveData, ...churnData]) {
     keys.add((d.year, d.quarter));
@@ -4874,12 +6389,14 @@ List<_QData> _newClientsByQuarter(List<Proyecto> proyectos) {
       return yc != 0 ? yc : a.key.$2.compareTo(b.key.$2);
     });
   return entries
-      .map((e) => (
-            label: 'Q${e.key.$2}',
-            year: e.key.$1,
-            quarter: e.key.$2,
-            value: e.value,
-          ))
+      .map(
+        (e) => (
+          label: 'Q${e.key.$2}',
+          year: e.key.$1,
+          quarter: e.key.$2,
+          value: e.value,
+        ),
+      )
       .toList();
 }
 
@@ -4887,9 +6404,19 @@ List<_QData> _newClientsByQuarter(List<Proyecto> proyectos) {
 
 class _ClientesChartCard extends StatefulWidget {
   final List<Proyecto> proyectos;
-  final void Function(int year, int quarter, {bool onlyWithOC, bool onlyIngresos})? onQuarterTap;
+  final void Function(
+    int year,
+    int quarter, {
+    bool onlyWithOC,
+    bool onlyIngresos,
+  })?
+  onQuarterTap;
   final void Function(int year, int quarter)? onChurnQuarterTap;
-  const _ClientesChartCard({required this.proyectos, this.onQuarterTap, this.onChurnQuarterTap});
+  const _ClientesChartCard({
+    required this.proyectos,
+    this.onQuarterTap,
+    this.onChurnQuarterTap,
+  });
 
   @override
   State<_ClientesChartCard> createState() => _ClientesChartCardState();
@@ -4901,8 +6428,12 @@ class _ClientesChartCardState extends State<_ClientesChartCard> {
 
   @override
   Widget build(BuildContext context) {
-    final data  = _newClientsByQuarter(widget.proyectos).where((d) => d.year >= 2021).toList();
-    final churn = _churnByQuarter(widget.proyectos).where((d) => d.year >= 2021).toList();
+    final data = _newClientsByQuarter(
+      widget.proyectos,
+    ).where((d) => d.year >= 2021).toList();
+    final churn = _churnByQuarter(
+      widget.proyectos,
+    ).where((d) => d.year >= 2021).toList();
     final merged = _mergeDivergingData(data, churn);
 
     // Clientes activos netos por quarter:
@@ -4921,33 +6452,39 @@ class _ClientesChartCardState extends State<_ClientesChartCard> {
       color: _color,
       showLine: _showLine,
       onToggle: () => setState(() => _showLine = !_showLine),
-      helpStep: _showLine ? HelpStepsStore.instance.steps[2] : HelpStepsStore.instance.steps[1],
+      helpStep: _showLine
+          ? HelpStepsStore.instance.steps[2]
+          : HelpStepsStore.instance.steps[1],
       child: merged.labels.isEmpty
           ? _emptyChartWidget()
           : _showLine
-              ? _LineChartWidget(
-                  labels: merged.labels,
-                  yearLabels: merged.yearLabels,
-                  values: netValues,
-                  color: _color,
-                  integerValues: true,
-                )
-              : _BarChartWidget(
-                  labels: merged.labels,
-                  yearLabels: merged.yearLabels,
-                  values: merged.positive,
-                  churnValues: merged.churn,
-                  color: _color,
-                  integerValues: true,
-                  onBarTap: widget.onQuarterTap == null ? null : (i) {
-                    final k = merged.keys[i];
-                    widget.onQuarterTap!(k.$1, k.$2, onlyWithOC: true);
-                  },
-                  onChurnBarTap: widget.onChurnQuarterTap == null ? null : (i) {
-                    final k = merged.keys[i];
-                    widget.onChurnQuarterTap!(k.$1, k.$2);
-                  },
-                ),
+          ? _LineChartWidget(
+              labels: merged.labels,
+              yearLabels: merged.yearLabels,
+              values: netValues,
+              color: _color,
+              integerValues: true,
+            )
+          : _BarChartWidget(
+              labels: merged.labels,
+              yearLabels: merged.yearLabels,
+              values: merged.positive,
+              churnValues: merged.churn,
+              color: _color,
+              integerValues: true,
+              onBarTap: widget.onQuarterTap == null
+                  ? null
+                  : (i) {
+                      final k = merged.keys[i];
+                      widget.onQuarterTap!(k.$1, k.$2, onlyWithOC: true);
+                    },
+              onChurnBarTap: widget.onChurnQuarterTap == null
+                  ? null
+                  : (i) {
+                      final k = merged.keys[i];
+                      widget.onChurnQuarterTap!(k.$1, k.$2);
+                    },
+            ),
     );
   }
 }
@@ -4956,7 +6493,13 @@ class _ClientesChartCardState extends State<_ClientesChartCard> {
 
 class _FacturacionChartCard extends StatefulWidget {
   final List<Proyecto> proyectos;
-  final void Function(int year, int quarter, {bool onlyWithOC, bool onlyIngresos})? onQuarterTap;
+  final void Function(
+    int year,
+    int quarter, {
+    bool onlyWithOC,
+    bool onlyIngresos,
+  })?
+  onQuarterTap;
   const _FacturacionChartCard({required this.proyectos, this.onQuarterTap});
 
   @override
@@ -4978,85 +6521,113 @@ class _FacturacionChartCardState extends State<_FacturacionChartCard> {
   @override
   Widget build(BuildContext context) {
     final dataMensual = _groupByQuarter(
-        widget.proyectos.where((p) =>
-            p.estado == EstadoProyecto.vigente ||
-            p.estado == EstadoProyecto.xVencer ||
-            p.estado == EstadoProyecto.finalizado).toList(),
-        (p) => p.valorMensual ?? 0)
-        .where((d) => d.year >= 2021).toList();
+      widget.proyectos
+          .where(
+            (p) =>
+                p.estado == EstadoProyecto.vigente ||
+                p.estado == EstadoProyecto.xVencer ||
+                p.estado == EstadoProyecto.finalizado,
+          )
+          .toList(),
+      (p) => p.valorMensual ?? 0,
+    ).where((d) => d.year >= 2021).toList();
     final dataOC = _groupByQuarter(
-        widget.proyectos, (p) => p.montoTotalOC ?? 0,
-        onlyWithOC: true).where((d) => d.value > 0).toList();
+      widget.proyectos,
+      (p) => p.montoTotalOC ?? 0,
+      onlyWithOC: true,
+    ).where((d) => d.value > 0).toList();
     final yLabelsMensual = _yearLabels(dataMensual, abbreviated: true);
     final yLabelsOC = _yearLabels(dataOC, abbreviated: true);
 
     final cum = <double>[];
     double s = 0;
-    for (final d in dataMensual) { s += d.value; cum.add(s); }
+    for (final d in dataMensual) {
+      s += d.value;
+      cum.add(s);
+    }
 
     final (title, color, child) = switch (_view) {
       1 => (
-          'Facturación Mensual Acumulada',
-          _color,
-          dataMensual.isEmpty
-              ? _emptyChartWidget()
-              : _LineChartWidget(
-                  labels: dataMensual.map((d) => d.label).toList(),
-                  yearLabels: yLabelsMensual,
-                  values: cum,
-                  color: _color,
-                  formatValue: _fmt,
-                ),
-        ),
+        'Facturación Mensual Acumulada',
+        _color,
+        dataMensual.isEmpty
+            ? _emptyChartWidget()
+            : _LineChartWidget(
+                labels: dataMensual.map((d) => d.label).toList(),
+                yearLabels: yLabelsMensual,
+                values: cum,
+                color: _color,
+                formatValue: _fmt,
+              ),
+      ),
       2 => (
-          'Total Órdenes de Compra',
-          _colorOC,
-          dataOC.isEmpty
-              ? _emptyChartWidget()
-              : _BarChartWidget(
-                  labels: dataOC.map((d) => d.label).toList(),
-                  yearLabels: yLabelsOC,
-                  values: dataOC.map((d) => d.value).toList(),
-                  color: _colorOC,
-                  formatValue: _fmt,
-                  onBarTap: widget.onQuarterTap == null ? null : (i) {
-                    final d = dataOC[i];
-                    widget.onQuarterTap!(d.year, d.quarter, onlyWithOC: true);
-                  },
-                ),
-        ),
+        'Total Órdenes de Compra',
+        _colorOC,
+        dataOC.isEmpty
+            ? _emptyChartWidget()
+            : _BarChartWidget(
+                labels: dataOC.map((d) => d.label).toList(),
+                yearLabels: yLabelsOC,
+                values: dataOC.map((d) => d.value).toList(),
+                color: _colorOC,
+                formatValue: _fmt,
+                onBarTap: widget.onQuarterTap == null
+                    ? null
+                    : (i) {
+                        final d = dataOC[i];
+                        widget.onQuarterTap!(
+                          d.year,
+                          d.quarter,
+                          onlyWithOC: true,
+                        );
+                      },
+              ),
+      ),
       _ => (
-          'Monto Mensual / Quarter',
-          _color,
-          dataMensual.isEmpty
-              ? _emptyChartWidget()
-              : _BarChartWidget(
-                  labels: dataMensual.map((d) => d.label).toList(),
-                  yearLabels: yLabelsMensual,
-                  values: dataMensual.map((d) => d.value).toList(),
-                  color: _color,
-                  formatValue: _fmt,
-                  onBarTap: widget.onQuarterTap == null ? null : (i) {
-                    final d = dataMensual[i];
-                    widget.onQuarterTap!(d.year, d.quarter, onlyWithOC: false, onlyIngresos: true);
-                  },
-                ),
-        ),
+        'Monto Mensual / Quarter',
+        _color,
+        dataMensual.isEmpty
+            ? _emptyChartWidget()
+            : _BarChartWidget(
+                labels: dataMensual.map((d) => d.label).toList(),
+                yearLabels: yLabelsMensual,
+                values: dataMensual.map((d) => d.value).toList(),
+                color: _color,
+                formatValue: _fmt,
+                onBarTap: widget.onQuarterTap == null
+                    ? null
+                    : (i) {
+                        final d = dataMensual[i];
+                        widget.onQuarterTap!(
+                          d.year,
+                          d.quarter,
+                          onlyWithOC: false,
+                          onlyIngresos: true,
+                        );
+                      },
+              ),
+      ),
     };
 
     final viewLabels = ['M', 'T', '∑ OC'];
-    final viewIcons = [Icons.bar_chart_rounded, Icons.show_chart_rounded, Icons.receipt_long_rounded];
+    final viewIcons = [
+      Icons.bar_chart_rounded,
+      Icons.show_chart_rounded,
+      Icons.receipt_long_rounded,
+    ];
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        boxShadow: [BoxShadow(
-          color: Colors.black.withValues(alpha: 0.05),
-          blurRadius: 6,
-          offset: const Offset(0, 2),
-        )],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -5073,46 +6644,69 @@ class _FacturacionChartCardState extends State<_FacturacionChartCard> {
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: Row(children: [
-                  Flexible(child: Text(title,
-                      style: GoogleFonts.inter(
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        title,
+                        style: GoogleFonts.inter(
                           fontSize: 11,
                           color: Colors.grey.shade500,
-                          fontWeight: FontWeight.w500),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis)),
-                  HelpBadge(HelpStepsStore.instance.steps[3]),
-                ]),
+                          fontWeight: FontWeight.w500,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    HelpBadge(HelpStepsStore.instance.steps[3]),
+                  ],
+                ),
               ),
               const SizedBox(width: 8),
               // 3-option toggle
               Row(
                 mainAxisSize: MainAxisSize.min,
-                children: List.generate(3, (i) => GestureDetector(
-                  onTap: () => setState(() => _view = i),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-                    margin: EdgeInsets.only(left: i > 0 ? 4 : 0),
-                    decoration: BoxDecoration(
-                      color: _view == i ? color.withValues(alpha: 0.12) : Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(viewIcons[i], size: 12,
-                            color: _view == i ? color : Colors.grey.shade500),
-                        const SizedBox(width: 3),
-                        Text(viewLabels[i],
+                children: List.generate(
+                  3,
+                  (i) => GestureDetector(
+                    onTap: () => setState(() => _view = i),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 4,
+                      ),
+                      margin: EdgeInsets.only(left: i > 0 ? 4 : 0),
+                      decoration: BoxDecoration(
+                        color: _view == i
+                            ? color.withValues(alpha: 0.12)
+                            : Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            viewIcons[i],
+                            size: 12,
+                            color: _view == i ? color : Colors.grey.shade500,
+                          ),
+                          const SizedBox(width: 3),
+                          Text(
+                            viewLabels[i],
                             style: GoogleFonts.inter(
-                                fontSize: 10,
-                                color: _view == i ? color : Colors.grey.shade500,
-                                fontWeight: _view == i ? FontWeight.w600 : FontWeight.w400)),
-                      ],
+                              fontSize: 10,
+                              color: _view == i ? color : Colors.grey.shade500,
+                              fontWeight: _view == i
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                )),
+                ),
               ),
             ],
           ),
@@ -5152,11 +6746,13 @@ class _ChartCardShell extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        boxShadow: [BoxShadow(
-          color: Colors.black.withValues(alpha: 0.05),
-          blurRadius: 6,
-          offset: const Offset(0, 2),
-        )],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -5175,13 +6771,18 @@ class _ChartCardShell extends StatelessWidget {
               Expanded(
                 child: Row(
                   children: [
-                    Flexible(child: Text(title,
+                    Flexible(
+                      child: Text(
+                        title,
                         style: GoogleFonts.inter(
-                            fontSize: 11,
-                            color: Colors.grey.shade500,
-                            fontWeight: FontWeight.w500),
+                          fontSize: 11,
+                          color: Colors.grey.shade500,
+                          fontWeight: FontWeight.w500,
+                        ),
                         maxLines: 1,
-                        overflow: TextOverflow.ellipsis)),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                     if (helpStep != null) HelpBadge(helpStep!),
                   ],
                 ),
@@ -5190,7 +6791,10 @@ class _ChartCardShell extends StatelessWidget {
               GestureDetector(
                 onTap: onToggle,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.grey.shade100,
                     borderRadius: BorderRadius.circular(8),
@@ -5199,14 +6803,19 @@ class _ChartCardShell extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                        showLine ? Icons.bar_chart_rounded : Icons.show_chart_rounded,
+                        showLine
+                            ? Icons.bar_chart_rounded
+                            : Icons.show_chart_rounded,
                         size: 12,
                         color: Colors.grey.shade600,
                       ),
                       const SizedBox(width: 3),
                       Text(
                         showLine ? 'Barras' : 'Tendencia',
-                        style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade600),
+                        style: GoogleFonts.inter(
+                          fontSize: 10,
+                          color: Colors.grey.shade600,
+                        ),
                       ),
                     ],
                   ),
@@ -5223,17 +6832,21 @@ class _ChartCardShell extends StatelessWidget {
 }
 
 Widget _emptyChartWidget() => Center(
-      child: Text('Sin datos',
-          style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade400)),
-    );
+  child: Text(
+    'Sin datos',
+    style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade400),
+  ),
+);
 
 // ── Bar chart widget ──────────────────────────────────────────────────────────
 
 class _BarChartWidget extends StatefulWidget {
   final List<String> labels;
+
   /// Año a mostrar debajo del label cuando cambia (null = no mostrar)
   final List<String?> yearLabels;
   final List<double> values;
+
   /// Valores de churn (bajas) — barras rojas hacia abajo; misma longitud que values
   final List<double> churnValues;
   final Color color;
@@ -5263,7 +6876,10 @@ class _BarChartWidgetState extends State<_BarChartWidget> {
 
   String _fmt(double v) {
     if (widget.formatValue != null) return widget.formatValue!(v);
-    return widget.integerValues ? v.toInt().toString() : v.toStringAsFixed(1);
+    if (widget.integerValues) {
+      return v.toInt().toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.');
+    }
+    return v.toStringAsFixed(1);
   }
 
   int? _indexAt(Offset local, Size size) {
@@ -5289,69 +6905,74 @@ class _BarChartWidgetState extends State<_BarChartWidget> {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) {
-      final size = Size(constraints.maxWidth, constraints.maxHeight);
-      return MouseRegion(
-        cursor: (widget.onBarTap != null || widget.onChurnBarTap != null)
-            ? SystemMouseCursors.click
-            : SystemMouseCursors.basic,
-        onHover: (e) {
-          final idx = _indexAt(e.localPosition, size);
-          if (idx != _hoveredIndex) setState(() => _hoveredIndex = idx);
-        },
-        onExit: (_) => setState(() => _hoveredIndex = null),
-        child: GestureDetector(
-          onTapDown: (e) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
+        return MouseRegion(
+          cursor: (widget.onBarTap != null || widget.onChurnBarTap != null)
+              ? SystemMouseCursors.click
+              : SystemMouseCursors.basic,
+          onHover: (e) {
             final idx = _indexAt(e.localPosition, size);
-            if (idx != null) {
-              final isChurn = _isChurnZone(e.localPosition, size);
-              if (isChurn &&
-                  widget.onChurnBarTap != null &&
-                  idx < widget.churnValues.length &&
-                  widget.churnValues[idx] > 0) {
-                widget.onChurnBarTap!(idx);
-              } else if (widget.onBarTap != null) {
-                widget.onBarTap!(idx);
-              } else {
-                setState(() => _hoveredIndex = _hoveredIndex == idx ? null : idx);
-              }
-            }
+            if (idx != _hoveredIndex) setState(() => _hoveredIndex = idx);
           },
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              CustomPaint(
-                painter: _BarChartPainter(
-                  labels: widget.labels,
-                  yearLabels: widget.yearLabels,
-                  values: widget.values,
-                  churnValues: widget.churnValues,
-                  color: widget.color,
-                  integerValues: widget.integerValues,
-                  formatValue: widget.formatValue,
-                  hoveredIndex: _hoveredIndex,
+          onExit: (_) => setState(() => _hoveredIndex = null),
+          child: GestureDetector(
+            onTapDown: (e) {
+              final idx = _indexAt(e.localPosition, size);
+              if (idx != null) {
+                final isChurn = _isChurnZone(e.localPosition, size);
+                if (isChurn &&
+                    widget.onChurnBarTap != null &&
+                    idx < widget.churnValues.length &&
+                    widget.churnValues[idx] > 0) {
+                  widget.onChurnBarTap!(idx);
+                } else if (widget.onBarTap != null) {
+                  widget.onBarTap!(idx);
+                } else {
+                  setState(
+                    () => _hoveredIndex = _hoveredIndex == idx ? null : idx,
+                  );
+                }
+              }
+            },
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                CustomPaint(
+                  painter: _BarChartPainter(
+                    labels: widget.labels,
+                    yearLabels: widget.yearLabels,
+                    values: widget.values,
+                    churnValues: widget.churnValues,
+                    color: widget.color,
+                    integerValues: widget.integerValues,
+                    formatValue: widget.formatValue,
+                    hoveredIndex: _hoveredIndex,
+                  ),
+                  child: const SizedBox.expand(),
                 ),
-                child: const SizedBox.expand(),
-              ),
-              if (_hoveredIndex != null)
-                _BarTooltip(
-                  index: _hoveredIndex!,
-                  label: widget.labels[_hoveredIndex!],
-                  yearLabel: widget.yearLabels[_hoveredIndex!],
-                  valueText: _fmt(widget.values[_hoveredIndex!]),
-                  churnText: widget.churnValues.length > _hoveredIndex! &&
-                          widget.churnValues[_hoveredIndex!] > 0
-                      ? '-${_fmt(widget.churnValues[_hoveredIndex!])}'
-                      : null,
-                  color: widget.color,
-                  totalSlots: widget.labels.length,
-                  chartWidth: size.width,
-                ),
-            ],
+                if (_hoveredIndex != null)
+                  _BarTooltip(
+                    index: _hoveredIndex!,
+                    label: widget.labels[_hoveredIndex!],
+                    yearLabel: widget.yearLabels[_hoveredIndex!],
+                    valueText: _fmt(widget.values[_hoveredIndex!]),
+                    churnText:
+                        widget.churnValues.length > _hoveredIndex! &&
+                            widget.churnValues[_hoveredIndex!] > 0
+                        ? '-${_fmt(widget.churnValues[_hoveredIndex!])}'
+                        : null,
+                    color: widget.color,
+                    totalSlots: widget.labels.length,
+                    chartWidth: size.width,
+                  ),
+              ],
+            ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
   }
 }
 
@@ -5397,34 +7018,44 @@ class _BarTooltip extends StatelessWidget {
             borderRadius: BorderRadius.circular(8),
             boxShadow: [
               BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.18),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3))
+                color: Colors.black.withValues(alpha: 0.18),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
+              ),
             ],
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(fullLabel,
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(
-                      fontSize: 10,
-                      color: Colors.white.withValues(alpha: 0.65))),
+              Text(
+                fullLabel,
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(
+                  fontSize: 10,
+                  color: Colors.white.withValues(alpha: 0.65),
+                ),
+              ),
               const SizedBox(height: 3),
-              Text(valueText,
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white)),
+              Text(
+                valueText,
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
               if (churnText != null) ...[
                 const SizedBox(height: 2),
-                Text(churnText!,
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.inter(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFFFCA5A5))),
+                Text(
+                  churnText!,
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFFFCA5A5),
+                  ),
+                ),
               ],
             ],
           ),
@@ -5457,8 +7088,13 @@ class _BarChartPainter extends CustomPainter {
     this.hoveredIndex,
   });
 
-  void _drawCenteredText(Canvas canvas, String text, Offset center,
-      TextStyle style, double maxWidth) {
+  void _drawCenteredText(
+    Canvas canvas,
+    String text,
+    Offset center,
+    TextStyle style,
+    double maxWidth,
+  ) {
     final tp = TextPainter(
       text: TextSpan(text: text, style: style),
       textAlign: TextAlign.center,
@@ -5484,8 +7120,8 @@ class _BarChartPainter extends CustomPainter {
 
     // Zero line splits chart area proportionally
     final posRatio = maxNeg == 0 ? 1.0 : maxPos / (maxPos + maxNeg);
-    final posH = totalH * posRatio;  // height above zero
-    final negH = totalH - posH;       // height below zero
+    final posH = totalH * posRatio; // height above zero
+    final negH = totalH - posH; // height below zero
     final zeroY = topPad + posH;
 
     final n = labels.length;
@@ -5493,12 +7129,16 @@ class _BarChartPainter extends CustomPainter {
     final barW = slotW * 0.55;
 
     final quarterStyle = TextStyle(
-        fontSize: 9, color: const Color(0xFF94A3B8), fontFamily: 'Inter');
+      fontSize: 9,
+      color: const Color(0xFF94A3B8),
+      fontFamily: 'Inter',
+    );
     final yearStyle = TextStyle(
-        fontSize: 8,
-        color: const Color(0xFFCBD5E1),
-        fontFamily: 'Inter',
-        fontWeight: FontWeight.w600);
+      fontSize: 8,
+      color: const Color(0xFFCBD5E1),
+      fontFamily: 'Inter',
+      fontWeight: FontWeight.w600,
+    );
 
     // Zero line (only when churn exists)
     if (maxNeg > 0) {
@@ -5519,20 +7159,24 @@ class _BarChartPainter extends CustomPainter {
       if (maxPos > 0) {
         final bh = (values[i] / maxPos) * posH;
         canvas.drawRRect(
-            RRect.fromRectAndRadius(
-                Rect.fromLTWH(cx - barW / 2, topPad, barW, posH),
-                const Radius.circular(4)),
-            Paint()
-              ..color = color.withValues(alpha: hovered ? 0.14 : 0.08)
-              ..style = PaintingStyle.fill);
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(cx - barW / 2, topPad, barW, posH),
+            const Radius.circular(4),
+          ),
+          Paint()
+            ..color = color.withValues(alpha: hovered ? 0.14 : 0.08)
+            ..style = PaintingStyle.fill,
+        );
         if (bh > 0) {
           canvas.drawRRect(
-              RRect.fromRectAndRadius(
-                  Rect.fromLTWH(cx - barW / 2, zeroY - bh, barW, bh),
-                  const Radius.circular(4)),
-              Paint()
-                ..color = hovered ? color.withValues(alpha: 0.85) : color
-                ..style = PaintingStyle.fill);
+            RRect.fromRectAndRadius(
+              Rect.fromLTWH(cx - barW / 2, zeroY - bh, barW, bh),
+              const Radius.circular(4),
+            ),
+            Paint()
+              ..color = hovered ? color.withValues(alpha: 0.85) : color
+              ..style = PaintingStyle.fill,
+          );
         }
       }
 
@@ -5540,31 +7184,45 @@ class _BarChartPainter extends CustomPainter {
       if (maxNeg > 0 && i < churnValues.length && churnValues[i] > 0) {
         final bh = (churnValues[i] / maxNeg) * negH;
         canvas.drawRRect(
-            RRect.fromRectAndRadius(
-                Rect.fromLTWH(cx - barW / 2, zeroY, barW, negH),
-                const Radius.circular(4)),
-            Paint()
-              ..color = _churnColor.withValues(alpha: hovered ? 0.14 : 0.07)
-              ..style = PaintingStyle.fill);
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(cx - barW / 2, zeroY, barW, negH),
+            const Radius.circular(4),
+          ),
+          Paint()
+            ..color = _churnColor.withValues(alpha: hovered ? 0.14 : 0.07)
+            ..style = PaintingStyle.fill,
+        );
         canvas.drawRRect(
-            RRect.fromRectAndRadius(
-                Rect.fromLTWH(cx - barW / 2, zeroY, barW, bh),
-                const Radius.circular(4)),
-            Paint()
-              ..color = hovered
-                  ? _churnColor.withValues(alpha: 0.85)
-                  : _churnColor
-              ..style = PaintingStyle.fill);
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(cx - barW / 2, zeroY, barW, bh),
+            const Radius.circular(4),
+          ),
+          Paint()
+            ..color = hovered
+                ? _churnColor.withValues(alpha: 0.85)
+                : _churnColor
+            ..style = PaintingStyle.fill,
+        );
       }
 
       // Quarter label
-      _drawCenteredText(canvas, labels[i],
-          Offset(cx, size.height - axisH), quarterStyle, slotW);
+      _drawCenteredText(
+        canvas,
+        labels[i],
+        Offset(cx, size.height - axisH),
+        quarterStyle,
+        slotW,
+      );
 
       // Year label (only on year change)
       if (i < yearLabels.length && yearLabels[i] != null) {
-        _drawCenteredText(canvas, yearLabels[i]!,
-            Offset(cx, size.height - yearH), yearStyle, slotW * 2);
+        _drawCenteredText(
+          canvas,
+          yearLabels[i]!,
+          Offset(cx, size.height - yearH),
+          yearStyle,
+          slotW * 2,
+        );
       }
     }
   }
@@ -5609,7 +7267,10 @@ class _LineChartWidgetState extends State<_LineChartWidget> {
 
   String _fmt(double v) {
     if (widget.formatValue != null) return widget.formatValue!(v);
-    return widget.integerValues ? v.toInt().toString() : v.toStringAsFixed(1);
+    if (widget.integerValues) {
+      return v.toInt().toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.');
+    }
+    return v.toStringAsFixed(1);
   }
 
   // Encuentra el índice del punto más cercano al X del mouse
@@ -5622,60 +7283,65 @@ class _LineChartWidgetState extends State<_LineChartWidget> {
     for (int i = 0; i < n; i++) {
       final x = n > 1 ? 4.0 + i * stepX : size.width / 2;
       final d = (local.dx - x).abs();
-      if (d < minDist) { minDist = d; idx = i; }
+      if (d < minDist) {
+        minDist = d;
+        idx = i;
+      }
     }
     return idx;
   }
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) {
-      final size = Size(constraints.maxWidth, constraints.maxHeight);
-      return MouseRegion(
-        onHover: (e) {
-          final idx = _indexAt(e.localPosition, size);
-          if (idx != _hoveredIndex) setState(() => _hoveredIndex = idx);
-        },
-        onExit: (_) => setState(() => _hoveredIndex = null),
-        child: GestureDetector(
-          onTapDown: (e) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
+        return MouseRegion(
+          onHover: (e) {
             final idx = _indexAt(e.localPosition, size);
-            setState(() => _hoveredIndex = _hoveredIndex == idx ? null : idx);
+            if (idx != _hoveredIndex) setState(() => _hoveredIndex = idx);
           },
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              CustomPaint(
-                painter: _LineChartPainter(
-                  labels: widget.labels,
-                  yearLabels: widget.yearLabels,
-                  values: widget.values,
-                  color: widget.color,
-                  integerValues: widget.integerValues,
-                  formatValue: widget.formatValue,
-                  hoveredIndex: _hoveredIndex,
+          onExit: (_) => setState(() => _hoveredIndex = null),
+          child: GestureDetector(
+            onTapDown: (e) {
+              final idx = _indexAt(e.localPosition, size);
+              setState(() => _hoveredIndex = _hoveredIndex == idx ? null : idx);
+            },
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                CustomPaint(
+                  painter: _LineChartPainter(
+                    labels: widget.labels,
+                    yearLabels: widget.yearLabels,
+                    values: widget.values,
+                    color: widget.color,
+                    integerValues: widget.integerValues,
+                    formatValue: widget.formatValue,
+                    hoveredIndex: _hoveredIndex,
+                  ),
+                  child: const SizedBox.expand(),
                 ),
-                child: const SizedBox.expand(),
-              ),
-              if (_hoveredIndex != null)
-                _LineTooltip(
-                  index: _hoveredIndex!,
-                  label: widget.labels[_hoveredIndex!],
-                  yearLabel: widget.yearLabels.length > _hoveredIndex!
-                      ? widget.yearLabels[_hoveredIndex!]
-                      : null,
-                  valueText: _fmt(widget.values[_hoveredIndex!]),
-                  color: widget.color,
-                  totalPoints: widget.values.length,
-                  chartWidth: size.width,
-                  chartHeight: size.height,
-                  values: widget.values,
-                ),
-            ],
+                if (_hoveredIndex != null)
+                  _LineTooltip(
+                    index: _hoveredIndex!,
+                    label: widget.labels[_hoveredIndex!],
+                    yearLabel: widget.yearLabels.length > _hoveredIndex!
+                        ? widget.yearLabels[_hoveredIndex!]
+                        : null,
+                    valueText: _fmt(widget.values[_hoveredIndex!]),
+                    color: widget.color,
+                    totalPoints: widget.values.length,
+                    chartWidth: size.width,
+                    chartHeight: size.height,
+                    values: widget.values,
+                  ),
+              ],
+            ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
   }
 }
 
@@ -5713,7 +7379,9 @@ class _LineTooltip extends StatelessWidget {
 
     final stepX = totalPoints > 1 ? (chartWidth - 8) / (totalPoints - 1) : 0.0;
     final px = totalPoints > 1 ? 4.0 + index * stepX : chartWidth / 2;
-    final py = maxVal > 0 ? topPad + chartH * (1 - values[index] / maxVal) : topPad;
+    final py = maxVal > 0
+        ? topPad + chartH * (1 - values[index] / maxVal)
+        : topPad;
 
     const tooltipW = 96.0;
     const tooltipH = 52.0;
@@ -5734,26 +7402,33 @@ class _LineTooltip extends StatelessWidget {
             borderRadius: BorderRadius.circular(8),
             boxShadow: [
               BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.18),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3))
+                color: Colors.black.withValues(alpha: 0.18),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
+              ),
             ],
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(fullLabel,
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(
-                      fontSize: 10,
-                      color: Colors.white.withValues(alpha: 0.65))),
+              Text(
+                fullLabel,
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(
+                  fontSize: 10,
+                  color: Colors.white.withValues(alpha: 0.65),
+                ),
+              ),
               const SizedBox(height: 3),
-              Text(valueText,
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white)),
+              Text(
+                valueText,
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
             ],
           ),
         ),
@@ -5783,11 +7458,19 @@ class _LineChartPainter extends CustomPainter {
 
   String _fmt(double v) {
     if (formatValue != null) return formatValue!(v);
+    if (integerValues) {
+      return v.toInt().toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.');
+    }
     return integerValues ? v.toInt().toString() : v.toStringAsFixed(1);
   }
 
-  void _drawCenteredText(Canvas canvas, String text, Offset center,
-      TextStyle style, double maxWidth) {
+  void _drawCenteredText(
+    Canvas canvas,
+    String text,
+    Offset center,
+    TextStyle style,
+    double maxWidth,
+  ) {
     final tp = TextPainter(
       text: TextSpan(text: text, style: style),
       textAlign: TextAlign.center,
@@ -5818,39 +7501,72 @@ class _LineChartPainter extends CustomPainter {
 
     // Gradient fill
     final fillPath = Path()..moveTo(points.first.dx, topPad + chartH);
-    for (final p in points) { fillPath.lineTo(p.dx, p.dy); }
-    fillPath..lineTo(points.last.dx, topPad + chartH)..close();
+    for (final p in points) {
+      fillPath.lineTo(p.dx, p.dy);
+    }
+    fillPath
+      ..lineTo(points.last.dx, topPad + chartH)
+      ..close();
     canvas.drawPath(
-        fillPath,
-        Paint()
-          ..shader = LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [color.withValues(alpha: 0.18), color.withValues(alpha: 0.01)],
-          ).createShader(Rect.fromLTWH(0, topPad, size.width, chartH))
-          ..style = PaintingStyle.fill);
+      fillPath,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            color.withValues(alpha: 0.18),
+            color.withValues(alpha: 0.01),
+          ],
+        ).createShader(Rect.fromLTWH(0, topPad, size.width, chartH))
+        ..style = PaintingStyle.fill,
+    );
 
     // Smooth line
     final linePath = Path()..moveTo(points.first.dx, points.first.dy);
     for (int i = 1; i < points.length; i++) {
-      final cp1 = Offset((points[i - 1].dx + points[i].dx) / 2, points[i - 1].dy);
+      final cp1 = Offset(
+        (points[i - 1].dx + points[i].dx) / 2,
+        points[i - 1].dy,
+      );
       final cp2 = Offset((points[i - 1].dx + points[i].dx) / 2, points[i].dy);
-      linePath.cubicTo(cp1.dx, cp1.dy, cp2.dx, cp2.dy, points[i].dx, points[i].dy);
+      linePath.cubicTo(
+        cp1.dx,
+        cp1.dy,
+        cp2.dx,
+        cp2.dy,
+        points[i].dx,
+        points[i].dy,
+      );
     }
-    canvas.drawPath(linePath, Paint()
-      ..color = color..style = PaintingStyle.stroke
-      ..strokeWidth = 2.0..strokeCap = StrokeCap.round);
+    canvas.drawPath(
+      linePath,
+      Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0
+        ..strokeCap = StrokeCap.round,
+    );
 
     // Eje X: mostrar label solo cada Nth punto para no saturar
     // Siempre mostrar año cuando cambia; Q solo si hay espacio (n <= 8) o
     // si es el primer punto del año
     final quarterStyle = TextStyle(
-        fontSize: 9, color: const Color(0xFF94A3B8), fontFamily: 'Inter');
+      fontSize: 9,
+      color: const Color(0xFF94A3B8),
+      fontFamily: 'Inter',
+    );
     final yearStyle = TextStyle(
-        fontSize: 8, color: const Color(0xFFCBD5E1),
-        fontFamily: 'Inter', fontWeight: FontWeight.w600);
+      fontSize: 8,
+      color: const Color(0xFFCBD5E1),
+      fontFamily: 'Inter',
+      fontWeight: FontWeight.w600,
+    );
     final valueStyle = TextStyle(
-        fontSize: 9, color: color, fontWeight: FontWeight.w600, fontFamily: 'Inter');
+      fontSize: 9,
+      color: color,
+      fontWeight: FontWeight.w600,
+      fontFamily: 'Inter',
+    );
 
     // Umbral: mostrar Q label solo cuando hay espacio suficiente (slotX >= 18px)
     final showAllQ = stepX >= 18;
@@ -5863,37 +7579,63 @@ class _LineChartPainter extends CustomPainter {
 
       // Dot — más grande si está hovered
       final dotR = isHovered ? 4.5 : 2.5;
-      canvas.drawCircle(p, dotR,
-          Paint()..color = Colors.white..style = PaintingStyle.fill);
-      canvas.drawCircle(p, dotR, Paint()
-        ..color = isHovered ? color : color.withValues(alpha: 0.7)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = isHovered ? 2.5 : 1.5);
+      canvas.drawCircle(
+        p,
+        dotR,
+        Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.fill,
+      );
+      canvas.drawCircle(
+        p,
+        dotR,
+        Paint()
+          ..color = isHovered ? color : color.withValues(alpha: 0.7)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = isHovered ? 2.5 : 1.5,
+      );
 
       // Valor: solo en el último punto (o si está hovered, lo maneja el tooltip)
       if (isLast) {
-        _drawCenteredText(canvas, _fmt(values[i]),
-            Offset(p.dx, p.dy - 13), valueStyle, 60);
+        _drawCenteredText(
+          canvas,
+          _fmt(values[i]),
+          Offset(p.dx, p.dy - 13),
+          valueStyle,
+          60,
+        );
       }
 
       // Q label: solo si cabe o es cambio de año
       if (showAllQ || isYearChange) {
-        _drawCenteredText(canvas, labels[i],
-            Offset(p.dx, size.height - axisH), quarterStyle, stepX.clamp(14, 50));
+        _drawCenteredText(
+          canvas,
+          labels[i],
+          Offset(p.dx, size.height - axisH),
+          quarterStyle,
+          stepX.clamp(14, 50),
+        );
       }
 
       // Año: solo en cambio de año
       if (isYearChange) {
-        _drawCenteredText(canvas, yearLabels[i]!,
-            Offset(p.dx, size.height - yearH), yearStyle, 60);
+        _drawCenteredText(
+          canvas,
+          yearLabels[i]!,
+          Offset(p.dx, size.height - yearH),
+          yearStyle,
+          60,
+        );
       }
     }
   }
 
   @override
   bool shouldRepaint(_LineChartPainter old) =>
-      old.values != values || old.color != color ||
-      old.labels != labels || old.yearLabels != yearLabels ||
+      old.values != values ||
+      old.color != color ||
+      old.labels != labels ||
+      old.yearLabels != yearLabels ||
       old.hoveredIndex != hoveredIndex;
 }
 
@@ -5909,6 +7651,7 @@ class _DocItem {
   final String? labelFechaSecundaria;
   final List<String> urls;
   final Color color;
+  final String? tabTarget;
 
   const _DocItem({
     required this.tipoDoc,
@@ -5920,6 +7663,7 @@ class _DocItem {
     this.labelFechaSecundaria,
     required this.urls,
     required this.color,
+    this.tabTarget,
   });
 }
 
@@ -5950,14 +7694,19 @@ class _FilterSearchDialogState extends State<_FilterSearchDialog> {
     _filtered = widget.items;
     _ctrl.addListener(() {
       final q = _ctrl.text.toLowerCase();
-      setState(() => _filtered = widget.items
-          .where((s) => widget.displayLabel(s).toLowerCase().contains(q))
-          .toList());
+      setState(
+        () => _filtered = widget.items
+            .where((s) => widget.displayLabel(s).toLowerCase().contains(q))
+            .toList(),
+      );
     });
   }
 
   @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -5976,7 +7725,8 @@ class _FilterSearchDialogState extends State<_FilterSearchDialog> {
                 children: [
                   Center(
                     child: Container(
-                      width: 32, height: 3,
+                      width: 32,
+                      height: 3,
                       decoration: BoxDecoration(
                         color: Colors.grey.shade300,
                         borderRadius: BorderRadius.circular(2),
@@ -5984,32 +7734,42 @@ class _FilterSearchDialogState extends State<_FilterSearchDialog> {
                     ),
                   ),
                   const SizedBox(height: 14),
-                  Row(children: [
-                    Expanded(
-                      child: Text(widget.hint,
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          widget.hint,
                           style: GoogleFonts.inter(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              color: const Color(0xFF1E293B))),
-                    ),
-                    if (widget.value != null)
-                      TextButton(
-                        onPressed: () => Navigator.pop(context, '\x00'),
-                        style: TextButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(horizontal: 8)),
-                        child: Text('Limpiar',
-                            style: GoogleFonts.inter(
-                                fontSize: 13, color: Colors.red.shade400)),
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFF1E293B),
+                          ),
+                        ),
                       ),
-                    IconButton(
-                      icon: const Icon(Icons.close, size: 20),
-                      onPressed: () => Navigator.pop(context),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      color: Colors.grey.shade500,
-                    ),
-                    const SizedBox(width: 4),
-                  ]),
+                      if (widget.value != null)
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, '\x00'),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                          ),
+                          child: Text(
+                            'Limpiar',
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              color: Colors.red.shade400,
+                            ),
+                          ),
+                        ),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 20),
+                        onPressed: () => Navigator.pop(context),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        color: Colors.grey.shade500,
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                  ),
                   const SizedBox(height: 12),
                   const Divider(height: 1),
                 ],
@@ -6023,7 +7783,10 @@ class _FilterSearchDialogState extends State<_FilterSearchDialog> {
                 autofocus: true,
                 decoration: InputDecoration(
                   hintText: 'Buscar ${widget.hint.toLowerCase()}...',
-                  hintStyle: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400),
+                  hintStyle: GoogleFonts.inter(
+                    fontSize: 13,
+                    color: Colors.grey.shade400,
+                  ),
                   prefixIcon: const Icon(Icons.search, size: 18),
                   filled: true,
                   fillColor: const Color(0xFFF8FAFC),
@@ -6037,10 +7800,16 @@ class _FilterSearchDialogState extends State<_FilterSearchDialog> {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Color(0xFF5B21B6), width: 1.5),
+                    borderSide: const BorderSide(
+                      color: Color(0xFF007AFF),
+                      width: 1.5,
+                    ),
                   ),
                   isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 10,
+                  ),
                 ),
                 style: GoogleFonts.inter(fontSize: 13),
               ),
@@ -6058,24 +7827,37 @@ class _FilterSearchDialogState extends State<_FilterSearchDialog> {
                   return InkWell(
                     onTap: () => Navigator.pop(context, item),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 13,
+                      ),
                       color: isSelected
-                          ? const Color(0xFF5B21B6).withValues(alpha: 0.05)
+                          ? const Color(0xFF007AFF).withValues(alpha: 0.05)
                           : null,
-                      child: Row(children: [
-                        Expanded(
-                          child: Text(display,
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              display,
                               style: GoogleFonts.inter(
                                 fontSize: 13,
                                 color: isSelected
-                                    ? const Color(0xFF5B21B6)
+                                    ? const Color(0xFF007AFF)
                                     : const Color(0xFF1E293B),
-                                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                              )),
-                        ),
-                        if (isSelected)
-                          const Icon(Icons.check, size: 16, color: Color(0xFF5B21B6)),
-                      ]),
+                                fontWeight: isSelected
+                                    ? FontWeight.w600
+                                    : FontWeight.normal,
+                              ),
+                            ),
+                          ),
+                          if (isSelected)
+                            const Icon(
+                              Icons.check,
+                              size: 16,
+                              color: Color(0xFF007AFF),
+                            ),
+                        ],
+                      ),
                     ),
                   );
                 },
@@ -6110,41 +7892,53 @@ class _RadarKpiRow extends StatelessWidget {
     required this.isMobile,
   });
 
-  static const _primary = Color(0xFF5B21B6);
+  static const _primary = Color(0xFF007AFF);
 
   Widget _kpiCard(String label, String value, Color color, IconData icon) {
     return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6)],
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(icon, size: 16, color: color),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(value,
-                      style: GoogleFonts.inter(
-                          fontSize: 18, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
-                  Text(label,
-                      style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500)),
-                ],
-              ),
+            child: Icon(icon, size: 16, color: color),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: GoogleFonts.inter(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF1E293B),
+                  ),
+                ),
+                Text(
+                  label,
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    color: Colors.grey.shade500,
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -6152,11 +7946,31 @@ class _RadarKpiRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final rateStr = winRate > 0 ? '${winRate.toStringAsFixed(0)}%' : '—';
     final cards = [
-      _kpiCard('Ganadas', '$ganados', const Color(0xFF10B981), Icons.emoji_events_outlined),
-      _kpiCard('Perdidas', '$perdidos', const Color(0xFFEF4444), Icons.close_outlined),
-      _kpiCard('En curso', '$enCurso', const Color(0xFFF59E0B), Icons.pending_outlined),
+      _kpiCard(
+        'Ganadas',
+        '$ganados',
+        const Color(0xFF10B981),
+        Icons.emoji_events_outlined,
+      ),
+      _kpiCard(
+        'Perdidas',
+        '$perdidos',
+        const Color(0xFFEF4444),
+        Icons.close_outlined,
+      ),
+      _kpiCard(
+        'En curso',
+        '$enCurso',
+        const Color(0xFFF59E0B),
+        Icons.pending_outlined,
+      ),
       _kpiCard('Win rate', rateStr, _primary, Icons.track_changes_outlined),
-      _kpiCard('Monto ganado', fmtMonto(montoGanado), const Color(0xFF0EA5E9), Icons.monetization_on_outlined),
+      _kpiCard(
+        'Monto ganado',
+        fmtMonto(montoGanado),
+        const Color(0xFF0EA5E9),
+        Icons.monetization_on_outlined,
+      ),
     ];
 
     if (isMobile) {
@@ -6197,7 +8011,7 @@ class _RadarOportunidadesCard extends StatelessWidget {
     required this.onCargar,
   });
 
-  static const _primary = Color(0xFF5B21B6);
+  static const _primary = Color(0xFF007AFF);
 
   String _fmtMonto(dynamic v) {
     if (v == null) return '—';
@@ -6214,7 +8028,9 @@ class _RadarOportunidadesCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)],
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -6233,20 +8049,32 @@ class _RadarOportunidadesCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Text('Radar de Oportunidades',
-                      style: GoogleFonts.inter(
-                          fontSize: 14, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
+                  child: Text(
+                    'Radar de Oportunidades',
+                    style: GoogleFonts.inter(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF1E293B),
+                    ),
+                  ),
                 ),
                 if (cargando)
-                  const SizedBox(
-                      width: 18, height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: _primary))
+                  const SizedBox() // Handled in body
                 else if (rows.isEmpty)
                   TextButton.icon(
                     onPressed: onCargar,
                     icon: const Icon(Icons.download_outlined, size: 15),
-                    label: Text('Cargar', style: GoogleFonts.inter(fontSize: 12)),
-                    style: TextButton.styleFrom(foregroundColor: _primary, padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6)),
+                    label: Text(
+                      'Cargar',
+                      style: GoogleFonts.inter(fontSize: 12),
+                    ),
+                    style: TextButton.styleFrom(
+                      foregroundColor: _primary,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                    ),
                   )
                 else
                   IconButton(
@@ -6261,14 +8089,55 @@ class _RadarOportunidadesCard extends StatelessWidget {
           if (error != null)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-              child: Text('Error: $error',
-                  style: GoogleFonts.inter(fontSize: 12, color: Colors.red.shade400)),
+              child: Text(
+                'Error: $error',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  color: Colors.red.shade400,
+                ),
+              ),
+            )
+          else if (cargando)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Column(
+                children: List.generate(5, (i) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SkeletonBox(width: 80, height: 10, radius: 4),
+                            const SizedBox(height: 6),
+                            SkeletonBox(height: 14, radius: 6),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: SkeletonBox(height: 14, radius: 6),
+                      ),
+                      const SizedBox(width: 12),
+                      SkeletonBox(width: 60, height: 14, radius: 6),
+                    ],
+                  ),
+                )),
+              ),
             )
           else if (rows.isEmpty && !cargando)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-              child: Text('Toca "Cargar" para consultar las oportunidades detectadas.',
-                  style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade400)),
+              child: Text(
+                'Toca "Cargar" para consultar las oportunidades detectadas.',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  color: Colors.grey.shade400,
+                ),
+              ),
             )
           else if (rows.isNotEmpty) ...[
             // Header
@@ -6276,9 +8145,40 @@ class _RadarOportunidadesCard extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
                 children: [
-                  Expanded(flex: 3, child: Text('Institución / Título', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey.shade400))),
-                  Expanded(flex: 2, child: Text('Ganador actual', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey.shade400))),
-                  SizedBox(width: 80, child: Text('Monto', textAlign: TextAlign.right, style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey.shade400))),
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      'Institución / Título',
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade400,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    flex: 2,
+                    child: Text(
+                      'Ganador actual',
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade400,
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 80,
+                    child: Text(
+                      'Monto',
+                      textAlign: TextAlign.right,
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade400,
+                      ),
+                    ),
+                  ),
                   const SizedBox(width: 8),
                 ],
               ),
@@ -6288,13 +8188,17 @@ class _RadarOportunidadesCard extends StatelessWidget {
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: rows.length,
-              separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey.shade100),
+              separatorBuilder: (_, __) =>
+                  Divider(height: 1, color: Colors.grey.shade100),
               itemBuilder: (_, i) {
                 final r = rows[i];
                 final alerta = r['alerta_comercial']?.toString() ?? '';
                 final menciona = r['menciona_seguridad'] == true;
                 return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -6303,29 +8207,51 @@ class _RadarOportunidadesCard extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(r['institucion']?.toString() ?? '—',
-                                style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500)),
+                            Text(
+                              r['institucion']?.toString() ?? '—',
+                              style: GoogleFonts.inter(
+                                fontSize: 11,
+                                color: Colors.grey.shade500,
+                              ),
+                            ),
                             const SizedBox(height: 2),
-                            Text(r['titulo']?.toString() ?? '—',
-                                style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w500, color: const Color(0xFF1E293B)),
-                                maxLines: 2, overflow: TextOverflow.ellipsis),
+                            Text(
+                              r['titulo']?.toString() ?? '—',
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: const Color(0xFF1E293B),
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                             if (alerta.isNotEmpty) ...[
                               const SizedBox(height: 4),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
                                 decoration: BoxDecoration(
                                   color: menciona
-                                      ? const Color(0xFF10B981).withValues(alpha: 0.1)
-                                      : const Color(0xFFF59E0B).withValues(alpha: 0.1),
+                                      ? const Color(
+                                          0xFF10B981,
+                                        ).withValues(alpha: 0.1)
+                                      : const Color(
+                                          0xFFF59E0B,
+                                        ).withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(4),
                                 ),
-                                child: Text(alerta,
-                                    style: GoogleFonts.inter(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w500,
-                                        color: menciona
-                                            ? const Color(0xFF10B981)
-                                            : const Color(0xFFF59E0B))),
+                                child: Text(
+                                  alerta,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w500,
+                                    color: menciona
+                                        ? const Color(0xFF10B981)
+                                        : const Color(0xFFF59E0B),
+                                  ),
+                                ),
                               ),
                             ],
                           ],
@@ -6334,15 +8260,27 @@ class _RadarOportunidadesCard extends StatelessWidget {
                       const SizedBox(width: 8),
                       Expanded(
                         flex: 2,
-                        child: Text(r['ganador_actual']?.toString() ?? '—',
-                            style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF1E293B)),
-                            maxLines: 2, overflow: TextOverflow.ellipsis),
+                        child: Text(
+                          r['ganador_actual']?.toString() ?? '—',
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            color: const Color(0xFF1E293B),
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                       SizedBox(
                         width: 80,
-                        child: Text(_fmtMonto(r['monto']),
-                            textAlign: TextAlign.right,
-                            style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B))),
+                        child: Text(
+                          _fmtMonto(r['monto']),
+                          textAlign: TextAlign.right,
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF1E293B),
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -6356,4 +8294,3 @@ class _RadarOportunidadesCard extends StatelessWidget {
     );
   }
 }
-

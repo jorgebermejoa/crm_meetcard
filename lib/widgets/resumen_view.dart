@@ -236,13 +236,13 @@ class _ResumenViewState extends State<ResumenView> {
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFF6D28D9), Color(0xFF4F46E5)],
+          colors: [Color(0xFF007AFF), Color(0xFF0056B3)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
-          BoxShadow(color: const Color(0xFF6D28D9).withValues(alpha: 0.3), blurRadius: 16, offset: const Offset(0, 6)),
+          BoxShadow(color: const Color(0xFF007AFF).withValues(alpha: 0.3), blurRadius: 16, offset: const Offset(0, 6)),
         ],
       ),
       child: Row(
@@ -354,14 +354,14 @@ class _ResumenViewState extends State<ResumenView> {
           _SectionHeader(
             icon: Icons.computer_outlined,
             label: 'Tecnología de la Información',
-            color: const Color(0xFF6D28D9),
+            color: const Color(0xFF007AFF),
           ),
           const SizedBox(height: 8),
           _CategoryCard(
             cats: tiCats,
             maxVal: tiMaxVal,
-            barColor: const Color(0xFF8B5CF6),
-            labelColor: const Color(0xFF6D28D9),
+            barColor: const Color(0xFF007AFF),
+            labelColor: const Color(0xFF007AFF),
             isMobile: isMobile,
             onTap: (cat) => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => CategoriaResultadosView(

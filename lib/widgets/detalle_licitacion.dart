@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:web/web.dart' as web;
+import 'skeleton_loader.dart';
 
 import 'licitaciones_table.dart' show LicitacionUI;
 
@@ -65,7 +66,7 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
     with SingleTickerProviderStateMixin {
   static const _cf =
       'https://us-central1-licitaciones-prod.cloudfunctions.net';
-  static const _primary = Color(0xFF5B21B6);
+  static const _primary = Color(0xFF007AFF);
   static const _bg = Color(0xFFF2F2F7);
 
   Map<String, dynamic>? _intel;
@@ -77,6 +78,8 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
   bool _cargandoForo = false;
   bool _foroCargado = false;
   DateTime? _foroFechaCache;
+  String? _foroResumen;
+  bool _cargandoResumen = false;
   final TextEditingController _foroSearch = TextEditingController();
   String _foroQuery = '';
 
@@ -104,6 +107,7 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
         _enquiries = [];
         _foroCargado = false;
         _foroFechaCache = null;
+        _foroResumen = null;
         _foroSearch.clear();
       });
       _fetchIntel();
@@ -191,6 +195,33 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
       if (mounted) setState(() => _foroCargado = true);
     } finally {
       if (mounted) setState(() => _cargandoForo = false);
+    }
+  }
+
+  Future<void> _generarResumenForo() async {
+    if (_cargandoResumen || _enquiries.isEmpty) return;
+    final id = widget.rawData['id']?.toString() ?? '';
+    if (id.isEmpty) return;
+    
+    setState(() => _cargandoResumen = true);
+    try {
+      final uri = Uri.parse('$_cf/generarResumenForo');
+      final resp = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'idLicitacion': id,
+          'enquiries': _enquiries,
+        }),
+      ).timeout(const Duration(seconds: 45));
+      
+      if (resp.statusCode == 200) {
+        final data = json.decode(resp.body);
+        if (mounted) setState(() => _foroResumen = data['resumen']);
+      }
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _cargandoResumen = false);
     }
   }
 
@@ -749,7 +780,28 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
 
   Widget _panelForo() {
     if (_cargandoForo) {
-      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+      return ListView.separated(
+        padding: const EdgeInsets.all(16),
+        itemCount: 6,
+        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        itemBuilder: (_, __) => Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SkeletonBox(width: 120, height: 12),
+              SizedBox(height: 10),
+              SkeletonBox(height: 14),
+              SizedBox(height: 6),
+              SkeletonBox(width: 200, height: 14),
+            ],
+          ),
+        ),
+      );
     }
 
     final filtered = _foroQuery.isEmpty
@@ -782,6 +834,24 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
           ] else if (_foroCargado)
             Text('Sin caché', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
           const Spacer(),
+          if (_enquiries.isNotEmpty) ...[
+            InkWell(
+              onTap: _cargandoResumen ? null : _generarResumenForo,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  _cargandoResumen
+                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.auto_awesome, size: 14, color: _primary),
+                  const SizedBox(width: 4),
+                  Text('Resumen IA',
+                      style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: _primary)),
+                ]),
+              ),
+            ),
+            const SizedBox(width: 4),
+          ],
           InkWell(
             onTap: _cargandoForo ? null : () => _fetchForo(forceRefresh: true),
             borderRadius: BorderRadius.circular(8),
@@ -851,11 +921,18 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
         )
       else
         Expanded(
-          child: ListView.separated(
+          child: ListView(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 32),
-            itemCount: filtered.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
-            itemBuilder: (_, i) => _foroItem(filtered[i]),
+            children: [
+              if (_foroResumen != null) ...[
+                _buildResumenCard(_foroResumen!),
+                const SizedBox(height: 12),
+              ],
+              ...filtered.map((item) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _foroItem(item),
+              )),
+            ],
           ),
         ),
       // Footer contador
@@ -959,7 +1036,34 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
 
   Widget _panelAnalisis() {
     if (_cargandoIntel) {
-      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+      return SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: List.generate(3, (i) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SkeletonBox(width: 100, height: 12),
+                  SizedBox(height: 14),
+                  SkeletonBox(height: 16),
+                  SizedBox(height: 8),
+                  SkeletonBox(width: 180, height: 16),
+                  SizedBox(height: 20),
+                  SkeletonBox(height: 40, radius: 10),
+                ],
+              ),
+            ),
+          )),
+        ),
+      );
     }
     if (_intel == null) {
       return Center(
@@ -987,6 +1091,46 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
             ...(_intel!['referencias'] as List)
                 .map((r) => _CardReferencia(r as Map<String, dynamic>)),
           ],
+        ],
+      ),
+    );
+  }
+
+
+  Widget _buildResumenCard(String resumen) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF007AFF).withValues(alpha: 0.1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.auto_awesome, size: 16, color: Color(0xFF007AFF)),
+              const SizedBox(width: 8),
+              Text(
+                'Resumen Inteligente del Foro',
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFF0056B3),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            resumen,
+            style: GoogleFonts.inter(
+              fontSize: 13,
+              height: 1.6,
+              color: const Color(0xFF1E293B),
+            ),
+          ),
         ],
       ),
     );

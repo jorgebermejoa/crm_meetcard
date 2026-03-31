@@ -7,9 +7,14 @@
   packages = [
     pkgs.jdk21
     pkgs.unzip
+    pkgs.flutter
   ];
   # Sets environment variables in the workspace
-  env = {};
+  env = {
+    FIREBASE_API_KEY = "AIzaSyDjRcljZK3ph4qtgGF5lOKnabGOVnSyNas";
+    FIREBASE_APP_ID = "1:22058933099:web:456d86b9b4a5d6d6fa8a2e";
+    FIREBASE_SENDER_ID = "22058933099";
+  };
   idx = {
     # Search for the extensions you want on https://open-vsx.org/ and use "publisher.id"
     extensions = [
@@ -26,11 +31,11 @@
       enable = true;
       previews = {
         web = {
-          command = ["flutter" "run" "--machine" "-d" "web-server" "--web-hostname" "0.0.0.0" "--web-port" "$PORT"];
+          command = ["flutter" "run" "--machine" "-d" "web-server" "--web-hostname" "0.0.0.0" "--web-port" "$PORT" "--dart-define-from-file=.env.local"];
           manager = "flutter";
         };
         android = {
-          command = ["flutter" "run" "--machine" "-d" "android" "-d" "localhost:5555"];
+          command = ["flutter" "run" "--machine" "-d" "android" "-d" "localhost:5555" "--dart-define-from-file=.env.local"];
           manager = "flutter";
         };
       };

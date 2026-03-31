@@ -93,7 +93,7 @@ class _LicitacionCard extends StatelessWidget {
   final bool isSelected;
   final VoidCallback? onTap;
 
-  static const _primary = Color(0xFF5B21B6);
+  static const _primary = Color(0xFF007AFF);
 
   const _LicitacionCard({
     required this.lic,
@@ -110,24 +110,24 @@ class _LicitacionCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: isSelected
-              ? _primary.withValues(alpha: 0.5)
+              ? _primary.withValues(alpha: 0.2)
               : Colors.transparent,
-          width: 1.5,
+          width: 0.5,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: isSelected ? 0.06 : 0.03),
-            blurRadius: isSelected ? 12 : 6,
-            offset: const Offset(0, 2),
+            color: Colors.black.withValues(alpha: isSelected ? 0.08 : 0.03),
+            blurRadius: isSelected ? 16 : 8,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
       child: Material(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(20),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,

@@ -15,8 +15,8 @@ class AuthService {
   static final instance = AuthService._();
   AuthService._();
 
-  final _auth = FirebaseAuth.instance;
-  final _db = FirebaseFirestore.instance;
+  FirebaseAuth get _auth => FirebaseAuth.instance;
+  FirebaseFirestore get _db => FirebaseFirestore.instance;
 
   UserProfile? _perfil;
   UserProfile? get perfil => _perfil;

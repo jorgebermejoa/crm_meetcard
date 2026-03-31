@@ -47,3 +47,4 @@ functions/.env
 
 # Firebase secrets — local only, never commit
 .env.local
+firebase_secrets.json

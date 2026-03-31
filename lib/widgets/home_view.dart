@@ -6,9 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import '../app_shell.dart';
 import '../services/resumen_service.dart';
-import 'app_breadcrumbs.dart';
 import 'global_search_bar.dart';
 import 'licitaciones_table.dart';
 import 'detalle_licitacion.dart';
@@ -25,7 +23,7 @@ class HomeView extends StatefulWidget {
 
 class _HomeViewState extends State<HomeView>
     with SingleTickerProviderStateMixin {
-  static const _primaryColor = Color(0xFF5B21B6);
+  static const _primaryColor = Color(0xFF007AFF);
   static const _bgColor = Color(0xFFF2F2F7);
 
   late TabController _tabController;
@@ -61,7 +59,9 @@ class _HomeViewState extends State<HomeView>
 
   void _suscribirStatsEnTiempoReal() {
     final db = FirebaseFirestore.instance;
-    _ingestaSub = db.collection('_stats').doc('ingesta').snapshots().listen((snap) {
+    _ingestaSub = db.collection('_stats').doc('ingesta').snapshots().listen((
+      snap,
+    ) {
       if (!mounted || !snap.exists || _stats == null) return;
       final d = snap.data()!;
       final ts = (d['fecha'] as Timestamp?)?.toDate();
@@ -78,23 +78,27 @@ class _HomeViewState extends State<HomeView>
         };
       });
     });
-    _procesamientoSub = db.collection('_stats').doc('procesamiento').snapshots().listen((snap) {
-      if (!mounted || !snap.exists || _stats == null) return;
-      final d = snap.data()!;
-      final ts = (d['fecha'] as Timestamp?)?.toDate();
-      final fecha = ts == null ? null : _fmtChile(ts);
-      setState(() {
-        _stats = {
-          ..._stats!,
-          'procesamiento': {
-            'estado': d['estado'],
-            'fecha': fecha,
-            'procesadas': d['procesadas'],
-            'error': d['error'],
-          },
-        };
-      });
-    });
+    _procesamientoSub = db
+        .collection('_stats')
+        .doc('procesamiento')
+        .snapshots()
+        .listen((snap) {
+          if (!mounted || !snap.exists || _stats == null) return;
+          final d = snap.data()!;
+          final ts = (d['fecha'] as Timestamp?)?.toDate();
+          final fecha = ts == null ? null : _fmtChile(ts);
+          setState(() {
+            _stats = {
+              ..._stats!,
+              'procesamiento': {
+                'estado': d['estado'],
+                'fecha': fecha,
+                'procesadas': d['procesadas'],
+                'error': d['error'],
+              },
+            };
+          });
+        });
   }
 
   String _fmtChile(DateTime dt) {
@@ -124,9 +128,11 @@ class _HomeViewState extends State<HomeView>
       final user = FirebaseAuth.instance.currentUser;
       final token = await user?.getIdToken() ?? '';
       final resp = await http.get(
-          Uri.parse(
-              'https://us-central1-licitaciones-prod.cloudfunctions.net/buscarLicitacionesAI?q=${Uri.encodeComponent(query)}'),
-          headers: {'Authorization': 'Bearer $token'});
+        Uri.parse(
+          'https://us-central1-licitaciones-prod.cloudfunctions.net/buscarLicitacionesAI?q=${Uri.encodeComponent(query)}',
+        ),
+        headers: {'Authorization': 'Bearer $token'},
+      );
       if (resp.statusCode == 200) {
         final decoded = json.decode(resp.body);
         final List<dynamic> data = decoded is List
@@ -146,24 +152,40 @@ class _HomeViewState extends State<HomeView>
           }).toList();
         });
       }
-    } catch (_) {} finally {
+    } catch (_) {
+    } finally {
       setState(() => _cargandoBusqueda = false);
     }
   }
 
   void _limpiarBusqueda() => setState(() {
-        _licitaciones = [];
-        _licitacionSeleccionada = null;
-        _mostrarCerradas = false;
-      });
+    _licitaciones = [];
+    _licitacionSeleccionada = null;
+    _mostrarCerradas = false;
+  });
 
   Future<void> _cargarResumen({bool forceRefresh = false}) async {
-    setState(() { _cargandoResumen = true; _errorResumen = null; });
+    setState(() {
+      _cargandoResumen = true;
+      _errorResumen = null;
+    });
     try {
-      final data = await ResumenService.instance.load(forceRefresh: forceRefresh);
-      if (mounted) setState(() { _stats = data; _cargandoResumen = false; });
+      final data = await ResumenService.instance.load(
+        forceRefresh: forceRefresh,
+      );
+      if (mounted) {
+        setState(() {
+          _stats = data;
+          _cargandoResumen = false;
+        });
+      }
     } catch (e) {
-      if (mounted) setState(() { _errorResumen = e.toString(); _cargandoResumen = false; });
+      if (mounted) {
+        setState(() {
+          _errorResumen = e.toString();
+          _cargandoResumen = false;
+        });
+      }
     }
   }
 
@@ -171,30 +193,51 @@ class _HomeViewState extends State<HomeView>
     if (_disparandoIngesta) return;
     setState(() => _disparandoIngesta = true);
     try {
+      final user = FirebaseAuth.instance.currentUser;
+      final token = await user?.getIdToken() ?? '';
       final resp = await http
-          .get(Uri.parse('https://us-central1-licitaciones-prod.cloudfunctions.net/dispararIngestaOCDS'))
+          .get(
+            Uri.parse(
+              'https://us-central1-licitaciones-prod.cloudfunctions.net/dispararIngestaOCDS',
+            ),
+            headers: {'Authorization': 'Bearer $token'},
+          )
           .timeout(const Duration(seconds: 560));
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-          resp.statusCode == 200
-              ? 'Cola y estadísticas actualizadas. Los conteos de licitaciones se reflejarán en ~2 min.'
-              : 'Error ${resp.statusCode}',
-          style: GoogleFonts.inter(fontSize: 13),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            resp.statusCode == 200
+                ? 'Cola y estadísticas actualizadas. Los conteos de licitaciones se reflejarán en ~2 min.'
+                : 'Error ${resp.statusCode}',
+            style: GoogleFonts.inter(fontSize: 13),
+          ),
+          duration: const Duration(seconds: 6),
+          backgroundColor: resp.statusCode == 200
+              ? const Color(0xFF10B981)
+              : Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
-        duration: const Duration(seconds: 6),
-        backgroundColor: resp.statusCode == 200 ? const Color(0xFF10B981) : Colors.redAccent,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ));
-      if (resp.statusCode == 200) { await _cargarResumen(forceRefresh: true); }
+      );
+      if (resp.statusCode == 200) {
+        await _cargarResumen(forceRefresh: true);
+      }
     } catch (e) {
-      if (mounted) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Error: $e', style: GoogleFonts.inter(fontSize: 13)),
-        backgroundColor: Colors.redAccent,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      )); }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e', style: GoogleFonts.inter(fontSize: 13)),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _disparandoIngesta = false);
     }
@@ -208,8 +251,14 @@ class _HomeViewState extends State<HomeView>
       ),
     );
     try {
-      await http.get(Uri.parse(
-          'https://us-central1-licitaciones-prod.cloudfunctions.net/calcularEstadisticas'));
+      final user = FirebaseAuth.instance.currentUser;
+      final token = await user?.getIdToken() ?? '';
+      await http.get(
+        Uri.parse(
+          'https://us-central1-licitaciones-prod.cloudfunctions.net/calcularEstadisticas',
+        ),
+        headers: {'Authorization': 'Bearer $token'},
+      );
       await _cargarResumen(forceRefresh: true);
     } catch (_) {}
   }
@@ -217,44 +266,41 @@ class _HomeViewState extends State<HomeView>
   // ── BUILD ─────────────────────────────────────────────────────────────────
 
   @override
+  @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (ctx, constraints) {
-      final isMobile = constraints.maxWidth < 700;
-      final hPad = isMobile ? 20.0 : 32.0;
+    return LayoutBuilder(
+      builder: (ctx, constraints) {
+        final isMobile = constraints.maxWidth < 700;
+        final isWidescreen = constraints.maxWidth >= 1100;
+        final hPad = isMobile ? 20.0 : 32.0;
 
-      return Scaffold(
-        backgroundColor: _bgColor,
-        appBar: buildBreadcrumbAppBar(
-          context: context,
-          hPad: hPad,
-          onOpenMenu: openAppDrawer,
-          crumbs: [BreadcrumbItem('Inicio')],
-        ),
-        body: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: _buildMain(hPad, isMobile),
+        return SelectionArea(
+          child: Container(
+            color: _bgColor,
+            padding: EdgeInsets.only(top: isMobile ? 20 : 24),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: _buildMain(hPad, isMobile, isWidescreen)),
+                if (!isMobile && _licitacionSeleccionada != null)
+                  DetalleLicitacionSidebar(
+                    rawData: _licitacionSeleccionada!,
+                    onClose: () =>
+                        setState(() => _licitacionSeleccionada = null),
                   ),
-                  if (!isMobile && _licitacionSeleccionada != null)
-                    DetalleLicitacionSidebar(
-                      rawData: _licitacionSeleccionada!,
-                      onClose: () => setState(() => _licitacionSeleccionada = null),
-                    ),
-                ],
-              ),
+              ],
             ),
-          ],
-        ),
-      );
-    });
+          ),
+        );
+      },
+    );
   }
 
-  Widget _buildMain(double hPad, bool isMobile) {
+  Widget _buildMain(double hPad, bool isMobile, bool isWidescreen) {
+    if (isWidescreen) {
+      return _buildWidescreenLayout(hPad);
+    }
+
     return SingleChildScrollView(
       child: Center(
         child: ConstrainedBox(
@@ -262,46 +308,102 @@ class _HomeViewState extends State<HomeView>
           child: Padding(
             padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 48),
             child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Tabs Apple style
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: TabBar(
-              controller: _tabController,
-              labelStyle: GoogleFonts.inter(
-                  fontSize: 13, fontWeight: FontWeight.w600),
-              unselectedLabelStyle:
-                  GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w400),
-              labelColor: _primaryColor,
-              unselectedLabelColor: Colors.grey.shade400,
-              indicatorColor: _primaryColor,
-              indicatorSize: TabBarIndicatorSize.tab,
-              dividerColor: Colors.transparent,
-              tabs: const [
-                Tab(text: 'Resumen'),
-                Tab(text: 'Búsqueda'),
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Tabs Apple style
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: TabBar(
+                    controller: _tabController,
+                    labelStyle: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    unselectedLabelStyle: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w400,
+                    ),
+                    labelColor: _primaryColor,
+                    unselectedLabelColor: Colors.grey.shade400,
+                    indicatorColor: _primaryColor,
+                    indicatorSize: TabBarIndicatorSize.tab,
+                    dividerColor: Colors.transparent,
+                    tabs: const [
+                      Tab(text: 'Resumen'),
+                      Tab(text: 'Búsqueda'),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Tab content
+                AnimatedBuilder(
+                  animation: _tabController,
+                  builder: (_, __) {
+                    if (_tabController.index == 0) {
+                      return _buildTabResumen(isMobile);
+                    }
+                    return _buildTabBusqueda(isMobile);
+                  },
+                ),
               ],
             ),
           ),
-          const SizedBox(height: 20),
+        ),
+      ),
+    );
+  }
 
-          // Tab content (no TabBarView — manual to avoid height issues in scroll)
-          AnimatedBuilder(
-            animation: _tabController,
-            builder: (_, __) {
-              if (_tabController.index == 0) {
-                return _buildTabResumen(isMobile);
-              }
-              return _buildTabBusqueda(isMobile);
-            },
-          ),
-        ],
+  Widget _buildWidescreenLayout(double hPad) {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 48),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Left Column: Resumen / KPIs
+            Expanded(
+              flex: 4,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Resumen General',
+                    style: GoogleFonts.inter(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF1E293B),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTabResumen(false),
+                ],
+              ),
             ),
-          ),
+            const SizedBox(width: 32),
+            // Right Column: Búsqueda
+            Expanded(
+              flex: 6,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Buscador Directo',
+                    style: GoogleFonts.inter(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF1E293B),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTabBusqueda(false),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -313,10 +415,7 @@ class _HomeViewState extends State<HomeView>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        GlobalSearchBar(
-          onSearch: _ejecutarBusqueda,
-          onClear: _limpiarBusqueda,
-        ),
+        GlobalSearchBar(onSearch: _ejecutarBusqueda, onClear: _limpiarBusqueda),
         const SizedBox(height: 20),
         if (_cargandoBusqueda)
           const Center(
@@ -365,7 +464,10 @@ class _HomeViewState extends State<HomeView>
           Text(
             'Escribe una palabra clave, ID o entidad\npara encontrar licitaciones relevantes',
             style: GoogleFonts.inter(
-                fontSize: 13, color: Colors.grey.shade400, height: 1.5),
+              fontSize: 13,
+              color: Colors.grey.shade400,
+              height: 1.5,
+            ),
             textAlign: TextAlign.center,
           ),
         ],
@@ -382,52 +484,61 @@ class _HomeViewState extends State<HomeView>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // ── Encabezado resultados ──────────────────────────────────────────
-        Row(children: [
-          Text(
-            '${visible.length} resultado${visible.length != 1 ? 's' : ''}',
-            style: GoogleFonts.inter(
+        Row(
+          children: [
+            Text(
+              '${visible.length} resultado${visible.length != 1 ? 's' : ''}',
+              style: GoogleFonts.inter(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
-                color: _primaryColor),
-          ),
-          const SizedBox(width: 10),
-          // Chip "ver cerradas / ocultar cerradas"
-          if (cerradas.isNotEmpty)
-            GestureDetector(
-              onTap: () =>
-                  setState(() => _mostrarCerradas = !_mostrarCerradas),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: _mostrarCerradas
-                      ? Colors.grey.shade200
-                      : Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.grey.shade300),
-                ),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(
-                    _mostrarCerradas
-                        ? Icons.visibility_off_outlined
-                        : Icons.visibility_outlined,
-                    size: 12,
-                    color: Colors.grey.shade500,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    _mostrarCerradas
-                        ? 'Ocultar cerradas'
-                        : '+ ${cerradas.length} cerrada${cerradas.length != 1 ? 's' : ''}',
-                    style: GoogleFonts.inter(
-                        fontSize: 11,
-                        color: Colors.grey.shade600,
-                        fontWeight: FontWeight.w500),
-                  ),
-                ]),
+                color: _primaryColor,
               ),
             ),
-        ]),
+            const SizedBox(width: 10),
+            // Chip "ver cerradas / ocultar cerradas"
+            if (cerradas.isNotEmpty)
+              GestureDetector(
+                onTap: () =>
+                    setState(() => _mostrarCerradas = !_mostrarCerradas),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _mostrarCerradas
+                        ? Colors.grey.shade200
+                        : Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        _mostrarCerradas
+                            ? Icons.visibility_off_outlined
+                            : Icons.visibility_outlined,
+                        size: 12,
+                        color: Colors.grey.shade500,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        _mostrarCerradas
+                            ? 'Ocultar cerradas'
+                            : '+ ${cerradas.length} cerrada${cerradas.length != 1 ? 's' : ''}',
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
         const SizedBox(height: 12),
         // ── Lista ──────────────────────────────────────────────────────────
         LicitacionesTable(
@@ -460,19 +571,26 @@ class _HomeViewState extends State<HomeView>
       return Container(
         padding: const EdgeInsets.symmetric(vertical: 48),
         child: Center(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.error_outline, size: 40, color: Colors.grey.shade300),
-            const SizedBox(height: 8),
-            Text(_errorResumen!,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline, size: 40, color: Colors.grey.shade300),
+              const SizedBox(height: 8),
+              Text(
+                _errorResumen!,
                 style: GoogleFonts.inter(
-                    fontSize: 13, color: Colors.grey.shade500)),
-            const SizedBox(height: 12),
-            TextButton.icon(
-              onPressed: _cargarResumen,
-              icon: const Icon(Icons.refresh, size: 16),
-              label: Text('Reintentar', style: GoogleFonts.inter()),
-            ),
-          ]),
+                  fontSize: 13,
+                  color: Colors.grey.shade500,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextButton.icon(
+                onPressed: _cargarResumen,
+                icon: const Icon(Icons.refresh, size: 16),
+                label: Text('Reintentar', style: GoogleFonts.inter()),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -500,44 +618,98 @@ class _HomeViewState extends State<HomeView>
 
     Widget statusRow(String label, Map<String, dynamic>? data) {
       if (data == null) {
-        return Row(children: [
-          Icon(Icons.remove_circle_outline, size: 12, color: Colors.grey.shade300),
-          const SizedBox(width: 5),
-          Text(label, style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
-          const SizedBox(width: 4),
-          Text('Sin datos', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
-        ]);
+        return Row(
+          children: [
+            Icon(
+              Icons.remove_circle_outline,
+              size: 12,
+              color: Colors.grey.shade300,
+            ),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                color: Colors.grey.shade400,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              'Sin datos',
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                color: Colors.grey.shade400,
+              ),
+            ),
+          ],
+        );
       }
       final estado = data['estado'] as String? ?? '';
       final esError = estado == 'error';
       final esOk = estado == 'ok' || estado == 'ok_con_errores';
-      final color = esError ? const Color(0xFFEF4444) : esOk ? const Color(0xFF10B981) : const Color(0xFFF59E0B);
-      final icon = esError ? Icons.error_outline : esOk ? Icons.check_circle_outline : Icons.hourglass_top_outlined;
+      final color = esError
+          ? const Color(0xFFEF4444)
+          : esOk
+          ? const Color(0xFF10B981)
+          : const Color(0xFFF59E0B);
+      final icon = esError
+          ? Icons.error_outline
+          : esOk
+          ? Icons.check_circle_outline
+          : Icons.hourglass_top_outlined;
       final fecha = data['fecha'] as String? ?? '';
       final extra = esError
           ? (data['error'] as String? ?? '')
           : esOk && data['procesadas'] != null
-              ? '${data['procesadas']} procesadas'
-              : esOk && data['encoladas'] != null
-                  ? '${data['encoladas']} encoladas'
-                  : '';
+          ? '${data['procesadas']} procesadas'
+          : esOk && data['encoladas'] != null
+          ? '${data['encoladas']} encoladas'
+          : '';
 
-      return Row(children: [
-        Icon(icon, size: 12, color: color),
-        const SizedBox(width: 5),
-        Text(label, style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w500)),
-        const SizedBox(width: 4),
-        if (fecha.isNotEmpty)
-          Text(fecha, style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500)),
-        if (extra.isNotEmpty) ...[
-          Text(' · ', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
-          Flexible(
-            child: Text(extra,
-                style: GoogleFonts.inter(fontSize: 11, color: esError ? const Color(0xFFEF4444) : Colors.grey.shade500),
-                overflow: TextOverflow.ellipsis),
+      return Row(
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: GoogleFonts.inter(
+              fontSize: 11,
+              color: Colors.grey.shade500,
+              fontWeight: FontWeight.w500,
+            ),
           ),
+          const SizedBox(width: 4),
+          if (fecha.isNotEmpty)
+            Text(
+              fecha,
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                color: Colors.grey.shade500,
+              ),
+            ),
+          if (extra.isNotEmpty) ...[
+            Text(
+              ' · ',
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                color: Colors.grey.shade400,
+              ),
+            ),
+            Flexible(
+              child: Text(
+                extra,
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  color: esError
+                      ? const Color(0xFFEF4444)
+                      : Colors.grey.shade500,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
         ],
-      ]);
+      );
     }
 
     return Container(
@@ -548,71 +720,134 @@ class _HomeViewState extends State<HomeView>
         border: Border.all(color: Colors.grey.shade100),
       ),
       child: isMobile
-          ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: _primaryColor.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.cloud_download_outlined,
+                        size: 18,
+                        color: _primaryColor,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      'Buscar nuevas licitaciones',
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF1E293B),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                statusRow('Ingesta:', ingesta),
+                const SizedBox(height: 2),
+                statusRow('Procesamiento:', proc),
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: _disparandoIngesta
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: _primaryColor,
+                          ),
+                        )
+                      : TextButton(
+                          onPressed: _dispararIngesta,
+                          style: TextButton.styleFrom(
+                            foregroundColor: _primaryColor,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
+                          ),
+                          child: Text(
+                            'Actualizar',
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                ),
+              ],
+            )
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: _primaryColor.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Icon(Icons.cloud_download_outlined, size: 18, color: _primaryColor),
+                  child: const Icon(
+                    Icons.cloud_download_outlined,
+                    size: 18,
+                    color: _primaryColor,
+                  ),
                 ),
                 const SizedBox(width: 12),
-                Text('Buscar nuevas licitaciones',
-                    style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B))),
-              ]),
-              const SizedBox(height: 8),
-              statusRow('Ingesta:', ingesta),
-              const SizedBox(height: 2),
-              statusRow('Procesamiento:', proc),
-              const SizedBox(height: 10),
-              Align(
-                alignment: Alignment.centerRight,
-                child: _disparandoIngesta
-                    ? const SizedBox(width: 20, height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: _primaryColor))
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Buscar nuevas licitaciones',
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF1E293B),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      statusRow('Ingesta:', ingesta),
+                      const SizedBox(height: 2),
+                      statusRow('Procesamiento:', proc),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                _disparandoIngesta
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: _primaryColor,
+                        ),
+                      )
                     : TextButton(
                         onPressed: _dispararIngesta,
                         style: TextButton.styleFrom(
                           foregroundColor: _primaryColor,
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 10,
+                          ),
                         ),
-                        child: Text('Actualizar', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                        child: Text(
+                          'Actualizar',
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
-              ),
-            ])
-          : Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: _primaryColor.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.cloud_download_outlined, size: 18, color: _primaryColor),
-              ),
-              const SizedBox(width: 12),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Buscar nuevas licitaciones',
-                    style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B))),
-                const SizedBox(height: 4),
-                statusRow('Ingesta:', ingesta),
-                const SizedBox(height: 2),
-                statusRow('Procesamiento:', proc),
-              ])),
-              const SizedBox(width: 12),
-              _disparandoIngesta
-                  ? const SizedBox(width: 20, height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: _primaryColor))
-                  : TextButton(
-                      onPressed: _dispararIngesta,
-                      style: TextButton.styleFrom(
-                        foregroundColor: _primaryColor,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      ),
-                      child: Text('Actualizar', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
-                    ),
-            ]),
+              ],
+            ),
     );
   }
 
@@ -642,24 +877,36 @@ class _HomeViewState extends State<HomeView>
     ];
 
     if (isMobile) {
-      return Column(children: [
-        Row(children: [
-          Expanded(child: _statCard(items[0])),
-          const SizedBox(width: 10),
-          Expanded(child: _statCard(items[1])),
-        ]),
-        const SizedBox(height: 10),
-        _statCard(items[2]),
-      ]);
+      return Column(
+        children: [
+          Row(
+            children: [
+              Expanded(child: _statCard(items[0])),
+              const SizedBox(width: 10),
+              Expanded(child: _statCard(items[1])),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _statCard(items[2]),
+        ],
+      );
     }
 
     return Row(
-      children: items.asMap().entries.map((e) => Expanded(
-        child: Padding(
-          padding: EdgeInsets.only(right: e.key < items.length - 1 ? 10 : 0),
-          child: _statCard(e.value),
-        ),
-      )).toList(),
+      children: items
+          .asMap()
+          .entries
+          .map(
+            (e) => Expanded(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  right: e.key < items.length - 1 ? 10 : 0,
+                ),
+                child: _statCard(e.value),
+              ),
+            ),
+          )
+          .toList(),
     );
   }
 
@@ -679,10 +926,11 @@ class _HomeViewState extends State<HomeView>
               Text(
                 s.label,
                 style: GoogleFonts.inter(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade400,
-                    letterSpacing: 0.5),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade400,
+                  letterSpacing: 0.5,
+                ),
               ),
               Container(
                 padding: const EdgeInsets.all(6),
@@ -698,17 +946,16 @@ class _HomeViewState extends State<HomeView>
           Text(
             s.value,
             style: GoogleFonts.inter(
-              fontSize: 28,
+              fontSize: 32,
               fontWeight: FontWeight.w800,
-              letterSpacing: -1,
-              color: const Color(0xFF1E293B),
+              letterSpacing: -1.2,
+              color: const Color(0xFF1D1D1F),
             ),
           ),
           const SizedBox(height: 2),
           Text(
             s.sublabel,
-            style: GoogleFonts.inter(
-                fontSize: 11, color: Colors.grey.shade400),
+            style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400),
           ),
         ],
       ),
@@ -717,26 +964,35 @@ class _HomeViewState extends State<HomeView>
 
   Widget _buildTIHero(Map<String, dynamic> stats, bool isMobile) {
     final tiCount = stats['ti'] ?? 0;
-    final tiBase = (stats['tiBase'] as num?)?.toInt() ?? (stats['total'] as num?)?.toInt() ?? 1;
+    final tiBase =
+        (stats['tiBase'] as num?)?.toInt() ??
+        (stats['total'] as num?)?.toInt() ??
+        1;
     final pct = tiBase > 0 ? ((tiCount as num) / tiBase * 100) : 0.0;
 
     return GestureDetector(
-      onTap: () => Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => CategoriaResultadosView(
-          prefix: '43,81',
-          nombre: 'Tecnología de la Información',
-          total: (tiCount as num).toInt(),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => CategoriaResultadosView(
+            prefix: '43,81',
+            nombre: 'Tecnología de la Información',
+            total: (tiCount as num).toInt(),
+          ),
         ),
-      )),
+      ),
       child: Container(
         padding: const EdgeInsets.all(22),
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF5B21B6), Color(0xFF4F46E5)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(16),
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF007AFF).withValues(alpha: 0.08),
+              blurRadius: 20,
+              offset: const Offset(0, 8),
+            ),
+          ],
+          border: Border.all(color: const Color(0xFF007AFF).withValues(alpha: 0.1), width: 0.5),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
@@ -747,23 +1003,32 @@ class _HomeViewState extends State<HomeView>
                 children: [
                   Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 4),
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.15),
+                      color: const Color(0xFF007AFF).withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      const Icon(Icons.computer_outlined,
-                          size: 12, color: Colors.white70),
-                      const SizedBox(width: 5),
-                      Text(
-                        'Tecnología de la Información',
-                        style: GoogleFonts.inter(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.computer_outlined,
+                          size: 12,
+                          color: Color(0xFF007AFF),
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          'Tecnología de la Información',
+                          style: GoogleFonts.inter(
                             fontSize: 11,
-                            color: Colors.white70,
-                            fontWeight: FontWeight.w500),
-                      ),
-                    ]),
+                            color: const Color(0xFF007AFF),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 12),
                   Text(
@@ -771,7 +1036,7 @@ class _HomeViewState extends State<HomeView>
                     style: GoogleFonts.inter(
                       fontSize: isMobile ? 36 : 44,
                       fontWeight: FontWeight.w800,
-                      color: Colors.white,
+                      color: const Color(0xFF1D1D1F),
                       letterSpacing: -1.5,
                     ),
                   ),
@@ -779,8 +1044,9 @@ class _HomeViewState extends State<HomeView>
                   Text(
                     'ítems TI · últimos 90 días',
                     style: GoogleFonts.inter(
-                        fontSize: 12,
-                        color: Colors.white.withValues(alpha: 0.55)),
+                      fontSize: 12,
+                      color: const Color(0xFF8E8E93),
+                    ),
                   ),
                 ],
               ),
@@ -793,36 +1059,46 @@ class _HomeViewState extends State<HomeView>
                   style: GoogleFonts.inter(
                     fontSize: isMobile ? 30 : 36,
                     fontWeight: FontWeight.w800,
-                    color: Colors.white,
+                    color: const Color(0xFF007AFF),
                     letterSpacing: -1,
                   ),
                 ),
                 Text(
                   'del total',
                   style: GoogleFonts.inter(
-                      fontSize: 11,
-                      color: Colors.white.withValues(alpha: 0.55)),
+                    fontSize: 11,
+                    color: const Color(0xFF8E8E93),
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 5),
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.15),
+                    color: const Color(0xFF007AFF).withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Text(
-                      'Ver detalle',
-                      style: GoogleFonts.inter(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Ver detalle',
+                        style: GoogleFonts.inter(
                           fontSize: 11,
-                          color: Colors.white,
-                          fontWeight: FontWeight.w500),
-                    ),
-                    const SizedBox(width: 4),
-                    const Icon(Icons.arrow_forward,
-                        size: 11, color: Colors.white),
-                  ]),
+                          color: const Color(0xFF007AFF),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(
+                        Icons.arrow_forward,
+                        size: 11,
+                        color: Color(0xFF007AFF),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -832,68 +1108,79 @@ class _HomeViewState extends State<HomeView>
     );
   }
 
-  Widget _buildCategoriasSection(
-      Map<String, dynamic> stats, bool isMobile) {
+  Widget _buildCategoriasSection(Map<String, dynamic> stats, bool isMobile) {
     final List<dynamic> categorias = stats['categorias'] ?? [];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'CATEGORÍAS',
-                  style: GoogleFonts.inter(
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'CATEGORÍAS',
+                    style: GoogleFonts.inter(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
                       color: Colors.grey.shade400,
-                      letterSpacing: 0.5),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Clasificación UNSPSC por área',
-                  style: GoogleFonts.inter(
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Clasificación UNSPSC por área',
+                    style: GoogleFonts.inter(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
-                      color: const Color(0xFF1E293B)),
+                      color: const Color(0xFF1E293B),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (stats['ultimaActualizacion'] != null)
+              Text(
+                'Act: ${stats['ultimaActualizacion']}',
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  color: Colors.grey.shade400,
                 ),
-              ],
-            ),
-          ),
-          if (stats['ultimaActualizacion'] != null)
-            Text(
-              'Act: ${stats['ultimaActualizacion']}',
-              style: GoogleFonts.inter(
-                  fontSize: 11, color: Colors.grey.shade400),
-            ),
-        ]),
+              ),
+          ],
+        ),
         const SizedBox(height: 12),
         if (categorias.isEmpty)
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14)),
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   'Estadísticas pendientes de calcular',
                   style: GoogleFonts.inter(
-                      fontSize: 14, color: Colors.grey.shade600),
+                    fontSize: 14,
+                    color: Colors.grey.shade600,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 TextButton.icon(
                   onPressed: _calcularEstadisticas,
                   icon: const Icon(Icons.calculate_outlined, size: 16),
-                  label: Text('Calcular ahora',
-                      style: GoogleFonts.inter(fontSize: 13)),
+                  label: Text(
+                    'Calcular ahora',
+                    style: GoogleFonts.inter(fontSize: 13),
+                  ),
                   style: TextButton.styleFrom(
-                      foregroundColor: _primaryColor,
-                      padding: EdgeInsets.zero),
+                    foregroundColor: _primaryColor,
+                    padding: EdgeInsets.zero,
+                  ),
                 ),
               ],
             ),
@@ -904,8 +1191,7 @@ class _HomeViewState extends State<HomeView>
     );
   }
 
-  Widget _buildCategoriasList(
-      List<dynamic> categorias, bool isMobile) {
+  Widget _buildCategoriasList(List<dynamic> categorias, bool isMobile) {
     final tiCats = categorias
         .where((c) => (c as Map<String, dynamic>)['esTI'] == true)
         .toList();
@@ -916,7 +1202,9 @@ class _HomeViewState extends State<HomeView>
 
     return Container(
       decoration: BoxDecoration(
-          color: Colors.white, borderRadius: BorderRadius.circular(14)),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+      ),
       child: Column(
         children: categorias.asMap().entries.map<Widget>((entry) {
           final cat = entry.value as Map<String, dynamic>;
@@ -925,86 +1213,104 @@ class _HomeViewState extends State<HomeView>
           final esTI = cat['esTI'] == true;
           final ratio = cantidad / maxVal;
           final barColor = esTI
-              ? const Color(0xFF6D28D9)
+              ? const Color(0xFF007AFF)
               : _primaryColor.withValues(alpha: 0.35);
           final prefix = cat['prefix'] as String;
           final isLast = entry.key == categorias.length - 1;
 
-          return Column(children: [
-            InkWell(
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => CategoriaResultadosView(
-                  prefix: prefix,
-                  nombre: nombre,
-                  total: cantidad,
+          return Column(
+            children: [
+              InkWell(
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => CategoriaResultadosView(
+                      prefix: prefix,
+                      nombre: nombre,
+                      total: cantidad,
+                    ),
+                  ),
                 ),
-              )),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 12),
-                child: Row(children: [
-                  SizedBox(
-                    width: isMobile ? 130 : 240,
-                    child: Row(children: [
-                      if (esTI) ...[
-                        const Icon(Icons.computer,
-                            size: 13, color: Color(0xFF6D28D9)),
-                        const SizedBox(width: 5),
-                      ],
-                      Expanded(
-                        child: Text(
-                          nombre,
-                          style: GoogleFonts.inter(
-                            fontSize: 13,
-                            fontWeight: esTI
-                                ? FontWeight.w600
-                                : FontWeight.w400,
-                            color: esTI
-                                ? const Color(0xFF4C1D95)
-                                : const Color(0xFF1E293B),
-                          ),
-                          overflow: TextOverflow.ellipsis,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: isMobile ? 130 : 240,
+                        child: Row(
+                          children: [
+                            if (esTI) ...[
+                              const Icon(
+                                Icons.computer,
+                                size: 13,
+                                color: Color(0xFF007AFF),
+                              ),
+                              const SizedBox(width: 5),
+                            ],
+                            Expanded(
+                              child: Text(
+                                nombre,
+                                style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  fontWeight: esTI
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                  color: esTI
+                                      ? const Color(0xFF0056B3)
+                                      : const Color(0xFF1E293B),
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ]),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: Stack(children: [
-                        Container(
-                            height: 16,
-                            color: const Color(0xFFF2F2F7)),
-                        FractionallySizedBox(
-                          widthFactor: ratio,
-                          child: Container(
-                              height: 16, color: barColor),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: Stack(
+                            children: [
+                              Container(
+                                height: 16,
+                                color: const Color(0xFFF2F2F7),
+                              ),
+                              FractionallySizedBox(
+                                widthFactor: ratio,
+                                child: Container(height: 16, color: barColor),
+                              ),
+                            ],
+                          ),
                         ),
-                      ]),
-                    ),
+                      ),
+                      const SizedBox(width: 12),
+                      SizedBox(
+                        width: 48,
+                        child: Text(
+                          _fmt(cantidad),
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade700,
+                          ),
+                          textAlign: TextAlign.right,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(
+                        Icons.chevron_right,
+                        size: 16,
+                        color: Colors.grey.shade300,
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  SizedBox(
-                    width: 48,
-                    child: Text(
-                      _fmt(cantidad),
-                      style: GoogleFonts.inter(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey.shade700),
-                      textAlign: TextAlign.right,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Icon(Icons.chevron_right,
-                      size: 16, color: Colors.grey.shade300),
-                ]),
+                ),
               ),
-            ),
-            if (!isLast)
-              const Divider(height: 1, indent: 16, endIndent: 16),
-          ]);
+              if (!isLast) const Divider(height: 1, indent: 16, endIndent: 16),
+            ],
+          );
         }).toList(),
       ),
     );

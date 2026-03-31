@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 // ── Colores del proyecto ──────────────────────────────────────────────────────
-const _purple = Color(0xFF5B21B6);
+const _primaryColor = Color(0xFF007AFF);
 
 // ── Step model ────────────────────────────────────────────────────────────────
 
@@ -34,7 +34,7 @@ List<WalkthroughStep> _defaultSteps() => [
   WalkthroughStep(
     title: 'Resumen del Dashboard',
     icon: Icons.dashboard_outlined,
-    color: _purple,
+    color: _primaryColor,
     body:
         'El dashboard muestra el estado general de tu cartera de proyectos.\n\n'
         '• **KPIs superiores**: proyectos vigentes, facturación mensual activa y monto total de órdenes de compra.\n'
@@ -106,7 +106,7 @@ List<WalkthroughStep> _defaultSteps() => [
   WalkthroughStep(
     title: 'Detalle del Proyecto',
     icon: Icons.folder_open_outlined,
-    color: _purple,
+    color: _primaryColor,
     body:
         'Cada proyecto tiene secciones expandibles:\n\n'
         '• **Órdenes de Compra**: fechas de envío y aceptación, proveedor, monto.\n'
@@ -600,7 +600,7 @@ class HelpToggleButton extends StatelessWidget {
               label: Text('Guía', style: GoogleFonts.inter(fontSize: 12,
                   fontWeight: FontWeight.w500)),
               style: TextButton.styleFrom(
-                foregroundColor: _purple,
+                foregroundColor: _primaryColor,
                 padding: const EdgeInsets.symmetric(horizontal: 8),
               ),
             ),
@@ -609,7 +609,7 @@ class HelpToggleButton extends StatelessWidget {
             icon: Icon(
               on ? Icons.help_rounded : Icons.help_outline_rounded,
               size: 22,
-              color: on ? _purple : const Color(0xFF94A3B8),
+              color: on ? _primaryColor : const Color(0xFF94A3B8),
             ),
             onPressed: HelpController.instance.toggle,
           ),
@@ -789,17 +789,17 @@ class _HelpTextsEditorState extends State<HelpTextsEditor> {
           margin: const EdgeInsets.only(bottom: 20),
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: _purple.withValues(alpha: 0.06),
+            color: _primaryColor.withValues(alpha: 0.06),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: _purple.withValues(alpha: 0.15)),
+            border: Border.all(color: _primaryColor.withValues(alpha: 0.15)),
           ),
           child: Row(children: [
-            Icon(Icons.info_outline, size: 16, color: _purple),
+            Icon(Icons.info_outline, size: 16, color: _primaryColor),
             const SizedBox(width: 10),
             Expanded(child: Text(
               'Edita los textos de la guía de ayuda. Usa **negrita** para resaltar '
               'términos. Los cambios se reflejan inmediatamente al abrir la guía.',
-              style: GoogleFonts.inter(fontSize: 12, color: _purple),
+              style: GoogleFonts.inter(fontSize: 12, color: _primaryColor),
             )),
           ]),
         ),
@@ -941,7 +941,7 @@ class _HelpTextsEditorState extends State<HelpTextsEditor> {
               label: Text('Guardar cambios',
                   style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
               style: FilledButton.styleFrom(
-                backgroundColor: _purple,
+                backgroundColor: _primaryColor,
                 padding: const EdgeInsets.symmetric(vertical: 13),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12)),

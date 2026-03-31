@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:firebase_auth/firebase_auth.dart';
 
 const _cfBase = 'https://us-central1-licitaciones-prod.cloudfunctions.net';
 
@@ -26,8 +27,11 @@ class ResumenService {
   }
 
   Future<Map<String, dynamic>> _fetch() async {
+    final user = FirebaseAuth.instance.currentUser;
+    final token = await user?.getIdToken() ?? '';
     final res = await http.get(
       Uri.parse('$_cfBase/obtenerResumen'),
+      headers: {'Authorization': 'Bearer $token'},
     );
     if (res.statusCode != 200) {
       throw Exception('Error ${res.statusCode} al cargar resumen');

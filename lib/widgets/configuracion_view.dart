@@ -2,16 +2,14 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
-import '../app_shell.dart';
 import '../models/configuracion.dart';
 import '../services/config_service.dart';
-import 'app_breadcrumbs.dart';
 import 'walkthrough.dart';
 
 // re-export para usar en este archivo sin prefix
 typedef _Hex = String;
 
-const _primaryColor = Color(0xFF5B21B6);
+const _primaryColor = Color(0xFF007AFF);
 const _bgColor = Color(0xFFF2F2F7);
 const _cfBase = 'https://us-central1-licitaciones-prod.cloudfunctions.net';
 
@@ -313,9 +311,30 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
         final hPad = isMobile ? 20.0 : 32.0;
         return Scaffold(
           backgroundColor: _bgColor,
+          floatingActionButton: _isDirty
+              ? FloatingActionButton.extended(
+                  onPressed: _guardando ? null : _guardar,
+                  backgroundColor: _primaryColor,
+                  foregroundColor: Colors.white,
+                  icon: _guardando
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.check_rounded),
+                  label: Text(
+                    'Guardar cambios',
+                    style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+                  ),
+                )
+              : null,
           body: Column(
             children: [
-              _buildAppBar(hPad, isMobile),
+              SizedBox(height: isMobile ? 80 : 24),
               // TabBar
               Container(
                 color: Colors.white,
@@ -327,9 +346,13 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
                       child: TabBar(
                         controller: _tabController,
                         labelStyle: GoogleFonts.inter(
-                            fontSize: 13, fontWeight: FontWeight.w600),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
                         unselectedLabelStyle: GoogleFonts.inter(
-                            fontSize: 13, fontWeight: FontWeight.w400),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w400,
+                        ),
                         labelColor: _primaryColor,
                         unselectedLabelColor: Colors.grey.shade400,
                         indicatorColor: _primaryColor,
@@ -356,25 +379,37 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
                         : SingleChildScrollView(
                             child: Center(
                               child: ConstrainedBox(
-                                constraints: const BoxConstraints(maxWidth: 880),
+                                constraints: const BoxConstraints(
+                                  maxWidth: 880,
+                                ),
                                 child: Padding(
-                                  padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 48),
+                                  padding: EdgeInsets.fromLTRB(
+                                    hPad,
+                                    16,
+                                    hPad,
+                                    48,
+                                  ),
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      Text('Configuración',
-                                          style: GoogleFonts.inter(
-                                            fontSize: isMobile ? 24 : 30,
-                                            fontWeight: FontWeight.w800,
-                                            letterSpacing: -0.7,
-                                            color: const Color(0xFF1E293B),
-                                          )),
+                                      Text(
+                                        'Configuración',
+                                        style: GoogleFonts.inter(
+                                          fontSize: isMobile ? 24 : 30,
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: -0.7,
+                                          color: const Color(0xFF1E293B),
+                                        ),
+                                      ),
                                       const SizedBox(height: 4),
-                                      Text('Administra los valores disponibles en el sistema',
-                                          style: GoogleFonts.inter(
-                                            fontSize: isMobile ? 13 : 14,
-                                            color: Colors.grey.shade500,
-                                          )),
+                                      Text(
+                                        'Administra los valores disponibles en el sistema',
+                                        style: GoogleFonts.inter(
+                                          fontSize: isMobile ? 13 : 14,
+                                          color: Colors.grey.shade500,
+                                        ),
+                                      ),
                                       const SizedBox(height: 24),
                                       _sectionLabel('ESTADOS'),
                                       _estadosCard(),
@@ -422,46 +457,6 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
           ),
         );
       },
-    );
-  }
-
-  Widget _buildAppBar(double hPad, bool isMobile) {
-    return buildBreadcrumbAppBar(
-      context: context,
-      hPad: hPad,
-      onOpenMenu: openAppDrawer,
-      crumbs: [BreadcrumbItem('Configuración')],
-      actions: [
-        if (_isDirty)
-          _guardando
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: _primaryColor,
-                  ),
-                )
-              : TextButton.icon(
-                  onPressed: _guardar,
-                  icon: const Icon(Icons.check, size: 16),
-                  label: Text(
-                    'Guardar',
-                    style: GoogleFonts.inter(fontWeight: FontWeight.w600),
-                  ),
-                  style: TextButton.styleFrom(
-                    foregroundColor: _primaryColor,
-                    backgroundColor: _primaryColor.withValues(alpha: 0.08),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
-                    ),
-                  ),
-                ),
-      ],
     );
   }
 
@@ -1754,16 +1749,22 @@ class _SistemaTab extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: Text('Funciones del Sistema',
-                  style: GoogleFonts.inter(
-                      fontSize: 17, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
+              child: Text(
+                'Funciones del Sistema',
+                style: GoogleFonts.inter(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFF1E293B),
+                ),
+              ),
             ),
             TextButton.icon(
               onPressed: () => showModalBottomSheet(
                 context: context,
                 isScrollControlled: true,
                 backgroundColor: Colors.transparent,
-                builder: (_) => const _HistorialApiSheet(),  // sin filtro = todos
+                builder: (_) =>
+                    const _HistorialApiSheet(), // sin filtro = todos
               ),
               icon: const Icon(Icons.history_rounded, size: 16),
               label: Text('Historial', style: GoogleFonts.inter(fontSize: 13)),
@@ -1779,7 +1780,8 @@ class _SistemaTab extends StatelessWidget {
         const SizedBox(height: 20),
         _sectionHeader('Automáticas — se ejecutan en horario programado'),
         const SizedBox(height: 10),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.download_rounded,
           iconColor: const Color(0xFF0EA5E9),
           name: 'obtenerLicitacionesOCDS',
@@ -1791,7 +1793,8 @@ class _SistemaTab extends StatelessWidget {
               'base en `licitaciones_activas` con estado `procesado: false` para que '
               '`procesarLotesDeLicitaciones` los enriquezca.',
         ),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.sync_rounded,
           iconColor: const Color(0xFF8B5CF6),
           name: 'procesarLotesDeLicitaciones',
@@ -1803,7 +1806,8 @@ class _SistemaTab extends StatelessWidget {
               'genera el campo `texto_busqueda` e indexa el documento en Discovery Engine '
               'para búsqueda semántica. Marca `procesado: true` al finalizar.',
         ),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.bar_chart_rounded,
           iconColor: const Color(0xFF10B981),
           name: 'calcularEstadisticasDiario',
@@ -1815,7 +1819,8 @@ class _SistemaTab extends StatelessWidget {
               'de los ítems, agrupa por categoría (top 12) y actualiza el documento '
               '`_stats/resumen` que alimenta los KPIs del panel de inicio.',
         ),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.cloud_sync_rounded,
           iconColor: const Color(0xFFF59E0B),
           name: 'refrescarCacheExterno',
@@ -1831,7 +1836,8 @@ class _SistemaTab extends StatelessWidget {
         const SizedBox(height: 20),
         _sectionHeader('Bajo demanda — llamadas por la aplicación'),
         const SizedBox(height: 10),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.search_rounded,
           iconColor: const Color(0xFF6366F1),
           name: 'buscarLicitacionPorId',
@@ -1842,7 +1848,8 @@ class _SistemaTab extends StatelessWidget {
               'Parámetros: `id` (código), `type` (tender/award). '
               'Usado al abrir el panel de detalle de un proyecto con licitación pública o trato directo.',
         ),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.receipt_long_rounded,
           iconColor: const Color(0xFF6366F1),
           name: 'buscarOrdenCompra',
@@ -1853,7 +1860,8 @@ class _SistemaTab extends StatelessWidget {
               'Retorna el primer resultado del Listado de la API REST de Mercado Público. '
               'Usado en la pestaña Órdenes de Compra del detalle de proyecto.',
         ),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.link_rounded,
           iconColor: const Color(0xFF6366F1),
           name: 'obtenerDetalleConvenioMarco',
@@ -1864,7 +1872,8 @@ class _SistemaTab extends StatelessWidget {
               'Extrae título, comprador, estado y campos estructurados usando Cheerio. '
               'Usado al abrir proyectos con modalidad Convenio Marco.',
         ),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.cached_rounded,
           iconColor: const Color(0xFF64748B),
           name: 'obtenerCacheExterno / guardarCacheExterno',
@@ -1876,7 +1885,8 @@ class _SistemaTab extends StatelessWidget {
               '`oc_{código}` y `convenio`. El caché evita llamadas repetidas a APIs externas '
               'y es la fuente primaria antes de consultar Mercado Público.',
         ),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.settings_rounded,
           iconColor: const Color(0xFF64748B),
           name: 'obtenerConfiguracion / guardarConfiguracion',
@@ -1887,7 +1897,8 @@ class _SistemaTab extends StatelessWidget {
               '(`configuracion/global` en Firestore). Incluye estados, modalidades, '
               'productos y tipos de documento disponibles en los formularios.',
         ),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.folder_rounded,
           iconColor: const Color(0xFF64748B),
           name: 'obtenerProyectos',
@@ -1898,7 +1909,8 @@ class _SistemaTab extends StatelessWidget {
               'desde Firestore. Convierte Timestamps a ISO strings para compatibilidad '
               'con el cliente Flutter. Resultados cacheados en memoria en el cliente.',
         ),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.analytics_rounded,
           iconColor: const Color(0xFF0EA5E9),
           name: 'analizarClientesMeetcard',
@@ -1909,7 +1921,8 @@ class _SistemaTab extends StatelessWidget {
               'los proyectos registrados. Identifica clientes nuevos (ausentes) y '
               'presentes, útil para análisis de cartera y detección de oportunidades.',
         ),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.person_add_rounded,
           iconColor: const Color(0xFF64748B),
           name: 'crearUsuario',
@@ -1930,13 +1943,20 @@ class _SistemaTab extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Icon(Icons.info_outline_rounded, size: 15, color: Colors.grey.shade400),
+              Icon(
+                Icons.info_outline_rounded,
+                size: 15,
+                color: Colors.grey.shade400,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   'Las funciones automáticas se despliegan en Cloud Functions us-central1. '
                   'Los logs están disponibles en Google Cloud Console → Cloud Functions.',
-                  style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500),
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    color: Colors.grey.shade500,
+                  ),
                 ),
               ),
             ],
@@ -1947,16 +1967,20 @@ class _SistemaTab extends StatelessWidget {
   }
 
   Widget _sectionHeader(String text) => Padding(
-        padding: const EdgeInsets.only(bottom: 2),
-        child: Text(text,
-            style: GoogleFonts.inter(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey.shade400,
-                letterSpacing: 0.4)),
-      );
+    padding: const EdgeInsets.only(bottom: 2),
+    child: Text(
+      text,
+      style: GoogleFonts.inter(
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+        color: Colors.grey.shade400,
+        letterSpacing: 0.4,
+      ),
+    ),
+  );
 
-  Widget _fnCard(BuildContext context, {
+  Widget _fnCard(
+    BuildContext context, {
     required IconData icon,
     required Color iconColor,
     required String name,
@@ -1973,76 +1997,100 @@ class _SistemaTab extends StatelessWidget {
         border: Border.all(color: Colors.grey.shade100),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withValues(alpha: 0.03),
-              blurRadius: 4,
-              offset: const Offset(0, 1))
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 4,
+            offset: const Offset(0, 1),
+          ),
         ],
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        // Fila principal (tappable → historial)
-        InkWell(
-          borderRadius: bulkAction == null
-              ? BorderRadius.circular(10)
-              : const BorderRadius.vertical(top: Radius.circular(10)),
-          onTap: () => showModalBottomSheet(
-            context: context,
-            isScrollControlled: true,
-            backgroundColor: Colors.transparent,
-            builder: (_) => _HistorialApiSheet(funcion: name),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Container(
-                padding: const EdgeInsets.all(7),
-                decoration: BoxDecoration(
-                  color: iconColor.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(icon, size: 16, color: iconColor),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Row(children: [
-                    Expanded(
-                      child: Text(name,
-                          style: GoogleFonts.inter(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: const Color(0xFF1E293B))),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Fila principal (tappable → historial)
+          InkWell(
+            borderRadius: bulkAction == null
+                ? BorderRadius.circular(10)
+                : const BorderRadius.vertical(top: Radius.circular(10)),
+            onTap: () => showModalBottomSheet(
+              context: context,
+              isScrollControlled: true,
+              backgroundColor: Colors.transparent,
+              builder: (_) => _HistorialApiSheet(funcion: name),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: iconColor.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: badgeColor.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(badge,
+                    child: Icon(icon, size: 16, color: iconColor),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                name,
+                                style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: const Color(0xFF1E293B),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: badgeColor.withValues(alpha: 0.10),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                badge,
+                                style: GoogleFonts.inter(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: badgeColor,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          description,
                           style: GoogleFonts.inter(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: badgeColor)),
+                            fontSize: 12.5,
+                            color: Colors.grey.shade600,
+                            height: 1.5,
+                          ),
+                        ),
+                      ],
                     ),
-                  ]),
-                  const SizedBox(height: 5),
-                  Text(description,
-                      style: GoogleFonts.inter(
-                          fontSize: 12.5,
-                          color: Colors.grey.shade600,
-                          height: 1.5)),
-                ]),
+                  ),
+                ],
               ),
-            ]),
+            ),
           ),
-        ),
-        // Botón acción masiva (opcional)
-        if (bulkAction != null) ...[
-          Divider(height: 1, color: Colors.grey.shade100),
-          _BulkActionButton(action: bulkAction),
+          // Botón acción masiva (opcional)
+          if (bulkAction != null) ...[
+            Divider(height: 1, color: Colors.grey.shade100),
+            _BulkActionButton(action: bulkAction),
+          ],
         ],
-      ]),
+      ),
     );
   }
 }
@@ -2079,10 +2127,14 @@ class _BulkActionButtonState extends State<_BulkActionButton> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: Text(widget.action.confirmTitle,
-            style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 15)),
-        content: Text(widget.action.confirmBody,
-            style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade600)),
+        title: Text(
+          widget.action.confirmTitle,
+          style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 15),
+        ),
+        content: Text(
+          widget.action.confirmBody,
+          style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade600),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -2097,12 +2149,26 @@ class _BulkActionButtonState extends State<_BulkActionButton> {
       ),
     );
     if (confirmed != true) return;
-    setState(() { _running = true; _result = null; _error = null; });
+    setState(() {
+      _running = true;
+      _result = null;
+      _error = null;
+    });
     try {
       final res = await widget.action.execute();
-      if (mounted) setState(() { _result = res; _running = false; });
+      if (mounted) {
+        setState(() {
+          _result = res;
+          _running = false;
+        });
+      }
     } catch (e) {
-      if (mounted) setState(() { _error = e.toString(); _running = false; });
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _running = false;
+        });
+      }
     }
   }
 
@@ -2110,59 +2176,93 @@ class _BulkActionButtonState extends State<_BulkActionButton> {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          // Botón ejecutar
-          _running
-              ? const SizedBox(
-                  width: 16, height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: _primaryColor))
-              : OutlinedButton.icon(
-                  onPressed: _ejecutar,
-                  icon: const Icon(Icons.play_arrow_rounded, size: 15),
-                  label: Text(widget.action.label,
-                      style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _primaryColor,
-                    side: const BorderSide(color: _primaryColor),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              // Botón ejecutar
+              _running
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: _primaryColor,
+                      ),
+                    )
+                  : OutlinedButton.icon(
+                      onPressed: _ejecutar,
+                      icon: const Icon(Icons.play_arrow_rounded, size: 15),
+                      label: Text(
+                        widget.action.label,
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _primaryColor,
+                        side: const BorderSide(color: _primaryColor),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+              if (_running) ...[
+                const SizedBox(width: 10),
+                Text(
+                  'Ejecutando…',
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    color: Colors.grey.shade500,
                   ),
                 ),
-          if (_running) ...[
-            const SizedBox(width: 10),
-            Text('Ejecutando…',
-                style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500)),
-          ],
-          // Limpiar resultado
-          if (_result != null || _error != null) ...[
-            const Spacer(),
-            InkWell(
-              onTap: () => setState(() { _result = null; _error = null; }),
-              child: Icon(Icons.close, size: 14, color: Colors.grey.shade400),
-            ),
-          ],
-        ]),
-        // Resultado
-        if (_result != null) ...[
-          const SizedBox(height: 8),
-          _ResultChips(_result!),
-        ],
-        if (_error != null) ...[
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFEF2F2),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(_error!,
-                style: GoogleFonts.inter(
-                    fontSize: 11, color: const Color(0xFFDC2626))),
+              ],
+              // Limpiar resultado
+              if (_result != null || _error != null) ...[
+                const Spacer(),
+                InkWell(
+                  onTap: () => setState(() {
+                    _result = null;
+                    _error = null;
+                  }),
+                  child: Icon(
+                    Icons.close,
+                    size: 14,
+                    color: Colors.grey.shade400,
+                  ),
+                ),
+              ],
+            ],
           ),
+          // Resultado
+          if (_result != null) ...[
+            const SizedBox(height: 8),
+            _ResultChips(_result!),
+          ],
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF2F2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                _error!,
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  color: const Color(0xFFDC2626),
+                ),
+              ),
+            ),
+          ],
         ],
-      ]),
+      ),
     );
   }
 }
@@ -2184,9 +2284,14 @@ class _ResultChips extends StatelessWidget {
           color: const Color(0xFFF0FDF4),
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Text('Completado correctamente',
-            style: GoogleFonts.inter(
-                fontSize: 12, color: const Color(0xFF16A34A), fontWeight: FontWeight.w600)),
+        child: Text(
+          'Completado correctamente',
+          style: GoogleFonts.inter(
+            fontSize: 12,
+            color: const Color(0xFF16A34A),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       );
     }
     return Wrap(
@@ -2201,11 +2306,14 @@ class _ResultChips extends StatelessWidget {
             color: const Color(0xFFF0FDF4),
             borderRadius: BorderRadius.circular(20),
           ),
-          child: Text('$label: $val',
-              style: GoogleFonts.inter(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: const Color(0xFF15803D))),
+          child: Text(
+            '$label: $val',
+            style: GoogleFonts.inter(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: const Color(0xFF15803D),
+            ),
+          ),
         );
       }).toList(),
     );
@@ -2437,25 +2545,33 @@ class _HistorialApiSheetState extends State<_HistorialApiSheet> {
                 padding: const EdgeInsets.fromLTRB(20, 12, 12, 8),
                 child: Row(
                   children: [
-                    const Icon(Icons.history_rounded, size: 20, color: _primaryColor),
+                    const Icon(
+                      Icons.history_rounded,
+                      size: 20,
+                      color: _primaryColor,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            widget.funcion != null ? 'Historial' : 'Historial de API',
+                            widget.funcion != null
+                                ? 'Historial'
+                                : 'Historial de API',
                             style: GoogleFonts.inter(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w700,
-                                color: const Color(0xFF1E293B)),
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF1E293B),
+                            ),
                           ),
                           if (widget.funcion != null)
                             Text(
                               widget.funcion!,
                               style: GoogleFonts.inter(
-                                  fontSize: 12,
-                                  color: Colors.grey.shade500),
+                                fontSize: 12,
+                                color: Colors.grey.shade500,
+                              ),
                             ),
                         ],
                       ),
@@ -2479,87 +2595,98 @@ class _HistorialApiSheetState extends State<_HistorialApiSheet> {
                 child: _loading
                     ? const Center(child: CircularProgressIndicator())
                     : _error != null
-                        ? Center(
-                            child: Text(_error!,
-                                style: GoogleFonts.inter(
-                                    color: Colors.red, fontSize: 13)))
-                        : _logs.isEmpty
-                            ? Center(
-                                child: Text('Sin registros',
-                                    style: GoogleFonts.inter(
-                                        color: Colors.grey, fontSize: 14)))
-                            : ListView.separated(
-                                controller: scrollController,
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 16, vertical: 8),
-                                itemCount: _logs.length,
-                                separatorBuilder: (_, __) =>
-                                    const Divider(height: 1),
-                                itemBuilder: (_, i) {
-                                  final log = _logs[i];
-                                  final estado = log['estado'] as String?;
-                                  final ms = log['ms'] as int?;
-                                  return Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 10),
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Container(
-                                          width: 8,
-                                          height: 8,
-                                          margin: const EdgeInsets.only(
-                                              top: 4, right: 10),
-                                          decoration: BoxDecoration(
-                                            color: _estadoColor(estado),
-                                            shape: BoxShape.circle,
-                                          ),
+                    ? Center(
+                        child: Text(
+                          _error!,
+                          style: GoogleFonts.inter(
+                            color: Colors.red,
+                            fontSize: 13,
+                          ),
+                        ),
+                      )
+                    : _logs.isEmpty
+                    ? Center(
+                        child: Text(
+                          'Sin registros',
+                          style: GoogleFonts.inter(
+                            color: Colors.grey,
+                            fontSize: 14,
+                          ),
+                        ),
+                      )
+                    : ListView.separated(
+                        controller: scrollController,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        itemCount: _logs.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (_, i) {
+                          final log = _logs[i];
+                          final estado = log['estado'] as String?;
+                          final ms = log['ms'] as int?;
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  margin: const EdgeInsets.only(
+                                    top: 4,
+                                    right: 10,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: _estadoColor(estado),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        log['funcion'] ?? '—',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          color: const Color(0xFF1E293B),
                                         ),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                log['funcion'] ?? '—',
-                                                style: GoogleFonts.inter(
-                                                    fontSize: 13,
-                                                    fontWeight:
-                                                        FontWeight.w600,
-                                                    color: const Color(
-                                                        0xFF1E293B)),
-                                              ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                [
-                                                  if (log['tipo'] != null)
-                                                    log['tipo'],
-                                                  if (log['id'] != null)
-                                                    'ID: ${log['id']}',
-                                                  if (log['statusCode'] != null)
-                                                    'HTTP ${log['statusCode']}',
-                                                  if (ms != null) '${ms}ms',
-                                                ].join(' · '),
-                                                style: GoogleFonts.inter(
-                                                    fontSize: 12,
-                                                    color: Colors.grey.shade500),
-                                              ),
-                                            ],
-                                          ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        [
+                                          if (log['tipo'] != null) log['tipo'],
+                                          if (log['id'] != null)
+                                            'ID: ${log['id']}',
+                                          if (log['statusCode'] != null)
+                                            'HTTP ${log['statusCode']}',
+                                          if (ms != null) '${ms}ms',
+                                        ].join(' · '),
+                                        style: GoogleFonts.inter(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade500,
                                         ),
-                                        const SizedBox(width: 8),
-                                        Text(
-                                          _fmtFecha(log['timestamp'] as String?),
-                                          style: GoogleFonts.inter(
-                                              fontSize: 11,
-                                              color: Colors.grey.shade400),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                },
-                              ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  _fmtFecha(log['timestamp'] as String?),
+                                  style: GoogleFonts.inter(
+                                    fontSize: 11,
+                                    color: Colors.grey.shade400,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
               ),
             ],
           ),

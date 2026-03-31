@@ -1,0 +1,10 @@
+﻿Analyzing scratch...                                            
+
+warning - The value of the local variable 'primaryColor' isn't used - lib\main.dart:228:11 - unused_local_variable
+warning - The value of the field '_primaryColor' isn't used - lib\widgets\login_view.dart:14:16 - unused_field
+   info - 'surfaceVariant' is deprecated and shouldn't be used. Use surfaceContainerHighest instead. This feature was deprecated after v3.18.0-0.1.pre - lib\widgets\login_view.dart:320:55 - deprecated_member_use
+   info - 'surfaceVariant' is deprecated and shouldn't be used. Use surfaceContainerHighest instead. This feature was deprecated after v3.18.0-0.1.pre - lib\widgets\login_view.dart:323:55 - deprecated_member_use
+warning - The value of the local variable 'modalidades' isn't used - lib\widgets\proyectos_view.dart:2351:11 - unused_local_variable
+warning - The value of the local variable 'estados' isn't used - lib\widgets\proyectos_view.dart:2352:11 - unused_local_variable
+warning - The value of the local variable 'allProducts' isn't used - lib\widgets\proyectos_view.dart:2353:11 - unused_local_variable
+

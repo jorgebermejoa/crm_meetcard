@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../services/auth_service.dart';
-import 'app_breadcrumbs.dart';
 
 class PerfilView extends StatefulWidget {
   const PerfilView({super.key});
@@ -12,7 +11,7 @@ class PerfilView extends StatefulWidget {
 }
 
 class _PerfilViewState extends State<PerfilView> {
-  static const _primaryColor = Color(0xFF5B21B6);
+  static const _primaryColor = Color(0xFF007AFF);
   static const _bgColor = Color(0xFFF2F2F7);
 
   final _nombreCtrl = TextEditingController();
@@ -103,14 +102,8 @@ class _PerfilViewState extends State<PerfilView> {
 
       return Scaffold(
         backgroundColor: _bgColor,
-        appBar: buildBreadcrumbAppBar(
-          context: context,
-          hPad: hPad,
-          onOpenMenu: () => Scaffold.of(context).openDrawer(),
-          crumbs: [BreadcrumbItem('Mi perfil')],
-        ),
         body: SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 48),
+          padding: EdgeInsets.fromLTRB(hPad, isMobile ? 80 : 24, hPad, 48),
           child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 600),

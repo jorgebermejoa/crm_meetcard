@@ -1,3 +1,5 @@
+import '../features/proyecto/domain/entities/proyecto_entity.dart';
+
 class CertificadoExperiencia {
   final String id;
   final String descripcion;
@@ -10,6 +12,13 @@ class CertificadoExperiencia {
     this.fechaEmision,
     this.url,
   });
+
+  CertificadoEntity toEntity() => CertificadoEntity(
+        id: id,
+        descripcion: descripcion,
+        fechaEmision: fechaEmision,
+        url: url,
+      );
 
   factory CertificadoExperiencia.fromJson(Map<String, dynamic> d) =>
       CertificadoExperiencia(
@@ -38,6 +47,7 @@ class Reclamo {
   final DateTime? fechaRespuesta;
   final String? descripcionRespuesta;
   final List<DocumentoProyecto> documentosRespuesta;
+  final String? urlFicha;
 
   Reclamo({
     required this.id,
@@ -48,7 +58,20 @@ class Reclamo {
     this.fechaRespuesta,
     this.descripcionRespuesta,
     this.documentosRespuesta = const [],
+    this.urlFicha,
   });
+
+  ReclamoEntity toEntity() => ReclamoEntity(
+        id: id,
+        descripcion: descripcion,
+        fechaReclamo: fechaReclamo,
+        documentos: documentos.map((d) => d.toEntity()).toList(),
+        estado: estado,
+        fechaRespuesta: fechaRespuesta,
+        descripcionRespuesta: descripcionRespuesta,
+        documentosRespuesta: documentosRespuesta.map((d) => d.toEntity()).toList(),
+        urlFicha: urlFicha,
+      );
 
   factory Reclamo.fromJson(Map<String, dynamic> d) {
     // documentos: nueva lista, o backward-compat con campo url
@@ -82,6 +105,7 @@ class Reclamo {
       fechaRespuesta: d['fechaRespuesta'] != null ? DateTime.tryParse(d['fechaRespuesta']) : null,
       descripcionRespuesta: d['descripcionRespuesta']?.toString(),
       documentosRespuesta: docsResp,
+      urlFicha: d['urlFicha']?.toString(),
     );
   }
 
@@ -94,6 +118,7 @@ class Reclamo {
         'fechaRespuesta': fechaRespuesta?.toIso8601String(),
         'descripcionRespuesta': descripcionRespuesta,
         'documentosRespuesta': documentosRespuesta.map((d) => d.toJson()).toList(),
+        'urlFicha': urlFicha,
       };
 }
 
@@ -103,6 +128,12 @@ class DocumentoProyecto {
   final String? nombre;
 
   DocumentoProyecto({required this.tipo, required this.url, this.nombre});
+
+  DocumentoEntity toEntity() => DocumentoEntity(
+        tipo: tipo,
+        url: url,
+        nombre: nombre,
+      );
 
   factory DocumentoProyecto.fromJson(Map<String, dynamic> d) => DocumentoProyecto(
         tipo: d['tipo'] as String? ?? '',
@@ -191,6 +222,37 @@ class Proyecto {
     this.montoTotalOC,
     this.proyectoContinuacionIds = const [],
   });
+
+  ProyectoEntity toEntity() => ProyectoEntity(
+        id: id,
+        institucion: institucion,
+        productos: productos,
+        modalidadCompra: modalidadCompra,
+        valorMensual: valorMensual,
+        fechaInicio: fechaInicio,
+        fechaTermino: fechaTermino,
+        idLicitacion: idLicitacion,
+        idCotizacion: idCotizacion,
+        urlConvenioMarco: urlConvenioMarco,
+        idsOrdenesCompra: idsOrdenesCompra,
+        documentos: documentos.map((d) => d.toEntity()).toList(),
+        certificados: certificados.map((c) => c.toEntity()).toList(),
+        reclamos: reclamos.map((r) => r.toEntity()).toList(),
+        notas: notas,
+        fechaCreacion: fechaCreacion,
+        completado: completado,
+        estadoManual: estadoManual,
+        fechaInicioRuta: fechaInicioRuta,
+        fechaTerminoRuta: fechaTerminoRuta,
+        fechaPublicacion: fechaPublicacion,
+        fechaCierre: fechaCierre,
+        fechaConsultasInicio: fechaConsultasInicio,
+        fechaConsultas: fechaConsultas,
+        fechaAdjudicacion: fechaAdjudicacion,
+        fechaAdjudicacionFin: fechaAdjudicacionFin,
+        montoTotalOC: montoTotalOC,
+        proyectoContinuacionIds: proyectoContinuacionIds,
+      );
 
   Proyecto _copyBase({
     double? montoTotalOC,
@@ -316,4 +378,35 @@ class Proyecto {
       }(),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'institucion': institucion,
+        'productos': productos,
+        'modalidadCompra': modalidadCompra,
+        'valorMensual': valorMensual,
+        'fechaInicio': fechaInicio?.toIso8601String(),
+        'fechaTermino': fechaTermino?.toIso8601String(),
+        'idLicitacion': idLicitacion,
+        'idCotizacion': idCotizacion,
+        'urlConvenioMarco': urlConvenioMarco,
+        'idsOrdenesCompra': idsOrdenesCompra,
+        'documentos': documentos.map((e) => e.toJson()).toList(),
+        'certificados': certificados.map((e) => e.toJson()).toList(),
+        'reclamos': reclamos.map((e) => e.toJson()).toList(),
+        'notas': notas,
+        'fechaCreacion': fechaCreacion?.toIso8601String(),
+        'completado': completado,
+        'estadoManual': estadoManual,
+        'fechaInicioRuta': fechaInicioRuta?.toIso8601String(),
+        'fechaTerminoRuta': fechaTerminoRuta?.toIso8601String(),
+        'fechaPublicacion': fechaPublicacion?.toIso8601String(),
+        'fechaCierre': fechaCierre?.toIso8601String(),
+        'fechaConsultasInicio': fechaConsultasInicio?.toIso8601String(),
+        'fechaConsultas': fechaConsultas?.toIso8601String(),
+        'fechaAdjudicacion': fechaAdjudicacion?.toIso8601String(),
+        'fechaAdjudicacionFin': fechaAdjudicacionFin?.toIso8601String(),
+        'montoTotalOC': montoTotalOC,
+        'proyectoContinuacionIds': proyectoContinuacionIds,
+      };
 }
