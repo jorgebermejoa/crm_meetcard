@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'core/theme/app_colors.dart';
 import 'features/proyecto/presentation/providers/sidebar_provider.dart';
 import 'features/proyecto/presentation/widgets/sidebar_widget.dart';
 
@@ -30,10 +31,10 @@ class AppShell extends StatelessWidget {
       return Scaffold(
         key: appShellKey,
         appBar: AppBar(
-          backgroundColor: const Color(0xFF0F172A),
+          backgroundColor: Colors.white,
           elevation: 0,
           leading: IconButton(
-            icon: const Icon(Icons.menu, color: Colors.white),
+            icon: const Icon(Icons.menu, color: AppColors.primary),
             onPressed: () => appShellKey.currentState?.openDrawer(),
           ),
           title: Text(
@@ -41,8 +42,15 @@ class AppShell extends StatelessWidget {
             style: GoogleFonts.inter(
               fontSize: 14,
               fontWeight: FontWeight.w800,
-              color: Colors.white,
+              color: AppColors.textPrimary,
               letterSpacing: 1.0,
+            ),
+          ),
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(1),
+            child: Container(
+              height: 1,
+              color: AppColors.border,
             ),
           ),
         ),
