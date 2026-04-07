@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../services/auth_service.dart';
+import '../core/theme/app_colors.dart';
 
 class LoginView extends StatefulWidget {
   const LoginView({super.key});
@@ -11,8 +12,6 @@ class LoginView extends StatefulWidget {
 }
 
 class _LoginViewState extends State<LoginView> {
-  static const _primaryColor = Color(0xFF5B21B6);
-
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   bool _loading = false;
@@ -35,9 +34,17 @@ class _LoginViewState extends State<LoginView> {
       setState(() => _error = 'Completa todos los campos');
       return;
     }
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     final err = await AuthService.instance.login(email, pass);
-    if (mounted) setState(() { _loading = false; _error = err; });
+    if (mounted) {
+      setState(() {
+        _loading = false;
+        _error = err;
+      });
+    }
   }
 
   Future<void> _sendReset() async {
@@ -46,7 +53,10 @@ class _LoginViewState extends State<LoginView> {
       setState(() => _error = 'Ingresa tu correo para recuperar contraseña');
       return;
     }
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     final err = await AuthService.instance.resetPassword(email);
     if (mounted) {
       setState(() {
@@ -59,52 +69,21 @@ class _LoginViewState extends State<LoginView> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF2F2F7),
+      backgroundColor: colorScheme.surfaceContainerLow, // Use theme background
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 400),
+            constraints: const BoxConstraints(maxWidth: 420), // Stitch spec
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Logo / brand
-                Container(
-                  width: 64,
-                  height: 64,
-                  decoration: BoxDecoration(
-                    color: _primaryColor,
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: const Icon(Icons.search, color: Colors.white, size: 32),
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  'CRM',
-                  style: GoogleFonts.inter(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w800,
-                    color: const Color(0xFF1E293B),
-                    letterSpacing: -0.7,
-                  ),
-                ),
+                const _BrandHeader(),
                 const SizedBox(height: 36),
-
-                // Card
-                Container(
-                  padding: const EdgeInsets.all(28),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.07),
-                        blurRadius: 20,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
+                _AuthCard(
                   child: _resetMode ? _buildResetForm() : _buildLoginForm(),
                 ),
               ],
@@ -116,15 +95,20 @@ class _LoginViewState extends State<LoginView> {
   }
 
   Widget _buildLoginForm() {
+    final colorScheme = Theme.of(context).colorScheme;
+    final primaryColor = colorScheme.primary;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'Iniciar sesión',
           style: GoogleFonts.inter(
-              fontSize: 18, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B)),
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: colorScheme.onSurface,
+          ),
         ),
-        const SizedBox(height: 4),
         const SizedBox(height: 24),
 
         _label('CORREO ELECTRÓNICO'),
@@ -145,9 +129,11 @@ class _LoginViewState extends State<LoginView> {
           obscure: !_showPass,
           suffix: IconButton(
             icon: Icon(
-              _showPass ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+              _showPass
+                  ? Icons.visibility_off_outlined
+                  : Icons.visibility_outlined,
               size: 18,
-              color: Colors.grey.shade400,
+              color: colorScheme.outlineVariant,
             ),
             onPressed: () => setState(() => _showPass = !_showPass),
           ),
@@ -156,22 +142,7 @@ class _LoginViewState extends State<LoginView> {
 
         if (_error != null) ...[
           const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.red.shade50,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.red.shade200),
-            ),
-            child: Row(children: [
-              Icon(Icons.error_outline, size: 14, color: Colors.red.shade600),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(_error!,
-                    style: GoogleFonts.inter(fontSize: 12, color: Colors.red.shade700)),
-              ),
-            ]),
-          ),
+          _ErrorMessage(message: _error!),
         ],
 
         const SizedBox(height: 20),
@@ -180,31 +151,46 @@ class _LoginViewState extends State<LoginView> {
           child: ElevatedButton(
             onPressed: _loading ? null : _login,
             style: ElevatedButton.styleFrom(
-              backgroundColor: _primaryColor,
-              foregroundColor: Colors.white,
+              backgroundColor: primaryColor,
+              foregroundColor: colorScheme.onPrimary,
               padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
               elevation: 0,
             ),
             child: _loading
-                ? const SizedBox(
+                ? SizedBox(
                     width: 18,
                     height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : Text('Ingresar',
-                    style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600)),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: colorScheme.onPrimary,
+                    ),
+                  )
+                : Text(
+                    'Ingresar',
+                    style: GoogleFonts.inter(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
           ),
         ),
         const SizedBox(height: 14),
         Center(
           child: TextButton(
-            onPressed: () => setState(() { _resetMode = true; _error = null; }),
+            onPressed: () => setState(() {
+              _resetMode = true;
+              _error = null;
+            }),
             child: Text(
               '¿Olvidaste tu contraseña?',
               style: GoogleFonts.inter(
-                  fontSize: 12,
-                  color: _primaryColor.withValues(alpha: 0.7),
-                  fontWeight: FontWeight.w500),
+                fontSize: 12,
+                color: primaryColor.withValues(alpha: 0.7),
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
         ),
@@ -213,27 +199,50 @@ class _LoginViewState extends State<LoginView> {
   }
 
   Widget _buildResetForm() {
+    final colorScheme = Theme.of(context).colorScheme;
+    final primaryColor = colorScheme.primary;
+
     if (_resetSent) {
       return Column(
         children: [
-          const Icon(Icons.mark_email_read_outlined, size: 48, color: Color(0xFF10B981)),
+          const Icon(
+            Icons.mark_email_read_outlined,
+            size: 48,
+            color: AppColors.success,
+          ),
           const SizedBox(height: 16),
           Text(
             'Correo enviado',
             style: GoogleFonts.inter(
-                fontSize: 18, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B)),
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: colorScheme.onSurface,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
             'Revisa tu bandeja de entrada y sigue las instrucciones para recuperar tu contraseña.',
-            style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade500, height: 1.5),
+            style: GoogleFonts.inter(
+              fontSize: 13,
+              color: colorScheme.onSurfaceVariant,
+              height: 1.5,
+            ),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 24),
           TextButton(
-            onPressed: () => setState(() { _resetMode = false; _resetSent = false; }),
-            child: Text('Volver al inicio de sesión',
-                style: GoogleFonts.inter(fontSize: 13, color: _primaryColor, fontWeight: FontWeight.w500)),
+            onPressed: () => setState(() {
+              _resetMode = false;
+              _resetSent = false;
+            }),
+            child: Text(
+              'Volver al inicio de sesión',
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                color: primaryColor,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           ),
         ],
       );
@@ -244,12 +253,19 @@ class _LoginViewState extends State<LoginView> {
         Text(
           'Recuperar contraseña',
           style: GoogleFonts.inter(
-              fontSize: 18, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B)),
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: colorScheme.onSurface,
+          ),
         ),
         const SizedBox(height: 4),
         Text(
           'Te enviaremos un enlace para restablecer tu contraseña',
-          style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade400, height: 1.4),
+          style: GoogleFonts.inter(
+            fontSize: 12,
+            color: colorScheme.outline,
+            height: 1.4,
+          ),
         ),
         const SizedBox(height: 24),
         _label('CORREO ELECTRÓNICO'),
@@ -262,7 +278,7 @@ class _LoginViewState extends State<LoginView> {
         ),
         if (_error != null) ...[
           const SizedBox(height: 12),
-          Text(_error!, style: GoogleFonts.inter(fontSize: 12, color: Colors.red.shade600)),
+          _ErrorMessage(message: _error!),
         ],
         const SizedBox(height: 20),
         SizedBox(
@@ -270,31 +286,46 @@ class _LoginViewState extends State<LoginView> {
           child: ElevatedButton(
             onPressed: _loading ? null : _sendReset,
             style: ElevatedButton.styleFrom(
-              backgroundColor: _primaryColor,
-              foregroundColor: Colors.white,
+              backgroundColor: primaryColor,
+              foregroundColor: colorScheme.onPrimary,
               padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
               elevation: 0,
             ),
             child: _loading
-                ? const SizedBox(
+                ? SizedBox(
                     width: 18,
                     height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : Text('Enviar enlace',
-                    style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600)),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: colorScheme.onPrimary,
+                    ),
+                  )
+                : Text(
+                    'Enviar enlace',
+                    style: GoogleFonts.inter(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
           ),
         ),
         const SizedBox(height: 12),
         Center(
           child: TextButton(
-            onPressed: () => setState(() { _resetMode = false; _error = null; }),
+            onPressed: () => setState(() {
+              _resetMode = false;
+              _error = null;
+            }),
             child: Text(
               'Volver',
               style: GoogleFonts.inter(
-                  fontSize: 12,
-                  color: Colors.grey.shade500,
-                  fontWeight: FontWeight.w500),
+                fontSize: 12,
+                color: colorScheme.outline,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
         ),
@@ -302,14 +333,18 @@ class _LoginViewState extends State<LoginView> {
     );
   }
 
-  Widget _label(String text) => Text(
-        text,
-        style: GoogleFonts.inter(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            color: Colors.grey.shade400,
-            letterSpacing: 0.5),
-      );
+  Widget _label(String text) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Text(
+      text,
+      style: GoogleFonts.inter(
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+        color: colorScheme.outline,
+        letterSpacing: 0.5,
+      ),
+    );
+  }
 
   Widget _field({
     required TextEditingController controller,
@@ -318,28 +353,128 @@ class _LoginViewState extends State<LoginView> {
     bool obscure = false,
     Widget? suffix,
     void Function(String)? onSubmit,
-  }) =>
-      TextField(
-        controller: controller,
-        keyboardType: keyboardType,
-        obscureText: obscure,
-        style: GoogleFonts.inter(fontSize: 14),
-        onSubmitted: onSubmit,
-        decoration: InputDecoration(
-          hintText: hint,
-          hintStyle: GoogleFonts.inter(fontSize: 14, color: Colors.grey.shade300),
-          suffixIcon: suffix,
-          isDense: true,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(color: Colors.grey.shade200)),
-          enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(color: Colors.grey.shade200)),
-          focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: _primaryColor, width: 1.5)),
+  }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return TextField(
+      controller: controller,
+      keyboardType: keyboardType,
+      obscureText: obscure,
+      style: GoogleFonts.inter(fontSize: 14),
+      onSubmitted: onSubmit,
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: GoogleFonts.inter(
+          fontSize: 14,
+          color: colorScheme.outlineVariant,
         ),
-      );
+        suffixIcon: suffix,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: colorScheme.surfaceContainerHighest),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: colorScheme.surfaceContainerHighest),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: colorScheme.primary, width: 1.5),
+        ),
+      ),
+    );
+  }
+}
+
+class _BrandHeader extends StatelessWidget {
+  const _BrandHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+
+    return Column(
+      children: [
+        Container(
+          width: 64,
+          height: 64,
+          decoration: BoxDecoration(
+            color: primaryColor,
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: const Icon(Icons.search, color: Colors.white, size: 32),
+        ),
+        const SizedBox(height: 20),
+        Text(
+          'CRM',
+          style: GoogleFonts.inter(
+            fontSize: 26,
+            fontWeight: FontWeight.w800,
+            color: onSurface,
+            letterSpacing: -0.7,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AuthCard extends StatelessWidget {
+  final Widget child;
+  const _AuthCard({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(28),
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 20,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+}
+
+class _ErrorMessage extends StatelessWidget {
+  final String message;
+  const _ErrorMessage({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: colorScheme.errorContainer.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colorScheme.errorContainer),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.error_outline, size: 14, color: colorScheme.error),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: GoogleFonts.inter(fontSize: 12, color: colorScheme.error),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

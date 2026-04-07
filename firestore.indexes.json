@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "sugerencias_cadena",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "estado", "order": "ASCENDING" },
+        { "fieldPath": "score", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

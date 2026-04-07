@@ -26,7 +26,7 @@ class BigQueryService {
         'Authorization': 'Bearer $token',
       },
       body: jsonEncode({'query': sql, 'params': params}),
-    );
+    ).timeout(const Duration(seconds: 30));
 
     if (resp.statusCode != 200) {
       final body = resp.body;
@@ -48,7 +48,7 @@ class BigQueryService {
     final resp = await http.get(
       Uri.parse('$_cfBase/analizarMesesPublicadoOC'),
       headers: {'Authorization': 'Bearer $token'},
-    );
+    ).timeout(const Duration(seconds: 30));
 
     if (resp.statusCode != 200) {
       throw Exception('Error ${resp.statusCode}: ${resp.body}');
@@ -64,7 +64,7 @@ class BigQueryService {
     final resp = await http.get(
       Uri.parse('$_cfBase/obtenerCompetidoresLicitacion?idLicitacion=${Uri.encodeComponent(idLicitacion)}'),
       headers: {'Authorization': 'Bearer $token'},
-    );
+    ).timeout(const Duration(seconds: 30));
     if (resp.statusCode != 200) throw Exception('Error ${resp.statusCode}: ${resp.body}');
     final data = jsonDecode(resp.body) as Map<String, dynamic>;
     return (data['rows'] as List).cast<Map<String, dynamic>>();
@@ -77,7 +77,7 @@ class BigQueryService {
     final resp = await http.get(
       Uri.parse('$_cfBase/obtenerGanadorLicitacion?idLicitacion=${Uri.encodeComponent(idLicitacion)}'),
       headers: {'Authorization': 'Bearer $token'},
-    );
+    ).timeout(const Duration(seconds: 30));
     if (resp.statusCode != 200) throw Exception('Error ${resp.statusCode}: ${resp.body}');
     final data = jsonDecode(resp.body) as Map<String, dynamic>;
     return (data['rows'] as List).cast<Map<String, dynamic>>();
@@ -89,7 +89,7 @@ class BigQueryService {
     final token = await user.getIdToken();
     var url = '$_cfBase/obtenerHistorialGanador?rutProveedor=${Uri.encodeComponent(rutProveedor)}';
     if (rutOrganismo != null) url += '&rutOrganismo=${Uri.encodeComponent(rutOrganismo)}';
-    final resp = await http.get(Uri.parse(url), headers: {'Authorization': 'Bearer $token'});
+    final resp = await http.get(Uri.parse(url), headers: {'Authorization': 'Bearer $token'}).timeout(const Duration(seconds: 30));
     if (resp.statusCode != 200) throw Exception('Error ${resp.statusCode}: ${resp.body}');
     return jsonDecode(resp.body) as Map<String, dynamic>;
   }
@@ -101,7 +101,7 @@ class BigQueryService {
     final resp = await http.get(
       Uri.parse('$_cfBase/obtenerPrediccionOrganismo?rutOrganismo=${Uri.encodeComponent(rutOrganismo)}'),
       headers: {'Authorization': 'Bearer $token'},
-    );
+    ).timeout(const Duration(seconds: 30));
     if (resp.statusCode != 200) throw Exception('Error ${resp.statusCode}: ${resp.body}');
     final data = jsonDecode(resp.body) as Map<String, dynamic>;
     return (data['rows'] as List).cast<Map<String, dynamic>>();
@@ -114,7 +114,7 @@ class BigQueryService {
     final resp = await http.get(
       Uri.parse('$_cfBase/obtenerFichaOrganismo?rutOrganismo=${Uri.encodeComponent(rutOrganismo)}'),
       headers: {'Authorization': 'Bearer $token'},
-    );
+    ).timeout(const Duration(seconds: 30));
     if (resp.statusCode != 200) throw Exception('Error ${resp.statusCode}: ${resp.body}');
     return jsonDecode(resp.body) as Map<String, dynamic>;
   }
@@ -126,7 +126,7 @@ class BigQueryService {
     final resp = await http.get(
       Uri.parse('$_cfBase/obtenerFichaProveedor?rutProveedor=${Uri.encodeComponent(rutProveedor)}'),
       headers: {'Authorization': 'Bearer $token'},
-    );
+    ).timeout(const Duration(seconds: 30));
     if (resp.statusCode != 200) throw Exception('Error ${resp.statusCode}: ${resp.body}');
     return jsonDecode(resp.body) as Map<String, dynamic>;
   }
@@ -140,7 +140,7 @@ class BigQueryService {
     final resp = await http.get(
       Uri.parse('$_cfBase/obtenerRadarOportunidades'),
       headers: {'Authorization': 'Bearer $token'},
-    );
+    ).timeout(const Duration(seconds: 30));
 
     if (resp.statusCode != 200) {
       throw Exception('Error ${resp.statusCode}: ${resp.body}');
@@ -160,7 +160,7 @@ class BigQueryService {
     final resp = await http.get(
       Uri.parse('$_cfBase/analizarClientesMeetcard'),
       headers: {'Authorization': 'Bearer $token'},
-    );
+    ).timeout(const Duration(seconds: 30));
 
     if (resp.statusCode != 200) {
       throw Exception('Error ${resp.statusCode}: ${resp.body}');

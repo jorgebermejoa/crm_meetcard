@@ -88,6 +88,10 @@ class LicitacionApiService {
   /// Busca datos de una Licitación Pública.
   /// Intenta OCDS primero; si no obtiene institución o fecha, cae al MP API.
   Future<LicitacionInfo> fetchLP(String codigo, {String type = 'tender'}) async {
+    // Para CM, TD y SE (Compra Ágil) usamos type=award en la API OCDS de las funciones
+    if (codigo.contains('CM') || codigo.contains('TD') || codigo.contains('SE')) {
+      type = 'award';
+    }
     // 1. OCDS vía Cloud Function
     LicitacionInfo? ocdsResult;
     try {

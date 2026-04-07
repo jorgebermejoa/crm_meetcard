@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+   uando   "name": "CRM Meetcard",
+      "request": "launch",
+      "type": "dart",
+      "cwd": "${workspaceFolder}",
+      "program": "lib/main.dart",
+      "args": [
+        "-d",
+        "chrome",
+        "--dart-define-from-file=.env.local"
+      ]
+    }
+  ]
+}

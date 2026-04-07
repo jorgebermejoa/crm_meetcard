@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/configuracion.dart';
 
@@ -18,9 +19,13 @@ class ConfigService {
 
   Future<ConfiguracionData> _fetch() async {
     try {
-      final res = await http.get(Uri.parse('$_cfBase/obtenerConfiguracion'));
+      final res = await http
+          .get(Uri.parse('$_cfBase/obtenerConfiguracion'))
+          .timeout(const Duration(seconds: 15));
+      if (res.statusCode != 200) throw Exception('HTTP ${res.statusCode}');
       _cached = ConfiguracionData.fromJson(jsonDecode(res.body));
-    } catch (_) {
+    } catch (e) {
+      debugPrint('ConfigService error: $e');
       _cached = ConfiguracionData.defaults();
     }
     return _cached!;

@@ -1,12 +1,15 @@
 import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/proyecto.dart';
+import '../models/configuracion.dart';
 import '../services/config_service.dart';
 import '../services/licitacion_api_service.dart';
+import '../core/theme/app_colors.dart';
 
 class ProyectoFormDialog extends StatefulWidget {
   final bool isEditing;
@@ -26,7 +29,8 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
   final _formKey = GlobalKey<FormState>();
 
   late final TextEditingController _institucionCtrl;
-  late final TextEditingController _productosCtrl;
+  List<String> _selectedProductos = [];
+  List<ProductoItem> _productosDisponibles = [];
   late final TextEditingController _valorCtrl;
   late final TextEditingController _idLicitacionCtrl;
   late final TextEditingController _idCotizacionCtrl;
@@ -41,14 +45,16 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
 
   List<String> _modalidades = ['Licitación Pública', 'Convenio Marco', 'Trato Directo', 'Otro'];
 
-  static const _primaryColor = Color(0xFF5B21B6);
+  static const _primaryColor = AppColors.primary;
 
   @override
   void initState() {
     super.initState();
     final p = widget.proyecto;
     _institucionCtrl = TextEditingController(text: p?.institucion ?? '');
-    _productosCtrl = TextEditingController(text: p?.productos ?? '');
+    if (p != null && p.productos.isNotEmpty) {
+      _selectedProductos = p.productos.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+    }
     _valorCtrl = TextEditingController(
       text: p?.valorMensual != null ? p!.valorMensual!.toStringAsFixed(0) : '',
     );
@@ -64,6 +70,7 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
       setState(() {
         _modalidades = cfg.modalidades.isNotEmpty ? cfg.modalidades : _modalidades;
         if (!_modalidades.contains(_modalidad)) _modalidad = _modalidades.first;
+        _productosDisponibles = cfg.productos;
       });
     });
   }
@@ -71,7 +78,6 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
   @override
   void dispose() {
     _institucionCtrl.dispose();
-    _productosCtrl.dispose();
     _valorCtrl.dispose();
     _idLicitacionCtrl.dispose();
     _idCotizacionCtrl.dispose();
@@ -164,12 +170,16 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
 
   Future<void> _guardar() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_productosDisponibles.isNotEmpty && _selectedProductos.isEmpty) {
+      setState(() {}); // trigger rebuild to show error under chips
+      return;
+    }
 
     const baseUrl = 'https://us-central1-licitaciones-prod.cloudfunctions.net';
 
     final body = <String, dynamic>{
       'institucion': _institucionCtrl.text.trim(),
-      'productos': _productosCtrl.text.trim(),
+      'productos': _selectedProductos.join(', '),
       'modalidadCompra': _modalidad,
       'completado': widget.proyecto?.completado ?? false,
     };
@@ -195,9 +205,10 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
         endpoint = '$baseUrl/crearProyecto';
       }
 
+      final token = await FirebaseAuth.instance.currentUser?.getIdToken() ?? '';
       final response = await http.post(
         Uri.parse(endpoint),
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
         body: json.encode(body),
       );
 
@@ -242,9 +253,10 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
 
     if (confirm == true && widget.proyecto != null) {
       try {
+        final token = await FirebaseAuth.instance.currentUser?.getIdToken() ?? '';
         final response = await http.post(
           Uri.parse('https://us-central1-licitaciones-prod.cloudfunctions.net/eliminarProyecto'),
-          headers: {'Content-Type': 'application/json'},
+          headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
           body: json.encode({'id': widget.proyecto!.id}),
         );
         if (response.statusCode == 200) {
@@ -301,7 +313,7 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
                     style: GoogleFonts.inter(
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
-                      color: const Color(0xFF1E293B),
+                      color: AppColors.textPrimary,
                     ),
                   ),
                 ),
@@ -333,7 +345,7 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
                       DropdownButtonFormField<String>(
                         initialValue: _modalidad,
                         decoration: _inputDecoration('Seleccionar modalidad'),
-                        style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF1E293B)),
+                        style: GoogleFonts.inter(fontSize: 14, color: AppColors.textPrimary),
                         items: _modalidades
                             .map((m) => DropdownMenuItem(value: m, child: Text(m, style: GoogleFonts.inter(fontSize: 14))))
                             .toList(),
@@ -495,13 +507,30 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
 
                       // Productos
                       _fieldLabel('Productos / Servicios *'),
-                      const SizedBox(height: 6),
-                      TextFormField(
-                        controller: _productosCtrl,
-                        style: GoogleFonts.inter(fontSize: 14),
-                        decoration: _inputDecoration('Descripción de productos o servicios'),
-                        validator: (v) => v == null || v.trim().isEmpty ? 'Requerido' : null,
-                      ),
+                      const SizedBox(height: 8),
+                      if (_productosDisponibles.isEmpty)
+                        // Fallback: text field if no products configured
+                        _ProductosTextField(
+                          initialValue: _selectedProductos.join(', '),
+                          onChanged: (v) {
+                            _selectedProductos = v.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+                          },
+                        )
+                      else
+                        _ProductosChips(
+                          disponibles: _productosDisponibles,
+                          selected: _selectedProductos,
+                          onToggle: (abrev) {
+                            setState(() {
+                              if (_selectedProductos.contains(abrev)) {
+                                _selectedProductos.remove(abrev);
+                              } else {
+                                _selectedProductos.add(abrev);
+                              }
+                            });
+                          },
+                          isEmpty: _selectedProductos.isEmpty,
+                        ),
                       const SizedBox(height: 16),
 
                       // Valor Mensual
@@ -617,7 +646,7 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
       style: GoogleFonts.inter(
         fontSize: 13,
         fontWeight: FontWeight.w500,
-        color: const Color(0xFF475569),
+        color: AppColors.textSecondary,
       ),
     );
   }
@@ -627,7 +656,7 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
       hintText: hint,
       hintStyle: GoogleFonts.inter(fontSize: 14, color: Colors.grey.shade400),
       filled: true,
-      fillColor: const Color(0xFFF8FAFC),
+      fillColor: AppColors.surfaceAlt,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
         borderSide: BorderSide(color: Colors.grey.shade200),
@@ -660,7 +689,7 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
         height: 44,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
-          color: const Color(0xFFF8FAFC),
+          color: AppColors.surfaceAlt,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: Colors.grey.shade200),
         ),
@@ -673,7 +702,7 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
                 label,
                 style: GoogleFonts.inter(
                   fontSize: 14,
-                  color: hasValue ? const Color(0xFF1E293B) : Colors.grey.shade400,
+                  color: hasValue ? AppColors.textPrimary : Colors.grey.shade400,
                 ),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -681,6 +710,114 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ── Chips de productos ────────────────────────────────────────────────────────
+
+class _ProductosChips extends StatelessWidget {
+  final List<ProductoItem> disponibles;
+  final List<String> selected;
+  final void Function(String abrev) onToggle;
+  final bool isEmpty;
+
+  const _ProductosChips({
+    required this.disponibles,
+    required this.selected,
+    required this.onToggle,
+    required this.isEmpty,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: disponibles.map((p) {
+            final isSelected = selected.contains(p.abreviatura);
+            return FilterChip(
+              label: Text(
+                p.abreviatura,
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: isSelected ? p.fgColor : AppColors.textSecondary,
+                ),
+              ),
+              selected: isSelected,
+              onSelected: (_) => onToggle(p.abreviatura),
+              backgroundColor: AppColors.surfaceAlt,
+              selectedColor: p.bgColor,
+              checkmarkColor: p.fgColor,
+              side: BorderSide(
+                color: isSelected ? p.fgColor.withValues(alpha: 0.4) : Colors.grey.shade200,
+              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+            );
+          }).toList(),
+        ),
+        if (isEmpty) ...[
+          const SizedBox(height: 4),
+          Text(
+            'Selecciona al menos un producto',
+            style: GoogleFonts.inter(fontSize: 12, color: Colors.red.shade600),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+// Fallback cuando no hay productos configurados
+class _ProductosTextField extends StatefulWidget {
+  final String initialValue;
+  final void Function(String) onChanged;
+  const _ProductosTextField({required this.initialValue, required this.onChanged});
+
+  @override
+  State<_ProductosTextField> createState() => _ProductosTextFieldState();
+}
+
+class _ProductosTextFieldState extends State<_ProductosTextField> {
+  late final TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.initialValue);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: _ctrl,
+      style: GoogleFonts.inter(fontSize: 14),
+      decoration: InputDecoration(
+        hintText: 'Descripción de productos o servicios',
+        hintStyle: GoogleFonts.inter(fontSize: 14, color: Colors.grey.shade400),
+        filled: true,
+        fillColor: AppColors.surfaceAlt,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade200)),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade200)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.primary, width: 1.5)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        isDense: true,
+      ),
+      onChanged: widget.onChanged,
+      validator: (v) => v == null || v.trim().isEmpty ? 'Requerido' : null,
     );
   }
 }

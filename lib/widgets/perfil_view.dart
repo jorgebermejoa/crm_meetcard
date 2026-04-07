@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 
 import '../services/auth_service.dart';
-import 'app_breadcrumbs.dart';
+import '../core/theme/app_colors.dart';
+import '../features/proyecto/presentation/providers/sidebar_provider.dart';
+import 'walkthrough.dart';
 
 class PerfilView extends StatefulWidget {
   const PerfilView({super.key});
@@ -12,8 +16,8 @@ class PerfilView extends StatefulWidget {
 }
 
 class _PerfilViewState extends State<PerfilView> {
-  static const _primaryColor = Color(0xFF5B21B6);
-  static const _bgColor = Color(0xFFF2F2F7);
+  static const _primaryColor = AppColors.primary;
+  static const _bgColor = AppColors.background;
 
   final _nombreCtrl = TextEditingController();
   final _currPassCtrl = TextEditingController();
@@ -103,14 +107,8 @@ class _PerfilViewState extends State<PerfilView> {
 
       return Scaffold(
         backgroundColor: _bgColor,
-        appBar: buildBreadcrumbAppBar(
-          context: context,
-          hPad: hPad,
-          onOpenMenu: () => Scaffold.of(context).openDrawer(),
-          crumbs: [BreadcrumbItem('Mi perfil')],
-        ),
         body: SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 48),
+          padding: EdgeInsets.fromLTRB(hPad, isMobile ? 80 : 24, hPad, 48),
           child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 600),
@@ -140,7 +138,7 @@ class _PerfilViewState extends State<PerfilView> {
                         style: GoogleFonts.inter(
                             fontSize: 18,
                             fontWeight: FontWeight.w700,
-                            color: const Color(0xFF1E293B)),
+                            color: AppColors.textPrimary),
                       ),
                       const SizedBox(height: 2),
                       Text(
@@ -190,7 +188,7 @@ class _PerfilViewState extends State<PerfilView> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF8FAFC),
+                        color: AppColors.surfaceAlt,
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: Colors.grey.shade200),
                       ),
@@ -253,7 +251,7 @@ class _PerfilViewState extends State<PerfilView> {
         style: GoogleFonts.inter(
             fontSize: 15,
             fontWeight: FontWeight.w700,
-            color: const Color(0xFF1E293B)),
+            color: AppColors.textPrimary),
       );
 
   Widget _card({required List<Widget> children}) => Container(
@@ -320,7 +318,7 @@ class _PerfilViewState extends State<PerfilView> {
         Icon(
           ok ? Icons.check_circle_outline : Icons.error_outline,
           size: 14,
-          color: ok ? const Color(0xFF10B981) : Colors.red.shade600,
+          color: ok ? AppColors.success : Colors.red.shade600,
         ),
         const SizedBox(width: 6),
         Expanded(
@@ -328,7 +326,7 @@ class _PerfilViewState extends State<PerfilView> {
             msg,
             style: GoogleFonts.inter(
                 fontSize: 12,
-                color: ok ? const Color(0xFF10B981) : Colors.red.shade600),
+                color: ok ? AppColors.success : Colors.red.shade600),
           ),
         ),
       ]);

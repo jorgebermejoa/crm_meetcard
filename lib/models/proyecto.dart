@@ -1,3 +1,81 @@
+import '../features/proyecto/domain/entities/proyecto_entity.dart';
+
+class AumentoContrato {
+  final String id;
+  final String tipo; // 'aumento_plazo' | 'aumento_contrato'
+  final DateTime fechaTermino;
+  final double? valorMensual;
+  final List<DocumentoProyecto> documentos;
+  final DateTime fechaRegistro;
+  final String? descripcion;
+
+  AumentoContrato({
+    required this.id,
+    required this.tipo,
+    required this.fechaTermino,
+    this.valorMensual,
+    this.documentos = const [],
+    required this.fechaRegistro,
+    this.descripcion,
+  });
+
+  AumentoEntity toEntity() => AumentoEntity(
+        id: id,
+        tipo: tipo,
+        fechaTermino: fechaTermino,
+        valorMensual: valorMensual,
+        documentos: documentos.map((d) => d.toEntity()).toList(),
+        fechaRegistro: fechaRegistro,
+        descripcion: descripcion,
+      );
+
+  factory AumentoContrato.fromJson(Map<String, dynamic> d) {
+    List<DocumentoProyecto> docs;
+    if (d['documentos'] is List) {
+      docs = (d['documentos'] as List)
+          .map((e) => DocumentoProyecto.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+    } else {
+      docs = [];
+    }
+    return AumentoContrato(
+      id: d['id']?.toString() ?? '',
+      tipo: d['tipo']?.toString() ?? 'aumento_plazo',
+      fechaTermino: _parseDate(d['fechaTermino']) ?? DateTime.now(),
+      valorMensual: (d['valorMensual'] as num?)?.toDouble(),
+      documentos: docs,
+      fechaRegistro: _parseDate(d['fechaRegistro']) ?? DateTime.now(),
+      descripcion: d['descripcion']?.toString(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'tipo': tipo,
+        'fechaTermino': fechaTermino.toIso8601String(),
+        'valorMensual': valorMensual,
+        'documentos': documentos.map((d) => d.toJson()).toList(),
+        'fechaRegistro': fechaRegistro.toIso8601String(),
+        'descripcion': descripcion,
+      };
+}
+
+DateTime? _parseDate(dynamic value) {
+  if (value == null) return null;
+  if (value is DateTime) return value;
+  if (value is String) return DateTime.tryParse(value);
+  if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+  try {
+    return (value as dynamic).toDate();
+  } catch (_) {
+    try {
+      return DateTime.parse(value.toString());
+    } catch (_) {}
+  }
+  return null;
+}
+
+
 class CertificadoExperiencia {
   final String id;
   final String descripcion;
@@ -11,13 +89,18 @@ class CertificadoExperiencia {
     this.url,
   });
 
+  CertificadoEntity toEntity() => CertificadoEntity(
+        id: id,
+        descripcion: descripcion,
+        fechaEmision: fechaEmision,
+        url: url,
+      );
+
   factory CertificadoExperiencia.fromJson(Map<String, dynamic> d) =>
       CertificadoExperiencia(
         id: d['id']?.toString() ?? '',
         descripcion: d['descripcion']?.toString() ?? '',
-        fechaEmision: d['fechaEmision'] != null
-            ? DateTime.tryParse(d['fechaEmision'])
-            : null,
+        fechaEmision: _parseDate(d['fechaEmision']),
         url: d['url']?.toString(),
       );
 
@@ -38,6 +121,7 @@ class Reclamo {
   final DateTime? fechaRespuesta;
   final String? descripcionRespuesta;
   final List<DocumentoProyecto> documentosRespuesta;
+  final String? urlFicha;
 
   Reclamo({
     required this.id,
@@ -48,7 +132,20 @@ class Reclamo {
     this.fechaRespuesta,
     this.descripcionRespuesta,
     this.documentosRespuesta = const [],
+    this.urlFicha,
   });
+
+  ReclamoEntity toEntity() => ReclamoEntity(
+        id: id,
+        descripcion: descripcion,
+        fechaReclamo: fechaReclamo,
+        documentos: documentos.map((d) => d.toEntity()).toList(),
+        estado: estado,
+        fechaRespuesta: fechaRespuesta,
+        descripcionRespuesta: descripcionRespuesta,
+        documentosRespuesta: documentosRespuesta.map((d) => d.toEntity()).toList(),
+        urlFicha: urlFicha,
+      );
 
   factory Reclamo.fromJson(Map<String, dynamic> d) {
     // documentos: nueva lista, o backward-compat con campo url
@@ -76,12 +173,13 @@ class Reclamo {
     return Reclamo(
       id: d['id']?.toString() ?? '',
       descripcion: d['descripcion']?.toString() ?? '',
-      fechaReclamo: d['fechaReclamo'] != null ? DateTime.tryParse(d['fechaReclamo']) : null,
+      fechaReclamo: _parseDate(d['fechaReclamo']),
       documentos: docs,
       estado: d['estado']?.toString() ?? 'Pendiente',
-      fechaRespuesta: d['fechaRespuesta'] != null ? DateTime.tryParse(d['fechaRespuesta']) : null,
+      fechaRespuesta: _parseDate(d['fechaRespuesta']),
       descripcionRespuesta: d['descripcionRespuesta']?.toString(),
       documentosRespuesta: docsResp,
+      urlFicha: d['urlFicha']?.toString(),
     );
   }
 
@@ -94,6 +192,7 @@ class Reclamo {
         'fechaRespuesta': fechaRespuesta?.toIso8601String(),
         'descripcionRespuesta': descripcionRespuesta,
         'documentosRespuesta': documentosRespuesta.map((d) => d.toJson()).toList(),
+        'urlFicha': urlFicha,
       };
 }
 
@@ -103,6 +202,12 @@ class DocumentoProyecto {
   final String? nombre;
 
   DocumentoProyecto({required this.tipo, required this.url, this.nombre});
+
+  DocumentoEntity toEntity() => DocumentoEntity(
+        tipo: tipo,
+        url: url,
+        nombre: nombre,
+      );
 
   factory DocumentoProyecto.fromJson(Map<String, dynamic> d) => DocumentoProyecto(
         tipo: d['tipo'] as String? ?? '',
@@ -120,10 +225,11 @@ class DocumentoProyecto {
 /// Constantes de estado de proyecto — usar estas en lugar de strings literales
 /// para evitar errores de tipeo y facilitar refactoring.
 class EstadoProyecto {
-  static const vigente    = 'Vigente';
-  static const xVencer    = 'X Vencer';
-  static const finalizado = 'Finalizado';
-  static const sinFecha   = 'Sin fecha';
+  static const vigente      = 'Vigente';
+  static const xVencer      = 'X Vencer';
+  static const finalizado   = 'Finalizado';
+  static const sinFecha     = 'Sin fecha';
+  static const enEvaluacion = 'En Evaluación';
 }
 
 class Proyecto {
@@ -156,6 +262,14 @@ class Proyecto {
   final DateTime? fechaAdjudicacionFin;
   final double? montoTotalOC; // Suma total OC en CLP (UF ya convertido)
   final List<String> proyectoContinuacionIds; // IDs de proyectos que continúan este contrato
+  final List<AumentoContrato> aumentos;
+  /// 'ocds' | 'mp' | null (manual)
+  final String? origenFechas;
+  final String? urlFicha;
+  /// true cuando el cron semanal encontró sugerencias de encadenamiento pendientes.
+  final bool hasSugerenciasPendientes;
+  /// true si este proyecto fue encadenado a través de una sugerencia de IA.
+  final bool fromSugerencia;
 
   /// Backward-compat: primer sucesor (o null si no hay ninguno)
   String? get proyectoContinuacionId =>
@@ -190,7 +304,48 @@ class Proyecto {
     this.fechaAdjudicacionFin,
     this.montoTotalOC,
     this.proyectoContinuacionIds = const [],
+    this.aumentos = const [],
+    this.origenFechas,
+    this.urlFicha,
+    this.hasSugerenciasPendientes = false,
+    this.fromSugerencia = false,
   });
+
+  ProyectoEntity toEntity() => ProyectoEntity(
+        id: id,
+        institucion: institucion,
+        productos: productos,
+        modalidadCompra: modalidadCompra,
+        valorMensual: valorMensual,
+        fechaInicio: fechaInicio,
+        fechaTermino: fechaTermino,
+        idLicitacion: idLicitacion,
+        idCotizacion: idCotizacion,
+        urlConvenioMarco: urlConvenioMarco,
+        idsOrdenesCompra: idsOrdenesCompra,
+        documentos: documentos.map((d) => d.toEntity()).toList(),
+        certificados: certificados.map((c) => c.toEntity()).toList(),
+        reclamos: reclamos.map((r) => r.toEntity()).toList(),
+        notas: notas,
+        fechaCreacion: fechaCreacion,
+        completado: completado,
+        estadoManual: estadoManual,
+        fechaInicioRuta: fechaInicioRuta,
+        fechaTerminoRuta: fechaTerminoRuta,
+        fechaPublicacion: fechaPublicacion,
+        fechaCierre: fechaCierre,
+        fechaConsultasInicio: fechaConsultasInicio,
+        fechaConsultas: fechaConsultas,
+        fechaAdjudicacion: fechaAdjudicacion,
+        fechaAdjudicacionFin: fechaAdjudicacionFin,
+        montoTotalOC: montoTotalOC,
+        proyectoContinuacionIds: proyectoContinuacionIds,
+        aumentos: aumentos.map((a) => a.toEntity()).toList(),
+        origenFechas: origenFechas,
+        urlFicha: urlFicha,
+        hasSugerenciasPendientes: hasSugerenciasPendientes,
+        fromSugerencia: fromSugerencia,
+      );
 
   Proyecto _copyBase({
     double? montoTotalOC,
@@ -210,6 +365,11 @@ class Proyecto {
     fechaAdjudicacionFin: fechaAdjudicacionFin,
     montoTotalOC: montoTotalOC ?? this.montoTotalOC,
     proyectoContinuacionIds: proyectoContinuacionIds ?? this.proyectoContinuacionIds,
+    aumentos: aumentos,
+    origenFechas: origenFechas,
+    urlFicha: urlFicha,
+    hasSugerenciasPendientes: hasSugerenciasPendientes,
+    fromSugerencia: fromSugerencia,
   );
 
   Proyecto copyWithMontoTotalOC(double monto) =>
@@ -237,14 +397,19 @@ class Proyecto {
   String? get idOrdenCompra =>
       idsOrdenesCompra.isNotEmpty ? idsOrdenesCompra.first : null;
 
-  String get estado {
+  /// Computes estado relative to [now]. Prefer this method in tight loops
+  /// (sorting/filtering) to avoid calling DateTime.now() on every comparison.
+  String estadoAt(DateTime now) {
     if (estadoManual != null && estadoManual!.isNotEmpty) return estadoManual!;
     if (fechaTermino == null) return EstadoProyecto.sinFecha;
-    final now = DateTime.now();
     if (fechaTermino!.isBefore(now)) return EstadoProyecto.finalizado;
     if (fechaTermino!.isBefore(now.add(const Duration(days: 30)))) return EstadoProyecto.xVencer;
     return EstadoProyecto.vigente;
   }
+
+  /// Convenience getter — calls [estadoAt] with DateTime.now().
+  /// Use [estadoAt] directly when computing estado for many projects in a loop.
+  String get estado => estadoAt(DateTime.now());
 
   factory Proyecto.fromJson(Map<String, dynamic> d) {
     // Support both new list field and legacy single field for OCs
@@ -276,8 +441,8 @@ class Proyecto {
       productos: d['productos'] ?? '',
       modalidadCompra: d['modalidadCompra'] ?? '',
       valorMensual: (d['valorMensual'] as num?)?.toDouble(),
-      fechaInicio: d['fechaInicio'] != null ? DateTime.tryParse(d['fechaInicio']) : null,
-      fechaTermino: d['fechaTermino'] != null ? DateTime.tryParse(d['fechaTermino']) : null,
+      fechaInicio: _parseDate(d['fechaInicio']),
+      fechaTermino: _parseDate(d['fechaTermino']),
       idLicitacion: d['idLicitacion'],
       idCotizacion: d['idCotizacion'],
       urlConvenioMarco: d['urlConvenioMarco'],
@@ -294,18 +459,23 @@ class Proyecto {
               .toList()
           : [],
       notas: d['notas'],
-      fechaCreacion: d['fechaCreacion'] != null ? DateTime.tryParse(d['fechaCreacion']) : null,
+      fechaCreacion: _parseDate(d['fechaCreacion']),
       completado: d['completado'] ?? false,
       estadoManual: d['estadoManual'],
-      fechaInicioRuta: d['fechaInicioRuta'] != null ? DateTime.tryParse(d['fechaInicioRuta']) : null,
-      fechaTerminoRuta: d['fechaTerminoRuta'] != null ? DateTime.tryParse(d['fechaTerminoRuta']) : null,
-      fechaPublicacion: d['fechaPublicacion'] != null ? DateTime.tryParse(d['fechaPublicacion']) : null,
-      fechaCierre: d['fechaCierre'] != null ? DateTime.tryParse(d['fechaCierre']) : null,
-      fechaConsultasInicio: d['fechaConsultasInicio'] != null ? DateTime.tryParse(d['fechaConsultasInicio']) : null,
-      fechaConsultas: d['fechaConsultas'] != null ? DateTime.tryParse(d['fechaConsultas']) : null,
-      fechaAdjudicacion: d['fechaAdjudicacion'] != null ? DateTime.tryParse(d['fechaAdjudicacion']) : null,
-      fechaAdjudicacionFin: d['fechaAdjudicacionFin'] != null ? DateTime.tryParse(d['fechaAdjudicacionFin']) : null,
+      fechaInicioRuta: _parseDate(d['fechaInicioRuta']),
+      fechaTerminoRuta: _parseDate(d['fechaTerminoRuta']),
+      fechaPublicacion: _parseDate(d['fechaPublicacion']),
+      fechaCierre: _parseDate(d['fechaCierre']),
+      fechaConsultasInicio: _parseDate(d['fechaConsultasInicio']),
+      fechaConsultas: _parseDate(d['fechaConsultas']),
+      fechaAdjudicacion: _parseDate(d['fechaAdjudicacion']),
+      fechaAdjudicacionFin: _parseDate(d['fechaAdjudicacionFin']),
       montoTotalOC: (d['montoTotalOC'] as num?)?.toDouble(),
+      aumentos: d['aumentos'] is List
+          ? (d['aumentos'] as List)
+              .map((e) => AumentoContrato.fromJson(Map<String, dynamic>.from(e)))
+              .toList()
+          : [],
       proyectoContinuacionIds: () {
         if (d['proyectoContinuacionIds'] is List) {
           return List<String>.from(
@@ -314,6 +484,44 @@ class Proyecto {
         final single = d['proyectoContinuacionId']?.toString();
         return single != null && single.isNotEmpty ? [single] : <String>[];
       }(),
+      origenFechas: d['origenFechas']?.toString(),
+      urlFicha: d['urlFicha']?.toString(),
+      hasSugerenciasPendientes: d['hasSugerenciasPendientes'] == true,
+      fromSugerencia: d['fromSugerencia'] == true,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'institucion': institucion,
+        'productos': productos,
+        'modalidadCompra': modalidadCompra,
+        'valorMensual': valorMensual,
+        'fechaInicio': fechaInicio?.toIso8601String(),
+        'fechaTermino': fechaTermino?.toIso8601String(),
+        'idLicitacion': idLicitacion,
+        'idCotizacion': idCotizacion,
+        'urlConvenioMarco': urlConvenioMarco,
+        'idsOrdenesCompra': idsOrdenesCompra,
+        'documentos': documentos.map((e) => e.toJson()).toList(),
+        'certificados': certificados.map((e) => e.toJson()).toList(),
+        'reclamos': reclamos.map((e) => e.toJson()).toList(),
+        'notas': notas,
+        'fechaCreacion': fechaCreacion?.toIso8601String(),
+        'completado': completado,
+        'estadoManual': estadoManual,
+        'fechaInicioRuta': fechaInicioRuta?.toIso8601String(),
+        'fechaTerminoRuta': fechaTerminoRuta?.toIso8601String(),
+        'fechaPublicacion': fechaPublicacion?.toIso8601String(),
+        'fechaCierre': fechaCierre?.toIso8601String(),
+        'fechaConsultasInicio': fechaConsultasInicio?.toIso8601String(),
+        'fechaConsultas': fechaConsultas?.toIso8601String(),
+        'fechaAdjudicacion': fechaAdjudicacion?.toIso8601String(),
+        'fechaAdjudicacionFin': fechaAdjudicacionFin?.toIso8601String(),
+        'montoTotalOC': montoTotalOC,
+        'proyectoContinuacionIds': proyectoContinuacionIds,
+        'aumentos': aumentos.map((a) => a.toJson()).toList(),
+        'origenFechas': origenFechas,
+        'urlFicha': urlFicha,
+      };
 }

@@ -1,6 +1,11 @@
 const admin = require("firebase-admin");
 const axios = require("axios");
 const cheerio = require("cheerio");
+const { generarSugerenciasEncadenamiento, triggerSugerenciasEncadenamiento, reconciliarFlagsSugerencias, onNuevoProyecto } = require('./sugerencias_encadenamiento');
+exports.generarSugerenciasEncadenamiento = generarSugerenciasEncadenamiento;
+exports.triggerSugerenciasEncadenamiento = triggerSugerenciasEncadenamiento;
+exports.reconciliarFlagsSugerencias = reconciliarFlagsSugerencias;
+exports.onNuevoProyecto = onNuevoProyecto;
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { onRequest } = require("firebase-functions/v2/https");
 const { logger } = require("firebase-functions");
@@ -75,6 +80,8 @@ const BATCH_SIZE_DETAILS = 200;
 const API_TIMEOUT = 10000;
 const CONCURRENT_LIMIT = 15;
 const BASE_URL = "https://api.mercadopublico.cl/APISOCDS/OCDS";
+// Ticket Mercado Público — se sobreescribe por env var en producción si está configurada
+const OC_TICKET = process.env.MP_TICKET || 'EE36DCF4-F727-4EED-9026-20EF36A6DD54';
 
 // --- FUNCIONES AUXILIARES ---
 
@@ -181,7 +188,7 @@ exports.obtenerLicitacionesOCDS = onSchedule({
     { year: now.getFullYear(), month: String(now.getMonth() + 1).padStart(2, '0') },
     { year: now.getFullYear(), month: String(now.getMonth()).padStart(2, '0') }
   ];
-  
+
   logger.info(`obtenerLicitacionesOCDS iniciado — meses: ${months.map(m => `${m.year}/${m.month}`).join(', ')}`);
   for (const { year, month } of months) {
     await processMonth(db, year, month);
@@ -210,14 +217,14 @@ exports.procesarLotesDeLicitaciones = onSchedule({
 
   for (let i = 0; i < snapshot.docs.length; i += CONCURRENT_LIMIT) {
     const chunk = snapshot.docs.slice(i, i + CONCURRENT_LIMIT);
-    
+
     const apiPromises = chunk.map(doc => {
       const codigoExterno = doc.id;
       return axios.get(`${BASE_URL}/tender/${codigoExterno}`, { validateStatus: s => s < 500 })
         .then(res => ({ codigoExterno, success: true, status: res.status, data: res.data }))
         .catch(() => ({ codigoExterno, success: false }));
     });
-    
+
     const results = await Promise.allSettled(apiPromises);
 
     let erroresApi = 0;
@@ -277,10 +284,10 @@ exports.procesarLotesDeLicitaciones = onSchedule({
         )];
 
         bulkWriter.set(ocdsRef, {
-            ...releaseData,
-            texto_busqueda: textoBusqueda,
-            _unspsc_prefixes: unspscPrefixes,
-            fechaProceso: serverTimestamp
+          ...releaseData,
+          texto_busqueda: textoBusqueda,
+          _unspsc_prefixes: unspscPrefixes,
+          fechaProceso: serverTimestamp
         }, { merge: true });
 
         bulkWriter.update(activaRef, { procesado: true, error: false });
@@ -354,17 +361,17 @@ exports.reindexarLicitaciones = onRequest({
 
 // Tokeniza una query eliminando stopwords y acentos para el filtro léxico
 function tokenizarQuery(query) {
-    const stopwords = new Set([
-        'de','la','el','en','y','a','que','por','con','del','al','los','las',
-        'un','una','para','es','se','no','como','más','este','esta','pero','sus',
-        'le','ya','o','fue','ha','me','si','sin','sobre','entre','cuando','muy',
-        'hasta','todo','ser','hay','su','les','lo','también','ni','e','u','ante',
-        'bajo','tras','según','durante','mediante','cada','otras','otros','dicho',
-    ]);
-    return query.toLowerCase()
-        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-        .split(/\s+/)
-        .filter(t => t.length > 2 && !stopwords.has(t));
+  const stopwords = new Set([
+    'de', 'la', 'el', 'en', 'y', 'a', 'que', 'por', 'con', 'del', 'al', 'los', 'las',
+    'un', 'una', 'para', 'es', 'se', 'no', 'como', 'más', 'este', 'esta', 'pero', 'sus',
+    'le', 'ya', 'o', 'fue', 'ha', 'me', 'si', 'sin', 'sobre', 'entre', 'cuando', 'muy',
+    'hasta', 'todo', 'ser', 'hay', 'su', 'les', 'lo', 'también', 'ni', 'e', 'u', 'ante',
+    'bajo', 'tras', 'según', 'durante', 'mediante', 'cada', 'otras', 'otros', 'dicho',
+  ]);
+  return query.toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .split(/\s+/)
+    .filter(t => t.length > 2 && !stopwords.has(t));
 }
 
 // --- CLOUD FUNCTION 4: Búsqueda ---
@@ -380,101 +387,101 @@ exports.buscarLicitacionesAI = onRequest({
   if (!query) return res.status(400).send("Falta el parámetro 'q'");
 
   try {
-      const db = admin.firestore();
+    const db = admin.firestore();
 
-      // 1. Obtener candidatos semánticos desde Discovery Engine
-      const servingConfig = getDiscoveryClient().projectLocationCollectionDataStoreServingConfigPath(
-          'licitaciones-prod', 'global', 'default_collection',
-          'datos-licitaciones_1772758314411', 'default_search'
-      );
-      const [deResults] = await getDiscoveryClient().search({
-          servingConfig,
-          query,
-          pageSize: 25,
+    // 1. Obtener candidatos semánticos desde Discovery Engine
+    const servingConfig = getDiscoveryClient().projectLocationCollectionDataStoreServingConfigPath(
+      'licitaciones-prod', 'global', 'default_collection',
+      'datos-licitaciones_1772758314411', 'default_search'
+    );
+    const [deResults] = await getDiscoveryClient().search({
+      servingConfig,
+      query,
+      pageSize: 25,
+    });
+
+    const ids = deResults
+      .map(r => {
+        const fields = r.document?.structData?.fields;
+        if (fields?._firestoreId?.stringValue) return fields._firestoreId.stringValue;
+        const ocid = fields?.ocid?.stringValue;
+        if (ocid) return extractCodigoExterno(ocid);
+        return null;
+      })
+      .filter(Boolean);
+
+    if (!ids.length) return res.status(200).json({ resultados: [] });
+
+    // 2. Leer documentos completos desde Firestore en paralelo
+    const snapshots = await Promise.all(
+      ids.map(id => db.collection('licitaciones_ocds').doc(id).get())
+    );
+
+    // 3. Formatear resultados (sin filtro léxico — Discovery Engine es semántico)
+    const toMs = (n) => n > 1e13 ? Math.round(n / 1000) : n > 1e10 ? n : n * 1000;
+
+    const formatDate = (raw) => {
+      if (!raw) return "S/F";
+      try {
+        let ms;
+        if (raw && typeof raw === 'object' && (raw.seconds !== undefined || raw._seconds !== undefined)) {
+          ms = (raw.seconds ?? raw._seconds) * 1000;
+        } else if (typeof raw === 'number') {
+          ms = toMs(raw);
+        } else if (typeof raw === 'string') {
+          ms = /^\d+$/.test(raw) ? toMs(parseInt(raw)) : new Date(raw).getTime();
+        } else {
+          return "S/F";
+        }
+        const d = new Date(ms);
+        if (isNaN(d.getTime())) return "S/F";
+        return d.toLocaleDateString('es-CL', {
+          day: '2-digit', month: '2-digit', year: 'numeric',
+          timeZone: 'America/Santiago',
+        });
+      } catch (e) { return "S/F"; }
+    };
+
+    const resultados = snapshots
+      .filter(snap => snap.exists)
+      .map(snap => {
+        const data = snap.data();
+        const id = snap.id;
+
+        let tender = data.tender;
+        if (Array.isArray(tender)) tender = tender[0];
+
+        const compradorParty = (data.parties || []).find(p =>
+          Array.isArray(p.roles) && (p.roles.includes('buyer') || p.roles.includes('procuringEntity'))
+        );
+        const comprador = data.buyer?.name ||
+          tender?.procuringEntity?.name ||
+          compradorParty?.name ||
+          "No disponible";
+
+        return {
+          id,
+          titulo: tender?.title?.trim() || "Sin título",
+          descripcion: tender?.description || "Sin descripción",
+          fechaPublicacion: formatDate(tender?.tenderPeriod?.startDate || data.date),
+          fechaCierre: formatDate(tender?.tenderPeriod?.endDate || tender?.awardPeriod?.startDate),
+          monto: tender?.value?.amount
+            ? new Intl.NumberFormat('es-CL').format(tender.value.amount) : 'S/M',
+          comprador,
+          rawData: {
+            id,
+            tender,
+            parties: data.parties,
+            buyer: data.buyer,
+            date: data.date,
+          },
+        };
       });
 
-      const ids = deResults
-          .map(r => {
-              const fields = r.document?.structData?.fields;
-              if (fields?._firestoreId?.stringValue) return fields._firestoreId.stringValue;
-              const ocid = fields?.ocid?.stringValue;
-              if (ocid) return extractCodigoExterno(ocid);
-              return null;
-          })
-          .filter(Boolean);
-
-      if (!ids.length) return res.status(200).json({ resultados: [] });
-
-      // 2. Leer documentos completos desde Firestore en paralelo
-      const snapshots = await Promise.all(
-          ids.map(id => db.collection('licitaciones_ocds').doc(id).get())
-      );
-
-      // 3. Formatear resultados (sin filtro léxico — Discovery Engine es semántico)
-      const toMs = (n) => n > 1e13 ? Math.round(n / 1000) : n > 1e10 ? n : n * 1000;
-
-      const formatDate = (raw) => {
-          if (!raw) return "S/F";
-          try {
-              let ms;
-              if (raw && typeof raw === 'object' && (raw.seconds !== undefined || raw._seconds !== undefined)) {
-                  ms = (raw.seconds ?? raw._seconds) * 1000;
-              } else if (typeof raw === 'number') {
-                  ms = toMs(raw);
-              } else if (typeof raw === 'string') {
-                  ms = /^\d+$/.test(raw) ? toMs(parseInt(raw)) : new Date(raw).getTime();
-              } else {
-                  return "S/F";
-              }
-              const d = new Date(ms);
-              if (isNaN(d.getTime())) return "S/F";
-              return d.toLocaleDateString('es-CL', {
-                  day: '2-digit', month: '2-digit', year: 'numeric',
-                  timeZone: 'America/Santiago',
-              });
-          } catch(e) { return "S/F"; }
-      };
-
-      const resultados = snapshots
-          .filter(snap => snap.exists)
-          .map(snap => {
-              const data = snap.data();
-              const id   = snap.id;
-
-              let tender = data.tender;
-              if (Array.isArray(tender)) tender = tender[0];
-
-              const compradorParty = (data.parties || []).find(p =>
-                  Array.isArray(p.roles) && (p.roles.includes('buyer') || p.roles.includes('procuringEntity'))
-              );
-              const comprador = data.buyer?.name ||
-                                tender?.procuringEntity?.name ||
-                                compradorParty?.name ||
-                                "No disponible";
-
-              return {
-                  id,
-                  titulo:           tender?.title?.trim() || "Sin título",
-                  descripcion:      tender?.description   || "Sin descripción",
-                  fechaPublicacion: formatDate(tender?.tenderPeriod?.startDate || data.date),
-                  fechaCierre:      formatDate(tender?.tenderPeriod?.endDate || tender?.awardPeriod?.startDate),
-                  monto:            tender?.value?.amount
-                      ? new Intl.NumberFormat('es-CL').format(tender.value.amount) : 'S/M',
-                  comprador,
-                  rawData: {
-                      id,
-                      tender,
-                      parties: data.parties,
-                      buyer: data.buyer,
-                      date: data.date,
-                  },
-              };
-          });
-
-      res.status(200).json({ resultados });
+    res.status(200).json({ resultados });
   } catch (error) {
-      logger.error("Error en búsqueda:", error);
-      res.status(500).send("Error interno de búsqueda");
+    logger.error("Error en búsqueda:", error);
+    res.status(500).send("Error interno de búsqueda");
   }
 });
 
@@ -751,7 +758,7 @@ exports.obtenerLicitacionesPorCategoria = onRequest({
       const d = new Date(ms);
       if (isNaN(d.getTime())) return "S/F";
       return d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'America/Santiago' });
-    } catch(e) { return "S/F"; }
+    } catch (e) { return "S/F"; }
   };
 
   try {
@@ -777,11 +784,11 @@ exports.obtenerLicitacionesPorCategoria = onRequest({
       );
       return {
         id,
-        titulo:           tender?.title?.trim() || "Sin título",
-        descripcion:      tender?.description   || "Sin descripción",
+        titulo: tender?.title?.trim() || "Sin título",
+        descripcion: tender?.description || "Sin descripción",
         fechaPublicacion: formatDate(tender?.tenderPeriod?.startDate || data.date),
-        fechaCierre:      formatDate(tender?.tenderPeriod?.endDate || tender?.awardPeriod?.startDate),
-        monto:            tender?.value?.amount
+        fechaCierre: formatDate(tender?.tenderPeriod?.endDate || tender?.awardPeriod?.startDate),
+        monto: tender?.value?.amount
           ? new Intl.NumberFormat('es-CL').format(tender.value.amount) : 'S/M',
         comprador: data.buyer?.name || tender?.procuringEntity?.name || compradorParty?.name || "No disponible",
         rawData: data,
@@ -819,8 +826,22 @@ exports.buscarLicitacionPorId = onRequest({
       const status = error.response.status;
       logger.error(`Error buscando licitación ${id}: status ${status}`);
       _logApiCall(db, { funcion: 'buscarLicitacionPorId', tipo: 'licitacion', id, estado: 'error', statusCode: status, ms: Date.now() - t0 });
-      // Si la OCDS aún no publicó esta licitación, registrarla para reintento nocturno
+      // Si la OCDS aún no publicó esta licitación, intentar fallback con API tradicional
       if (status === 404) {
+        try {
+          const configSnap = await db.collection('config').doc('mercado_publico').get();
+          const ticket = (configSnap.exists ? configSnap.data().ticket : null) ?? OC_TICKET;
+          const fallbackUrl = `https://api.mercadopublico.cl/servicios/v1/publico/licitaciones.json?codigo=${encodeURIComponent(id)}&ticket=${ticket}`;
+          const fallbackResp = await axios.get(fallbackUrl, { timeout: API_TIMEOUT });
+          const listado = fallbackResp.data?.Listado ?? [];
+          if (listado.length) {
+            _logApiCall(db, { funcion: 'buscarLicitacionPorId', tipo: 'licitacion_fallback', id, estado: 'ok', statusCode: 200, ms: Date.now() - t0 });
+            return res.status(200).json({ _source: 'licitaciones_api', releases: [{ tender: listado[0] }], _raw: listado[0] });
+          }
+        } catch (fallbackErr) {
+          logger.warn(`Fallback licitaciones.json también falló para ${id}:`, fallbackErr.message);
+        }
+        // Registrar para reintento nocturno
         db.collection('licitaciones_pendientes').doc(id).set({
           id,
           intentos: admin.firestore.FieldValue.increment(1),
@@ -838,7 +859,6 @@ exports.buscarLicitacionPorId = onRequest({
 });
 
 // --- CLOUD FUNCTION 10: Buscar Orden de Compra por ID ---
-const OC_TICKET = 'EE36DCF4-F727-4EED-9026-20EF36A6DD54';
 const OC_BASE_URL = 'https://api.mercadopublico.cl/servicios/v1/publico/ordenesdecompra.json';
 
 exports.buscarOrdenCompra = onRequest({
@@ -853,7 +873,10 @@ exports.buscarOrdenCompra = onRequest({
   const db = admin.firestore();
   const t0 = Date.now();
   try {
-    const url = `${OC_BASE_URL}?codigo=${encodeURIComponent(id)}&ticket=${OC_TICKET}`;
+    const configSnap = await db.collection('config').doc('mercado_publico').get();
+    const ticket = (configSnap.exists ? configSnap.data().ticket : null) ?? OC_TICKET;
+    logger.info(`buscarOrdenCompra: id=${id} ticket_source=${configSnap.exists ? 'firestore' : 'fallback'}`);
+    const url = `${OC_BASE_URL}?codigo=${encodeURIComponent(id)}&ticket=${ticket}`;
     const response = await axios.get(url, { timeout: 20000 });
     const data = response.data;
 
@@ -885,6 +908,27 @@ exports.buscarOrdenCompra = onRequest({
       ?? normalizarMoneda(item0.Moneda)
       ?? '';
     logger.info(`OC ${id} → TipoMoneda="${oc.TipoMoneda}" _moneda="${oc._moneda || 'ninguna'}"`);
+
+    // Si la moneda es UF, obtener valor UF del día y calcular CLP equivalente
+    if (oc._moneda === 'UF' && oc.Total != null) {
+      try {
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const ufResp = await axios.get(
+          `https://mindicador.cl/api/uf/${dd}-${mm}-${yyyy}`,
+          { timeout: 5000 }
+        );
+        const ufValor = ufResp.data?.serie?.[0]?.valor ?? null;
+        if (ufValor) {
+          oc._ufValor = ufValor;
+          oc._totalCLP = Math.round(parseFloat(oc.Total) * ufValor);
+        }
+      } catch (ufErr) {
+        logger.warn(`No se pudo obtener valor UF: ${ufErr.message}`);
+      }
+    }
 
     return res.json(oc); // Devolver el primer (único) resultado
   } catch (error) {
@@ -1057,11 +1101,14 @@ exports.obtenerDetalleConvenioMarco = onRequest({
 
 // PROYECTOS CRUD
 
-exports.obtenerProyectos = onRequest({ cors: true, region: 'us-central1' }, async (req, res) => {
+exports.obtenerProyectos = onRequest({ cors: true, region: 'us-central1', minInstances: 1 }, async (req, res) => {
+  logger.info('obtenerProyectos: function started.'); // Add log at function start
   try {
-    const snapshot = await admin.firestore()
+    const db = admin.firestore(); // Use admin.firestore() once
+    const snapshot = await db
       .collection('proyectos')
       .orderBy('fechaCreacion', 'desc')
+      .limit(500) // Limita la carga inicial a 500 para evitar timeouts
       .get();
     const toIso = (v) => v?.toDate?.()?.toISOString() ?? null;
     const proyectos = snapshot.docs.map(doc => {
@@ -1069,27 +1116,30 @@ exports.obtenerProyectos = onRequest({ cors: true, region: 'us-central1' }, asyn
       return {
         id: doc.id,
         ...d,
-        fechaCreacion:    toIso(d.fechaCreacion),
-        fechaInicio:      toIso(d.fechaInicio),
-        fechaTermino:     toIso(d.fechaTermino),
-        fechaInicioRuta:  toIso(d.fechaInicioRuta),
+        fechaCreacion: toIso(d.fechaCreacion),
+        fechaInicio: toIso(d.fechaInicio),
+        fechaTermino: toIso(d.fechaTermino),
+        fechaInicioRuta: toIso(d.fechaInicioRuta),
         fechaTerminoRuta: toIso(d.fechaTerminoRuta),
-        fechaPublicacion:     toIso(d.fechaPublicacion),
-        fechaCierre:          toIso(d.fechaCierre),
+        fechaPublicacion: toIso(d.fechaPublicacion),
+        fechaCierre: toIso(d.fechaCierre),
         fechaConsultasInicio: toIso(d.fechaConsultasInicio),
-        fechaConsultas:       toIso(d.fechaConsultas),
-        fechaAdjudicacion:    toIso(d.fechaAdjudicacion),
+        fechaConsultas: toIso(d.fechaConsultas),
+        fechaAdjudicacion: toIso(d.fechaAdjudicacion),
         fechaAdjudicacionFin: toIso(d.fechaAdjudicacionFin),
       };
     });
+    logger.info(`obtenerProyectos: found ${proyectos.length} projects.`); // Log count
     return res.json(proyectos);
   } catch (e) {
+    logger.error('obtenerProyectos: error fetching projects:', e.message, { stack: e.stack }); // Log error details
     return res.status(500).json({ error: e.message });
   }
 });
 
 exports.crearProyecto = onRequest({ cors: true, region: 'us-central1' }, async (req, res) => {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (!await _verifyToken(req, res)) return;
   try {
     const { institucion, productos, modalidadCompra, valorMensual, fechaInicio, fechaTermino, idLicitacion, documentoUrl, notas } = req.body;
     const data = {
@@ -1119,9 +1169,14 @@ exports.crearProyecto = onRequest({ cors: true, region: 'us-central1' }, async (
 
 exports.actualizarProyecto = onRequest({ cors: true, region: 'us-central1' }, async (req, res) => {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (!await _verifyToken(req, res)) return;
   try {
     const { id, institucion, productos, modalidadCompra, valorMensual, fechaInicio, fechaTermino, idLicitacion, documentoUrl, notas, completado, _campoEditado, _valorAnterior, _valorNuevo } = req.body;
+
     if (!id) return res.status(400).json({ error: 'Missing id' });
+
+    logger.info(`actualizarProyecto START: id=${id}`);
+
     const data = {};
     if (institucion !== undefined) data.institucion = institucion;
     if (productos !== undefined) data.productos = productos;
@@ -1148,21 +1203,34 @@ exports.actualizarProyecto = onRequest({ cors: true, region: 'us-central1' }, as
     if (req.body.fechaConsultas !== undefined) data.fechaConsultas = req.body.fechaConsultas ? new Date(req.body.fechaConsultas) : null;
     if (req.body.fechaAdjudicacion !== undefined) data.fechaAdjudicacion = req.body.fechaAdjudicacion ? new Date(req.body.fechaAdjudicacion) : null;
     if (req.body.fechaAdjudicacionFin !== undefined) data.fechaAdjudicacionFin = req.body.fechaAdjudicacionFin ? new Date(req.body.fechaAdjudicacionFin) : null;
+    if (req.body.origenFechas !== undefined) data.origenFechas = req.body.origenFechas ?? null;
+    if (req.body.urlFicha !== undefined) data.urlFicha = req.body.urlFicha ?? null;
+
     // Encadenamiento multi-sucesor
+    // add and remove are independent — both can be applied in the same request
     if (req.body.addProyectoContinuacionId) {
       data.proyectoContinuacionIds = admin.firestore.FieldValue.arrayUnion(req.body.addProyectoContinuacionId);
-    } else if (req.body.removeProyectoContinuacionId) {
-      data.proyectoContinuacionIds = admin.firestore.FieldValue.arrayRemove(req.body.removeProyectoContinuacionId);
-    } else if (req.body.clearProyectoContinuacionIds === true) {
-      data.proyectoContinuacionIds = [];
-    } else if (req.body.proyectoContinuacionId !== undefined) {
-      // Backward-compat: convierte asignación simple a array
-      const pid = req.body.proyectoContinuacionId;
-      data.proyectoContinuacionIds = pid ? admin.firestore.FieldValue.arrayUnion(pid) : [];
     }
+    if (req.body.removeProyectoContinuacionId) {
+      // If add was also specified Firestore will apply both atomically (arrayUnion then arrayRemove
+      // are separate field transforms, so we can't do both on the same field in one update).
+      // When both are present, apply remove by overwriting the add operation.
+      data.proyectoContinuacionIds = admin.firestore.FieldValue.arrayRemove(req.body.removeProyectoContinuacionId);
+    }
+    if (!req.body.addProyectoContinuacionId && !req.body.removeProyectoContinuacionId) {
+      if (req.body.clearProyectoContinuacionIds === true) {
+        data.proyectoContinuacionIds = [];
+      } else if (req.body.proyectoContinuacionId !== undefined) {
+        const pid = req.body.proyectoContinuacionId;
+        data.proyectoContinuacionIds = pid ? admin.firestore.FieldValue.arrayUnion(pid) : [];
+      }
+    }
+
+    logger.info(`actualizarProyecto DATOS: campos=${Object.keys(data).join(', ')}`);
 
     const db = admin.firestore();
     const batch = db.batch();
+
     batch.update(db.collection('proyectos').doc(id), data);
 
     // Registrar en historial si se indica el campo editado
@@ -1176,70 +1244,30 @@ exports.actualizarProyecto = onRequest({ cors: true, region: 'us-central1' }, as
       });
     }
 
+    logger.info(`actualizarProyecto COMMIT: iniciando batch.commit()`);
     await batch.commit();
+    logger.info(`actualizarProyecto SUCCESS: id=${id}`);
     return res.json({ ok: true });
-  } catch (e) {
-    return res.status(500).json({ error: e.message });
-  }
-});
 
-exports.obtenerHistorialProyecto = onRequest({ cors: true, region: 'us-central1' }, async (req, res) => {
-  const id = req.query.id;
-  if (!id) return res.status(400).json({ error: 'Missing id' });
-  try {
-    const snap = await admin.firestore()
-      .collection('proyectos').doc(id).collection('historial')
-      .orderBy('fecha', 'desc').limit(50).get();
-    const items = snap.docs.map(d => ({
-      id: d.id,
-      ...d.data(),
-      fecha: d.data().fecha?.toDate?.()?.toISOString() ?? null,
-    }));
-    return res.json(items);
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    logger.error(`actualizarProyecto EXCEPTION: ${e.message}`);
+    console.error('actualizarProyecto FULL ERROR:', e);
+    return res.status(500).json({ error: e.message, stack: e.stack });
   }
 });
 
 exports.eliminarProyecto = onRequest({ cors: true, region: 'us-central1' }, async (req, res) => {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (!await _verifyToken(req, res)) return;
+  const db = admin.firestore();
   try {
     const { id } = req.body;
-    if (!id) return res.status(400).json({ error: 'Missing id' });
-    await admin.firestore().collection('proyectos').doc(id).delete();
+    if (!id) return res.status(400).json({ error: 'id requerido' });
+    await db.collection('proyectos').doc(id).delete();
+    logger.info(`eliminarProyecto: id=${id}`);
     return res.json({ ok: true });
   } catch (e) {
-    return res.status(500).json({ error: e.message });
-  }
-});
-
-exports.obtenerConfiguracion = onRequest({ cors: true, region: 'us-central1' }, async (req, res) => {
-  try {
-    const doc = await admin.firestore().collection('configuracion').doc('opciones').get();
-    if (!doc.exists) {
-      return res.json({
-        estados: ['Vigente', 'X Vencer', 'Finalizado', 'Sin fecha'],
-        modalidades: ['Licitación Pública', 'Convenio Marco', 'Trato Directo', 'Otro'],
-        productos: [],
-      });
-    }
-    return res.json(doc.data());
-  } catch (e) {
-    return res.status(500).json({ error: e.message });
-  }
-});
-
-exports.guardarConfiguracion = onRequest({ cors: true, region: 'us-central1' }, async (req, res) => {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  try {
-    const { estados, modalidades, productos } = req.body; // tiposDocumento ya no se recibe aquí
-    await admin.firestore().collection('configuracion').doc('opciones').set({
-      estados: estados ?? [],
-      modalidades: modalidades ?? [],
-      productos: productos ?? [],
-    }, { merge: true }); // Usar merge: true para no sobrescribir la subcolección de documentos
-    return res.json({ ok: true });
-  } catch (e) {
+    logger.error(`eliminarProyecto error: ${e.message}`);
     return res.status(500).json({ error: e.message });
   }
 });
@@ -1251,7 +1279,7 @@ exports.obtenerTiposDocumento = onRequest({ cors: true, region: 'us-central1' },
   try {
     const doc = await admin.firestore().collection('configuracion').doc('opciones').get();
     if (!doc.exists) return res.json([]);
-    
+
     // Retornamos el array 'tiposDocumento' o una lista vacía si no existe
     const tipos = doc.data().tiposDocumento || [];
     return res.json(tipos);
@@ -1261,15 +1289,53 @@ exports.obtenerTiposDocumento = onRequest({ cors: true, region: 'us-central1' },
   }
 });
 
-// 2. Agregar un nuevo texto a la lista (arrayUnion)
+// 2. Obtener toda la configuración (estados, modalidades, productos, etc.)
+exports.obtenerConfiguracion = onRequest({ cors: true, region: 'us-central1' }, async (req, res) => {
+  try {
+    const doc = await admin.firestore().collection('configuracion').doc('opciones').get();
+    if (!doc.exists) {
+      // Retornamos una estructura por defecto similar a ConfiguracionData.defaults()
+      return res.json({
+        estados: [
+          { nombre: 'Vigente', color: '10B981' },
+          { nombre: 'X Vencer', color: 'F59E0B' },
+          { nombre: 'Finalizado', color: '64748B' },
+          { nombre: 'Sin fecha', color: 'EF4444' },
+        ],
+        modalidades: ['Licitación Pública', 'Convenio Marco', 'Trato Directo', 'Otro'],
+        productos: [],
+        tiposDocumento: ['Contrato', 'Orden de Compra', 'Acta de Evaluación', 'Otro'],
+      });
+    }
+    return res.json(doc.data());
+  } catch (e) {
+    logger.error("Error en obtenerConfiguracion:", e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// 3. Guardar toda la configuración
+exports.guardarConfiguracion = onRequest({ cors: true, region: 'us-central1' }, async (req, res) => {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const data = req.body;
+    await admin.firestore().collection('configuracion').doc('opciones').set(data, { merge: true });
+    return res.json({ ok: true });
+  } catch (e) {
+    logger.error("Error en guardarConfiguracion:", e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// 4. Agregar un nuevo texto a la lista (arrayUnion) de tipos de documento
 exports.guardarTipoDocumento = onRequest({ cors: true, region: 'us-central1' }, async (req, res) => {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try {
-    const { nombre } = req.body; 
+    const { nombre } = req.body;
     if (!nombre) return res.status(400).json({ error: 'Missing nombre' });
 
     const docRef = admin.firestore().collection('configuracion').doc('opciones');
-    
+
     // Agrega el string al array solo si no existe ya
     await docRef.update({
       tiposDocumento: admin.firestore.FieldValue.arrayUnion(nombre)
@@ -1286,16 +1352,16 @@ exports.guardarTipoDocumento = onRequest({ cors: true, region: 'us-central1' }, 
 exports.eliminarTipoDocumento = onRequest({ cors: true, region: 'us-central1' }, async (req, res) => {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try {
-    const { nombre } = req.body; 
+    const { nombre } = req.body;
     if (!nombre) return res.status(400).json({ error: 'Missing nombre' });
 
     const docRef = admin.firestore().collection('configuracion').doc('opciones');
-    
+
     // Elimina el string exacto de la lista
     await docRef.update({
       tiposDocumento: admin.firestore.FieldValue.arrayRemove(nombre)
     });
-    
+
     return res.json({ ok: true });
   } catch (e) {
     logger.error("Error en eliminarTipoDocumento:", e);
@@ -1317,7 +1383,10 @@ exports.contarUsoModalidades = onRequest({ cors: true, region: 'us-central1' }, 
   }
 });
 
-exports.obtenerCacheExterno = onRequest({ cors: true, region: 'us-central1' }, async (req, res) => {
+exports.obtenerCacheExterno = onRequest({
+  cors: ['https://licitaciones-prod.web.app', 'https://licitaciones-prod.firebaseapp.com', 'http://localhost:5000', 'http://localhost:8080', 'http://localhost:3000'],
+  region: 'us-central1'
+}, async (req, res) => {
   try {
     const { proyectoId, tipo } = req.query;
     if (!proyectoId || !tipo) return res.status(400).json({ error: 'Missing proyectoId or tipo' });
@@ -1335,8 +1404,15 @@ exports.obtenerCacheExterno = onRequest({ cors: true, region: 'us-central1' }, a
   }
 });
 
-exports.guardarCacheExterno = onRequest({ cors: true, region: 'us-central1' }, async (req, res) => {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+exports.guardarCacheExterno = onRequest({
+  cors: ['https://licitaciones-prod.web.app', 'https://licitaciones-prod.firebaseapp.com', 'http://localhost:5000', 'http://localhost:8080', 'http://localhost:3000'],
+  region: 'us-central1'
+}, async (req, res) => {
+  // En v2 con cors: list, el preflight se maneja automáticamente.
+  // Solo validamos el método para la lógica de negocio.
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
   try {
     const { proyectoId, tipo, data } = req.body;
     if (!proyectoId || !tipo || !data) return res.status(400).json({ error: 'Missing fields' });
@@ -1690,7 +1766,7 @@ exports.analizarClientesMeetcard = onRequest({
 async function _verifyToken(req, res) {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith('Bearer ')) { res.status(401).json({ error: 'Token requerido' }); return null; }
-  try { await admin.auth().verifyIdToken(auth.slice(7)); return true; } catch (_) { res.status(401).json({ error: 'Token inválido' }); return null; }
+  try { const decodedToken = await admin.auth().verifyIdToken(auth.slice(7)); return decodedToken.uid; } catch (_) { res.status(401).json({ error: 'Token inválido' }); return null; }
 }
 
 // Lee caché Firestore. Retorna datos si vigente (ttlMs), null si expirado/inexistente.
@@ -2243,6 +2319,7 @@ exports.dispararIngestaOCDS = onRequest({
   timeoutSeconds: 540,
   memory: '1GiB',
 }, async (req, res) => {
+  if (!await _verifyToken(req, res)) return;
   const db = admin.firestore();
   const now = new Date();
   const months = [
@@ -2276,6 +2353,7 @@ exports.obtenerHistorialApi = onRequest({
   timeoutSeconds: 15,
   memory: '256MiB',
 }, async (req, res) => {
+  if (!await _verifyToken(req, res)) return;
   const db = admin.firestore();
   const limit = Math.min(parseInt(req.query.limit ?? '100'), 200);
   const snap = await db.collection('api_logs')
@@ -2376,9 +2454,9 @@ exports.analizarProyectosNocturno = onSchedule({
     let nombreOrganismo = null;
     if (ganRows.length > 0) {
       const p = ganRows[0];
-      rutGanador      = p.rut_proveedor ?? null;
-      nombreGanador   = p.NombreProveedor ?? null;
-      rutOrganismo    = p.RutUnidadCompra ?? null;
+      rutGanador = p.rut_proveedor ?? null;
+      nombreGanador = p.NombreProveedor ?? null;
+      rutOrganismo = p.RutUnidadCompra ?? null;
       nombreOrganismo = p.OrganismoPublico ?? null;
     }
 
@@ -2437,8 +2515,8 @@ exports.analizarProyectosNocturno = onSchedule({
 
     const cacheDoc = db.collection('analisis_licitacion').doc(idLicitacion);
     const payload = {
-      competidores:    compRows,
-      ganadorOcs:      ganRows,
+      competidores: compRows,
+      ganadorOcs: ganRows,
       historialGanador: historialOcs,
       permanencia,
       predicciones,
@@ -2451,18 +2529,18 @@ exports.analizarProyectosNocturno = onSchedule({
 
     // Snapshot de historial para análisis de tendencias
     await cacheDoc.collection('historial').add({
-      fechaConsulta:     admin.firestore.FieldValue.serverTimestamp(),
+      fechaConsulta: admin.firestore.FieldValue.serverTimestamp(),
       totalCompetidores: compRows.length,
       rutGanador,
       nombreGanador,
       rutOrganismo,
-      montoAdjudicado:   ganRows[0]?.monto_calculado_oc ?? null,
+      montoAdjudicado: ganRows[0]?.monto_calculado_oc ?? null,
       totalOcsHistorial: historialOcs.length,
       totalPredicciones: predicciones.length,
       competidoresSnapshot: compRows.map(c => ({
-        rut:    c.rut_competidor,
+        rut: c.rut_competidor,
         nombre: c.nombre_competidor,
-        monto:  c.monto_ofertado?.toString() ?? null,
+        monto: c.monto_ofertado?.toString() ?? null,
       })),
       fuente: 'nocturno',
     });
@@ -2553,8 +2631,8 @@ exports.ingestarLicitacionesNativas = onSchedule({
 
   // A las 03:00 UTC aún es el mismo día calendario en Chile → usamos fecha UTC actual
   const now = new Date();
-  const dd   = String(now.getUTCDate()).padStart(2, '0');
-  const mm   = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(now.getUTCDate()).padStart(2, '0');
+  const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
   const yyyy = now.getUTCFullYear();
   const fecha = `${dd}${mm}${yyyy}`;   // formato DDMMYYYY requerido por la API
 
@@ -2599,8 +2677,8 @@ exports.backfillLicitaciones15Dias = onRequest({
   for (let diasAtras = 1; diasAtras <= 30; diasAtras++) {
     const d = new Date();
     d.setUTCDate(d.getUTCDate() - diasAtras);
-    const dd   = String(d.getUTCDate()).padStart(2, '0');
-    const mm   = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
     const yyyy = d.getUTCFullYear();
     const fecha = `${dd}${mm}${yyyy}`;
 
@@ -2702,7 +2780,7 @@ exports.obtenerInteligenciaLicitacion = onRequest({ cors: true, memory: '512MiB'
         : 'Participar activamente, organismo sin proveedor consolidado';
     const Argumento_Semantico = ganador
       ? `Proveedor histórico: ${ganador.NombreProveedor}. ` +
-        (anios > 0 ? `Lleva ${anios.toFixed ? anios.toFixed(1) : anios} años con este organismo.` : '')
+      (anios > 0 ? `Lleva ${anios.toFixed ? anios.toFixed(1) : anios} años con este organismo.` : '')
       : 'Sin historial de adjudicaciones registrado para esta licitación.';
 
     const estrategia = { Nivel_Prioridad, Accion_Tactica, Argumento_Semantico };
@@ -2727,8 +2805,118 @@ exports.obtenerInteligenciaLicitacion = onRequest({ cors: true, memory: '512MiB'
   }
 });
 
+// --- CLOUD FUNCTION: Análisis de BigQuery para un Proyecto ---
+// Mapea proyectoId -> análisis_licitacion (cache).
+// GET /getAnalisisBq?proyectoId=XXX
+exports.getAnalisisBq = onRequest({ cors: true, memory: '512MiB' }, async (req, res) => {
+  if (req.method !== 'GET') return res.status(405).send('Method Not Allowed');
+  if (!await _verifyToken(req, res)) return;
+  const { proyectoId } = req.query;
+  if (!proyectoId) return res.status(400).json({ error: 'proyectoId requerido' });
+
+  const db = admin.firestore();
+  try {
+    const proySnap = await db.collection('proyectos').doc(proyectoId).get();
+    if (!proySnap.exists) return res.status(404).json({ error: 'Proyecto no encontrado' });
+
+    const p = proySnap.data();
+    const idLicitacion = p.idLicitacion;
+    if (!idLicitacion) {
+      if (p.urlConvenioMarco) {
+        return res.status(404).json({ error: 'Análisis no aplica para Convenio Marco', idLicitacion: null });
+      }
+      return res.status(400).json({ error: 'El proyecto no tiene idLicitacion' });
+    }
+
+    // Intentar leer de la caché consolidada (generada por el proceso nocturno o disparada)
+    const cacheRef = db.collection('analisis_licitacion').doc(idLicitacion);
+    const cacheSnap = await cacheRef.get();
+
+    if (cacheSnap.exists) {
+      const data = cacheSnap.data();
+      // Retornar con el formato que espera el DetalleProyectoProvider
+      return res.json({
+        competidores: data.competidores ?? [],
+        ganador_ocs: data.ganadorOcs ?? [],
+        predicciones: data.predicciones ?? [],
+        nombre_ganador: data.nombreGanador ?? null,
+        rut_ganador: data.rutGanador ?? null,
+        permanencia_ganador: Array.isArray(data.permanencia) && data.permanencia.length > 0 
+          ? `${data.permanencia[0].permanencia_anios ?? 0} años` 
+          : '—',
+        rut_organismo: data.rutOrganismo ?? null,
+        historial_ganador: data.historialGanador ?? [],
+        fetchedAt: data.fetchedAt?.toDate?.()?.toISOString() ?? null,
+      });
+    }
+
+    // Si no está en caché, podríamos activar el análisis manual, pero por ahora fallamos
+    // para indicar que el proceso nocturno no lo ha capturado.
+    return res.status(404).json({ 
+      error: 'Análisis no disponible para esta licitación todavía.',
+      idLicitacion 
+    });
+
+  } catch (e) {
+    logger.error('getAnalisisBq error:', e.message);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// --- CLOUD FUNCTION: Obtener el foro de Mercado Público y cachear ---
+exports.fetchForoLicitacion = onRequest({
+  cors: true,
+  region: 'us-central1',
+  timeoutSeconds: 30,
+  memory: '512MiB',
+}, async (req, res) => {
+  const uid = await _verifyToken(req, res);
+  if (!uid) return;
+
+  const { id } = req.query; // Código de licitación
+  if (!id) return res.status(400).json({ error: 'ID de licitación requerido' });
+
+  try {
+    // Buscar OC_TICKET
+    const configSnap = await admin.firestore().collection('config').doc('mercado_publico').get();
+    const ticket = (configSnap.exists ? configSnap.data().ticket : null) ?? OC_TICKET;
+
+    const url = `https://api.mercadopublico.cl/servicios/v1/publico/licitaciones/foro.json?codigo=${id}&ticket=${ticket}`;
+    logger.info(`fetchForoLicitacion: GET ${url.replace(ticket, '***')}`);
+    const resp = await axios.get(url, { timeout: 15000 });
+    const data = resp.data;
+
+    const raw = data?.Listado ?? [];
+    // Normalizar campos MP → formato esperado por el cliente Dart
+    const enquiries = raw.map(item => ({
+      description: item.Pregunta ?? item.description ?? '',
+      answer:      item.Respuesta ?? item.answer ?? '',
+      date:        item.FechaPregunta ?? item.date ?? null,
+      dateAnswered: item.FechaRespuesta ?? item.dateAnswered ?? null,
+      participant: item.NombreParticipante ?? item.participant ?? '',
+      number:      item.Numero ?? item.number ?? null,
+    }));
+    if (enquiries.length) {
+      await admin.firestore().collection('licitaciones_foro').doc(id).set({
+        enquiries,
+        fetchedAt: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+    }
+    logger.info(`fetchForoLicitacion: ${enquiries.length} enquiries para ${id}`);
+    return res.json({ ok: true, count: enquiries.length, enquiries });
+  } catch (e) {
+    // 404 = esta licitación no tiene foro en MP (Trato Directo, Cotización, etc.) — no es un error
+    if (e.response?.status === 404) {
+      logger.info(`fetchForoLicitacion: sin foro para ${id} (404 MP)`);
+      return res.json({ ok: true, count: 0, enquiries: [], sinForo: true });
+    }
+    logger.error('fetchForoLicitacion error:', e.message);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 // --- CLOUD FUNCTION: Resumir foro de una licitación con Vertex AI Gemini ---
-exports.resumirForo = onRequest({
+exports.generarResumenForo = onRequest({
   cors: true,
   region: 'us-central1',
   timeoutSeconds: 120,

@@ -3,7 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../models/usuario.dart';
 import '../services/auth_service.dart';
-import 'app_breadcrumbs.dart';
+import '../core/theme/app_colors.dart';
 
 class AdminUsuariosView extends StatefulWidget {
   const AdminUsuariosView({super.key});
@@ -13,8 +13,8 @@ class AdminUsuariosView extends StatefulWidget {
 }
 
 class _AdminUsuariosViewState extends State<AdminUsuariosView> {
-  static const _primaryColor = Color(0xFF5B21B6);
-  static const _bgColor = Color(0xFFF2F2F7);
+  static const _primaryColor = AppColors.primary;
+  static const _bgColor = AppColors.background;
 
   UserProfile? _selected;
 
@@ -44,12 +44,6 @@ class _AdminUsuariosViewState extends State<AdminUsuariosView> {
 
       return Scaffold(
         backgroundColor: _bgColor,
-        appBar: buildBreadcrumbAppBar(
-          context: context,
-          hPad: hPad,
-          onOpenMenu: () => Scaffold.of(context).openDrawer(),
-          crumbs: [BreadcrumbItem('Gestión de usuarios')],
-        ),
         body: StreamBuilder<List<UserProfile>>(
           stream: AuthService.instance.usuariosStream(),
           builder: (context, snap) {
@@ -69,7 +63,7 @@ class _AdminUsuariosViewState extends State<AdminUsuariosView> {
 
   Widget _buildDesktop(List<UserProfile> usuarios, double hPad) {
     return Padding(
-      padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 48),
+      padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 24),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -97,8 +91,9 @@ class _AdminUsuariosViewState extends State<AdminUsuariosView> {
   // ── MOBILE layout: list only; tap opens bottom sheet ─────────────────────
 
   Widget _buildMobile(List<UserProfile> usuarios, double hPad) {
+    final isMobile = MediaQuery.of(context).size.width < 700;
     return Padding(
-      padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 48),
+      padding: EdgeInsets.fromLTRB(hPad, isMobile ? 80 : 24, hPad, 48),
       child: Column(children: [
         _addButton(),
         const SizedBox(height: 12),
@@ -189,7 +184,7 @@ class _AdminUsuariosViewState extends State<AdminUsuariosView> {
               style: GoogleFonts.inter(
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
-                  color: const Color(0xFF1E293B)),
+                  color: AppColors.textPrimary),
             ),
             subtitle: Text(
               u.email,
@@ -302,7 +297,7 @@ class _AdminUsuariosViewState extends State<AdminUsuariosView> {
                       style: GoogleFonts.inter(
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
-                          color: const Color(0xFF1E293B))),
+                          color: AppColors.textPrimary)),
                   Text(u.email,
                       style: GoogleFonts.inter(
                           fontSize: 12, color: Colors.grey.shade400)),
@@ -316,7 +311,7 @@ class _AdminUsuariosViewState extends State<AdminUsuariosView> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
+                  color: AppColors.surfaceAlt,
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(color: Colors.grey.shade200),
                 ),
@@ -327,7 +322,7 @@ class _AdminUsuariosViewState extends State<AdminUsuariosView> {
                   Expanded(
                     child: Text('Rol de administrador',
                         style: GoogleFonts.inter(
-                            fontSize: 13, color: const Color(0xFF1E293B))),
+                            fontSize: 13, color: AppColors.textPrimary)),
                   ),
                   Switch(
                     value: u.rol == 'admin',
@@ -394,7 +389,7 @@ class _AdminUsuariosViewState extends State<AdminUsuariosView> {
                             style: GoogleFonts.inter(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
-                                color: const Color(0xFF1E293B))),
+                                color: AppColors.textPrimary)),
                       ]),
                     ),
                     const Divider(height: 1),
@@ -409,7 +404,7 @@ class _AdminUsuariosViewState extends State<AdminUsuariosView> {
                               fontSize: 13,
                               color: isDisabled
                                   ? Colors.grey.shade400
-                                  : const Color(0xFF374151)),
+                                  : AppColors.gray700),
                         ),
                         trailing: Switch(
                           value: u.esAdmin ? true : enabled,
@@ -484,7 +479,7 @@ class _AdminUsuariosViewState extends State<AdminUsuariosView> {
               style: GoogleFonts.inter(
                   fontSize: 17,
                   fontWeight: FontWeight.w700,
-                  color: const Color(0xFF1E293B))),
+                  color: AppColors.textPrimary)),
           content: SizedBox(
             width: 380,
             child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -625,7 +620,7 @@ class _AdminUsuariosViewState extends State<AdminUsuariosView> {
             style: GoogleFonts.inter(
                 fontSize: 17,
                 fontWeight: FontWeight.w700,
-                color: const Color(0xFF1E293B))),
+                color: AppColors.textPrimary)),
         content: Text(
           '¿Estás seguro de eliminar a ${u.nombre} (${u.email})? Esta acción no se puede deshacer.',
           style: GoogleFonts.inter(fontSize: 14, color: Colors.grey.shade600),

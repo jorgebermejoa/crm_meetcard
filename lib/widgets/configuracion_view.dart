@@ -1,18 +1,19 @@
 import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
-import '../app_shell.dart';
 import '../models/configuracion.dart';
 import '../services/config_service.dart';
-import 'app_breadcrumbs.dart';
+import 'shared/skeleton_loader.dart';
 import 'walkthrough.dart';
+import '../core/theme/app_colors.dart';
 
 // re-export para usar en este archivo sin prefix
 typedef _Hex = String;
 
-const _primaryColor = Color(0xFF5B21B6);
-const _bgColor = Color(0xFFF2F2F7);
+const _primaryColor = AppColors.primary;
+const _bgColor = AppColors.background;
 const _cfBase = 'https://us-central1-licitaciones-prod.cloudfunctions.net';
 
 class ConfiguracionView extends StatefulWidget {
@@ -38,6 +39,9 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
   // Add-row inline state
   bool _showAddModalidad = false;
   final _addModalidadCtrl = TextEditingController();
+  bool _showAddEstado = false;
+  final _addEstadoCtrl = TextEditingController();
+  String _addEstadoColor = '10B981';
 
   @override
   void initState() {
@@ -51,6 +55,7 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
   void dispose() {
     _tabController.dispose();
     _addModalidadCtrl.dispose();
+    _addEstadoCtrl.dispose();
     super.dispose();
   }
 
@@ -144,7 +149,7 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Configuración guardada', style: GoogleFonts.inter()),
-            backgroundColor: const Color(0xFF10B981),
+            backgroundColor: AppColors.success,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(10),
@@ -263,7 +268,7 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
           bloqueado ? (mensajeBloqueo ?? mensaje) : mensaje,
           style: GoogleFonts.inter(
             fontSize: 14,
-            color: const Color(0xFF475569),
+            color: AppColors.textSecondary,
           ),
         ),
         actions: bloqueado
@@ -313,9 +318,30 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
         final hPad = isMobile ? 20.0 : 32.0;
         return Scaffold(
           backgroundColor: _bgColor,
+          floatingActionButton: _isDirty
+              ? FloatingActionButton.extended(
+                  onPressed: _guardando ? null : _guardar,
+                  backgroundColor: _primaryColor,
+                  foregroundColor: Colors.white,
+                  icon: _guardando
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.check_rounded),
+                  label: Text(
+                    'Guardar cambios',
+                    style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+                  ),
+                )
+              : null,
           body: Column(
             children: [
-              _buildAppBar(hPad, isMobile),
+              SizedBox(height: isMobile ? 80 : 24),
               // TabBar
               Container(
                 color: Colors.white,
@@ -327,9 +353,13 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
                       child: TabBar(
                         controller: _tabController,
                         labelStyle: GoogleFonts.inter(
-                            fontSize: 13, fontWeight: FontWeight.w600),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
                         unselectedLabelStyle: GoogleFonts.inter(
-                            fontSize: 13, fontWeight: FontWeight.w400),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w400,
+                        ),
                         labelColor: _primaryColor,
                         unselectedLabelColor: Colors.grey.shade400,
                         indicatorColor: _primaryColor,
@@ -352,29 +382,41 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
                   children: [
                     // ── Tab 1: Configuración general ──────────────────────
                     (_cargando || _loadingTiposDocumento)
-                        ? const Center(child: CircularProgressIndicator())
+                        ? _buildConfigSkeleton(hPad)
                         : SingleChildScrollView(
                             child: Center(
                               child: ConstrainedBox(
-                                constraints: const BoxConstraints(maxWidth: 880),
+                                constraints: const BoxConstraints(
+                                  maxWidth: 880,
+                                ),
                                 child: Padding(
-                                  padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 48),
+                                  padding: EdgeInsets.fromLTRB(
+                                    hPad,
+                                    16,
+                                    hPad,
+                                    48,
+                                  ),
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      Text('Configuración',
-                                          style: GoogleFonts.inter(
-                                            fontSize: isMobile ? 24 : 30,
-                                            fontWeight: FontWeight.w800,
-                                            letterSpacing: -0.7,
-                                            color: const Color(0xFF1E293B),
-                                          )),
+                                      Text(
+                                        'Configuración',
+                                        style: GoogleFonts.inter(
+                                          fontSize: isMobile ? 24 : 30,
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: -0.7,
+                                          color: AppColors.textPrimary,
+                                        ),
+                                      ),
                                       const SizedBox(height: 4),
-                                      Text('Administra los valores disponibles en el sistema',
-                                          style: GoogleFonts.inter(
-                                            fontSize: isMobile ? 13 : 14,
-                                            color: Colors.grey.shade500,
-                                          )),
+                                      Text(
+                                        'Administra los valores disponibles en el sistema',
+                                        style: GoogleFonts.inter(
+                                          fontSize: isMobile ? 13 : 14,
+                                          color: Colors.grey.shade500,
+                                        ),
+                                      ),
                                       const SizedBox(height: 24),
                                       _sectionLabel('ESTADOS'),
                                       _estadosCard(),
@@ -425,43 +467,70 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
     );
   }
 
-  Widget _buildAppBar(double hPad, bool isMobile) {
-    return buildBreadcrumbAppBar(
-      context: context,
-      hPad: hPad,
-      onOpenMenu: openAppDrawer,
-      crumbs: [BreadcrumbItem('Configuración')],
-      actions: [
-        if (_isDirty)
-          _guardando
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: _primaryColor,
-                  ),
-                )
-              : TextButton.icon(
-                  onPressed: _guardar,
-                  icon: const Icon(Icons.check, size: 16),
-                  label: Text(
-                    'Guardar',
-                    style: GoogleFonts.inter(fontWeight: FontWeight.w600),
-                  ),
-                  style: TextButton.styleFrom(
-                    foregroundColor: _primaryColor,
-                    backgroundColor: _primaryColor.withValues(alpha: 0.08),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+  // ── Skeleton ────────────────────────────────────────────────────────────────
+
+  Widget _buildConfigSkeleton(double hPad) {
+    Widget section(double itemHeight, int count) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SkeletonBox(width: 120, height: 10, radius: 4),
+            const SizedBox(height: 10),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Column(
+                children: List.generate(count, (i) {
+                  final isLast = i == count - 1;
+                  return Column(children: [
+                    SizedBox(
+                      height: itemHeight,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(children: [
+                          SkeletonBox(width: 20, height: 20, radius: 6),
+                          const SizedBox(width: 12),
+                          Expanded(child: SkeletonBox(height: 10, radius: 4)),
+                          const SizedBox(width: 12),
+                          SkeletonBox(width: 28, height: 28, radius: 8),
+                        ]),
+                      ),
                     ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
-                    ),
-                  ),
-                ),
-      ],
+                    if (!isLast)
+                      Divider(height: 1, color: Colors.grey.shade100, indent: 16),
+                  ]);
+                }),
+              ),
+            ),
+          ],
+        );
+
+    return SingleChildScrollView(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 880),
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 48),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SkeletonBox(width: 160, height: 28, radius: 6),
+                const SizedBox(height: 8),
+                SkeletonBox(width: 260, height: 12, radius: 4),
+                const SizedBox(height: 28),
+                section(52, 5), // ESTADOS
+                const SizedBox(height: 24),
+                section(48, 6), // MODALIDADES
+                const SizedBox(height: 24),
+                section(48, 4), // TIPOS DOCUMENTO
+                const SizedBox(height: 24),
+                section(48, 4), // PRODUCTOS
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -569,7 +638,7 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
                               item.nombre,
                               style: GoogleFonts.inter(
                                 fontSize: 14,
-                                color: const Color(0xFF1E293B),
+                                color: AppColors.textPrimary,
                               ),
                             ),
                           ),
@@ -609,127 +678,89 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
   }
 
   Widget _addEstadoRow() {
-    final ctrl = TextEditingController();
-    String colorSel = '10B981';
-    return StatefulBuilder(
-      builder: (_, setSt) {
-        bool showing = false;
-        return StatefulBuilder(
-          builder: (_, setSt2) {
-            if (!showing) {
-              return TextButton.icon(
-                onPressed: () => setSt2(() => showing = true),
-                icon: const Icon(Icons.add, size: 16),
-                label: Text(
-                  'Agregar estado',
-                  style: GoogleFonts.inter(fontSize: 13),
-                ),
-                style: TextButton.styleFrom(
-                  foregroundColor: _primaryColor,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 14,
-                  ),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-              );
-            }
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-              child: Row(
-                children: [
-                  GestureDetector(
-                    onTap: () => _mostrarColorPicker(
-                      colorSel,
-                      (hex) => setSt2(() => colorSel = hex),
-                    ),
-                    child: Container(
-                      width: 28,
-                      height: 28,
-                      decoration: BoxDecoration(
-                        color: hexToColor(colorSel),
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 2),
-                        boxShadow: [
-                          BoxShadow(
-                            color: hexToColor(colorSel).withValues(alpha: 0.4),
-                            blurRadius: 4,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: TextField(
-                      controller: ctrl,
-                      autofocus: true,
-                      style: GoogleFonts.inter(fontSize: 13),
-                      decoration: _inputDecor('Nombre del estado, ej: Vigente'),
-                      onSubmitted: (v) {
-                        final s = v.trim();
-                        if (s.isNotEmpty) {
-                          setState(
-                            () => _data!.estados.add(
-                              EstadoItem(nombre: s, color: colorSel),
-                            ),
-                          );
-                          _markDirty();
-                          ctrl.clear();
-                          setSt2(() => showing = false);
-                        }
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  TextButton(
-                    onPressed: () {
-                      final s = ctrl.text.trim();
-                      if (s.isNotEmpty) {
-                        setState(
-                          () => _data!.estados.add(
-                            EstadoItem(nombre: s, color: colorSel),
-                          ),
-                        );
-                        _markDirty();
-                        ctrl.clear();
-                        setSt2(() => showing = false);
-                      }
-                    },
-                    style: TextButton.styleFrom(
-                      foregroundColor: _primaryColor,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 10,
-                      ),
-                    ),
-                    child: Text(
-                      'Agregar',
-                      style: GoogleFonts.inter(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () {
-                      ctrl.clear();
-                      setSt2(() => showing = false);
-                    },
-                    icon: Icon(
-                      Icons.close,
-                      size: 16,
-                      color: Colors.grey.shade400,
-                    ),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
+    if (!_showAddEstado) {
+      return TextButton.icon(
+        onPressed: () => setState(() => _showAddEstado = true),
+        icon: const Icon(Icons.add, size: 16),
+        label: Text('Agregar estado', style: GoogleFonts.inter(fontSize: 13)),
+        style: TextButton.styleFrom(
+          foregroundColor: _primaryColor,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+      );
+    }
+
+    void _submitEstado() {
+      final s = _addEstadoCtrl.text.trim();
+      if (s.isNotEmpty) {
+        setState(() {
+          _data!.estados.add(EstadoItem(nombre: s, color: _addEstadoColor));
+          _showAddEstado = false;
+          _addEstadoColor = '10B981';
+        });
+        _addEstadoCtrl.clear();
+        _markDirty();
+      }
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: () => _mostrarColorPicker(
+              _addEstadoColor,
+              (hex) => setState(() => _addEstadoColor = hex),
+            ),
+            child: Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: hexToColor(_addEstadoColor),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: hexToColor(_addEstadoColor).withValues(alpha: 0.4),
+                    blurRadius: 4,
                   ),
                 ],
               ),
-            );
-          },
-        );
-      },
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: TextField(
+              controller: _addEstadoCtrl,
+              autofocus: true,
+              style: GoogleFonts.inter(fontSize: 13),
+              decoration: _inputDecor('Nombre del estado, ej: Vigente'),
+              onSubmitted: (_) => _submitEstado(),
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton(
+            onPressed: _submitEstado,
+            style: TextButton.styleFrom(
+              foregroundColor: _primaryColor,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            ),
+            child: Text('Agregar',
+                style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+          ),
+          IconButton(
+            onPressed: () => setState(() {
+              _showAddEstado = false;
+              _addEstadoCtrl.clear();
+              _addEstadoColor = '10B981';
+            }),
+            icon: Icon(Icons.close, size: 16, color: Colors.grey.shade400),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+        ],
+      ),
     );
   }
 
@@ -752,7 +783,7 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
                   style: GoogleFonts.inter(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
-                    color: const Color(0xFF1E293B),
+                    color: AppColors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -775,7 +806,7 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
                           shape: BoxShape.circle,
                           border: Border.all(
                             color: selected
-                                ? const Color(0xFF1E293B)
+                                ? AppColors.textPrimary
                                 : Colors.transparent,
                             width: 2.5,
                           ),
@@ -881,7 +912,7 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
                               value,
                               style: GoogleFonts.inter(
                                 fontSize: 14,
-                                color: const Color(0xFF1E293B),
+                                color: AppColors.textPrimary,
                               ),
                             ),
                           ),
@@ -1044,7 +1075,7 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
                               value,
                               style: GoogleFonts.inter(
                                 fontSize: 14,
-                                color: const Color(0xFF1E293B),
+                                color: AppColors.textPrimary,
                               ),
                             ),
                           ),
@@ -1298,7 +1329,7 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
                               p.nombre,
                               style: GoogleFonts.inter(
                                 fontSize: 13,
-                                color: const Color(0xFF1E293B),
+                                color: AppColors.textPrimary,
                               ),
                             ),
                           ),
@@ -1377,7 +1408,7 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
                       style: GoogleFonts.inter(
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
-                        color: const Color(0xFF1E293B),
+                        color: AppColors.textPrimary,
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -1428,7 +1459,7 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
                               shape: BoxShape.circle,
                               border: Border.all(
                                 color: sel
-                                    ? const Color(0xFF1E293B)
+                                    ? AppColors.textPrimary
                                     : Colors.transparent,
                                 width: 2.5,
                               ),
@@ -1475,7 +1506,7 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
                             decoration: BoxDecoration(
                               color: sel
                                   ? c.withValues(alpha: 0.15)
-                                  : const Color(0xFFF2F2F7),
+                                  : AppColors.background,
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
                                 color: sel ? c : Colors.transparent,
@@ -1498,7 +1529,7 @@ class _ConfiguracionViewState extends State<ConfiguracionView>
                           child: TextButton(
                             onPressed: () => Navigator.pop(ctx),
                             style: TextButton.styleFrom(
-                              backgroundColor: const Color(0xFFF2F2F7),
+                              backgroundColor: AppColors.background,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(10),
                               ),
@@ -1754,16 +1785,22 @@ class _SistemaTab extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: Text('Funciones del Sistema',
-                  style: GoogleFonts.inter(
-                      fontSize: 17, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
+              child: Text(
+                'Funciones del Sistema',
+                style: GoogleFonts.inter(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
             ),
             TextButton.icon(
               onPressed: () => showModalBottomSheet(
                 context: context,
                 isScrollControlled: true,
                 backgroundColor: Colors.transparent,
-                builder: (_) => const _HistorialApiSheet(),  // sin filtro = todos
+                builder: (_) =>
+                    const _HistorialApiSheet(), // sin filtro = todos
               ),
               icon: const Icon(Icons.history_rounded, size: 16),
               label: Text('Historial', style: GoogleFonts.inter(fontSize: 13)),
@@ -1779,19 +1816,21 @@ class _SistemaTab extends StatelessWidget {
         const SizedBox(height: 20),
         _sectionHeader('Automáticas — se ejecutan en horario programado'),
         const SizedBox(height: 10),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.download_rounded,
-          iconColor: const Color(0xFF0EA5E9),
+          iconColor: AppColors.primaryMuted,
           name: 'obtenerLicitacionesOCDS',
           badge: '2:00 AM UTC · diaria',
-          badgeColor: const Color(0xFF0EA5E9),
+          badgeColor: AppColors.primaryMuted,
           description:
               'Ingesta masiva de licitaciones publicadas en Mercado Público. '
               'Descarga los últimos 2 meses desde la API OCDS y guarda los registros '
               'base en `licitaciones_activas` con estado `procesado: false` para que '
               '`procesarLotesDeLicitaciones` los enriquezca.',
         ),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.sync_rounded,
           iconColor: const Color(0xFF8B5CF6),
           name: 'procesarLotesDeLicitaciones',
@@ -1803,24 +1842,26 @@ class _SistemaTab extends StatelessWidget {
               'genera el campo `texto_busqueda` e indexa el documento en Discovery Engine '
               'para búsqueda semántica. Marca `procesado: true` al finalizar.',
         ),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.bar_chart_rounded,
-          iconColor: const Color(0xFF10B981),
+          iconColor: AppColors.success,
           name: 'calcularEstadisticasDiario',
           badge: '6:00 AM UTC · diaria',
-          badgeColor: const Color(0xFF10B981),
+          badgeColor: AppColors.success,
           description:
               'Recalcula las estadísticas mensuales de compras públicas. '
               'Itera `licitaciones_ocds` del mes actual, extrae prefijos UNSPSC '
               'de los ítems, agrupa por categoría (top 12) y actualiza el documento '
               '`_stats/resumen` que alimenta los KPIs del panel de inicio.',
         ),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.cloud_sync_rounded,
-          iconColor: const Color(0xFFF59E0B),
+          iconColor: AppColors.warning,
           name: 'refrescarCacheExterno',
           badge: '5:00 AM UTC · diaria',
-          badgeColor: const Color(0xFFF59E0B),
+          badgeColor: AppColors.warning,
           description:
               'Actualiza el caché nocturno de proyectos. Para cada proyecto revisa si '
               'el detalle de licitación (`cache/ocds`, `cache/mp_api`) y las órdenes de '
@@ -1831,90 +1872,98 @@ class _SistemaTab extends StatelessWidget {
         const SizedBox(height: 20),
         _sectionHeader('Bajo demanda — llamadas por la aplicación'),
         const SizedBox(height: 10),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.search_rounded,
-          iconColor: const Color(0xFF6366F1),
+          iconColor: AppColors.indigo,
           name: 'buscarLicitacionPorId',
           badge: 'HTTP · GET',
-          badgeColor: const Color(0xFF6366F1),
+          badgeColor: AppColors.indigo,
           description:
               'Consulta el detalle OCDS de una licitación por su código. '
               'Parámetros: `id` (código), `type` (tender/award). '
               'Usado al abrir el panel de detalle de un proyecto con licitación pública o trato directo.',
         ),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.receipt_long_rounded,
-          iconColor: const Color(0xFF6366F1),
+          iconColor: AppColors.indigo,
           name: 'buscarOrdenCompra',
           badge: 'HTTP · GET',
-          badgeColor: const Color(0xFF6366F1),
+          badgeColor: AppColors.indigo,
           description:
               'Consulta el detalle de una orden de compra por su código. '
               'Retorna el primer resultado del Listado de la API REST de Mercado Público. '
               'Usado en la pestaña Órdenes de Compra del detalle de proyecto.',
         ),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.link_rounded,
-          iconColor: const Color(0xFF6366F1),
+          iconColor: AppColors.indigo,
           name: 'obtenerDetalleConvenioMarco',
           badge: 'HTTP · GET',
-          badgeColor: const Color(0xFF6366F1),
+          badgeColor: AppColors.indigo,
           description:
               'Hace scraping de la página de un Convenio Marco en Mercado Público. '
               'Extrae título, comprador, estado y campos estructurados usando Cheerio. '
               'Usado al abrir proyectos con modalidad Convenio Marco.',
         ),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.cached_rounded,
-          iconColor: const Color(0xFF64748B),
+          iconColor: AppColors.textMuted,
           name: 'obtenerCacheExterno / guardarCacheExterno',
           badge: 'HTTP · GET / POST',
-          badgeColor: const Color(0xFF64748B),
+          badgeColor: AppColors.textMuted,
           description:
               'Lee y escribe el caché de datos externos en la subcolección '
               '`proyectos/{id}/cache/{tipo}`. Los tipos posibles son: `ocds`, `mp_api`, '
               '`oc_{código}` y `convenio`. El caché evita llamadas repetidas a APIs externas '
               'y es la fuente primaria antes de consultar Mercado Público.',
         ),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.settings_rounded,
-          iconColor: const Color(0xFF64748B),
+          iconColor: AppColors.textMuted,
           name: 'obtenerConfiguracion / guardarConfiguracion',
           badge: 'HTTP · GET / POST',
-          badgeColor: const Color(0xFF64748B),
+          badgeColor: AppColors.textMuted,
           description:
               'Lee y actualiza el documento de configuración global de la app '
               '(`configuracion/global` en Firestore). Incluye estados, modalidades, '
               'productos y tipos de documento disponibles en los formularios.',
         ),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.folder_rounded,
-          iconColor: const Color(0xFF64748B),
+          iconColor: AppColors.textMuted,
           name: 'obtenerProyectos',
           badge: 'HTTP · GET',
-          badgeColor: const Color(0xFF64748B),
+          badgeColor: AppColors.textMuted,
           description:
               'Retorna la lista completa de proyectos del usuario autenticado '
               'desde Firestore. Convierte Timestamps a ISO strings para compatibilidad '
               'con el cliente Flutter. Resultados cacheados en memoria en el cliente.',
         ),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.analytics_rounded,
-          iconColor: const Color(0xFF0EA5E9),
+          iconColor: AppColors.primaryMuted,
           name: 'analizarClientesMeetcard',
           badge: 'HTTP · GET',
-          badgeColor: const Color(0xFF0EA5E9),
+          badgeColor: AppColors.primaryMuted,
           description:
               'Consulta BigQuery para cruzar las órdenes de compra del sistema con '
               'los proyectos registrados. Identifica clientes nuevos (ausentes) y '
               'presentes, útil para análisis de cartera y detección de oportunidades.',
         ),
-        _fnCard(context,
+        _fnCard(
+          context,
           icon: Icons.person_add_rounded,
-          iconColor: const Color(0xFF64748B),
+          iconColor: AppColors.textMuted,
           name: 'crearUsuario',
           badge: 'HTTP · POST · Admin',
-          badgeColor: const Color(0xFF64748B),
+          badgeColor: AppColors.textMuted,
           description:
               'Crea un nuevo usuario en Firebase Auth con email `@meetcard.cl`. '
               'Solo puede ser llamada por usuarios con rol `admin`. '
@@ -1924,19 +1973,26 @@ class _SistemaTab extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: const Color(0xFFF8FAFC),
+            color: AppColors.surfaceAlt,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(color: Colors.grey.shade200),
           ),
           child: Row(
             children: [
-              Icon(Icons.info_outline_rounded, size: 15, color: Colors.grey.shade400),
+              Icon(
+                Icons.info_outline_rounded,
+                size: 15,
+                color: Colors.grey.shade400,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   'Las funciones automáticas se despliegan en Cloud Functions us-central1. '
                   'Los logs están disponibles en Google Cloud Console → Cloud Functions.',
-                  style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500),
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    color: Colors.grey.shade500,
+                  ),
                 ),
               ),
             ],
@@ -1947,16 +2003,20 @@ class _SistemaTab extends StatelessWidget {
   }
 
   Widget _sectionHeader(String text) => Padding(
-        padding: const EdgeInsets.only(bottom: 2),
-        child: Text(text,
-            style: GoogleFonts.inter(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey.shade400,
-                letterSpacing: 0.4)),
-      );
+    padding: const EdgeInsets.only(bottom: 2),
+    child: Text(
+      text,
+      style: GoogleFonts.inter(
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+        color: Colors.grey.shade400,
+        letterSpacing: 0.4,
+      ),
+    ),
+  );
 
-  Widget _fnCard(BuildContext context, {
+  Widget _fnCard(
+    BuildContext context, {
     required IconData icon,
     required Color iconColor,
     required String name,
@@ -1973,76 +2033,100 @@ class _SistemaTab extends StatelessWidget {
         border: Border.all(color: Colors.grey.shade100),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withValues(alpha: 0.03),
-              blurRadius: 4,
-              offset: const Offset(0, 1))
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 4,
+            offset: const Offset(0, 1),
+          ),
         ],
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        // Fila principal (tappable → historial)
-        InkWell(
-          borderRadius: bulkAction == null
-              ? BorderRadius.circular(10)
-              : const BorderRadius.vertical(top: Radius.circular(10)),
-          onTap: () => showModalBottomSheet(
-            context: context,
-            isScrollControlled: true,
-            backgroundColor: Colors.transparent,
-            builder: (_) => _HistorialApiSheet(funcion: name),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Container(
-                padding: const EdgeInsets.all(7),
-                decoration: BoxDecoration(
-                  color: iconColor.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(icon, size: 16, color: iconColor),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Row(children: [
-                    Expanded(
-                      child: Text(name,
-                          style: GoogleFonts.inter(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: const Color(0xFF1E293B))),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Fila principal (tappable → historial)
+          InkWell(
+            borderRadius: bulkAction == null
+                ? BorderRadius.circular(10)
+                : const BorderRadius.vertical(top: Radius.circular(10)),
+            onTap: () => showModalBottomSheet(
+              context: context,
+              isScrollControlled: true,
+              backgroundColor: Colors.transparent,
+              builder: (_) => _HistorialApiSheet(funcion: name),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: iconColor.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: badgeColor.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(badge,
+                    child: Icon(icon, size: 16, color: iconColor),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                name,
+                                style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: badgeColor.withValues(alpha: 0.10),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                badge,
+                                style: GoogleFonts.inter(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: badgeColor,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          description,
                           style: GoogleFonts.inter(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: badgeColor)),
+                            fontSize: 12.5,
+                            color: Colors.grey.shade600,
+                            height: 1.5,
+                          ),
+                        ),
+                      ],
                     ),
-                  ]),
-                  const SizedBox(height: 5),
-                  Text(description,
-                      style: GoogleFonts.inter(
-                          fontSize: 12.5,
-                          color: Colors.grey.shade600,
-                          height: 1.5)),
-                ]),
+                  ),
+                ],
               ),
-            ]),
+            ),
           ),
-        ),
-        // Botón acción masiva (opcional)
-        if (bulkAction != null) ...[
-          Divider(height: 1, color: Colors.grey.shade100),
-          _BulkActionButton(action: bulkAction),
+          // Botón acción masiva (opcional)
+          if (bulkAction != null) ...[
+            Divider(height: 1, color: Colors.grey.shade100),
+            _BulkActionButton(action: bulkAction),
+          ],
         ],
-      ]),
+      ),
     );
   }
 }
@@ -2079,10 +2163,14 @@ class _BulkActionButtonState extends State<_BulkActionButton> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: Text(widget.action.confirmTitle,
-            style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 15)),
-        content: Text(widget.action.confirmBody,
-            style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade600)),
+        title: Text(
+          widget.action.confirmTitle,
+          style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 15),
+        ),
+        content: Text(
+          widget.action.confirmBody,
+          style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade600),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -2097,12 +2185,26 @@ class _BulkActionButtonState extends State<_BulkActionButton> {
       ),
     );
     if (confirmed != true) return;
-    setState(() { _running = true; _result = null; _error = null; });
+    setState(() {
+      _running = true;
+      _result = null;
+      _error = null;
+    });
     try {
       final res = await widget.action.execute();
-      if (mounted) setState(() { _result = res; _running = false; });
+      if (mounted) {
+        setState(() {
+          _result = res;
+          _running = false;
+        });
+      }
     } catch (e) {
-      if (mounted) setState(() { _error = e.toString(); _running = false; });
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _running = false;
+        });
+      }
     }
   }
 
@@ -2110,59 +2212,93 @@ class _BulkActionButtonState extends State<_BulkActionButton> {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          // Botón ejecutar
-          _running
-              ? const SizedBox(
-                  width: 16, height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: _primaryColor))
-              : OutlinedButton.icon(
-                  onPressed: _ejecutar,
-                  icon: const Icon(Icons.play_arrow_rounded, size: 15),
-                  label: Text(widget.action.label,
-                      style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _primaryColor,
-                    side: const BorderSide(color: _primaryColor),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              // Botón ejecutar
+              _running
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: _primaryColor,
+                      ),
+                    )
+                  : OutlinedButton.icon(
+                      onPressed: _ejecutar,
+                      icon: const Icon(Icons.play_arrow_rounded, size: 15),
+                      label: Text(
+                        widget.action.label,
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _primaryColor,
+                        side: const BorderSide(color: _primaryColor),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+              if (_running) ...[
+                const SizedBox(width: 10),
+                Text(
+                  'Ejecutando…',
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    color: Colors.grey.shade500,
                   ),
                 ),
-          if (_running) ...[
-            const SizedBox(width: 10),
-            Text('Ejecutando…',
-                style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500)),
-          ],
-          // Limpiar resultado
-          if (_result != null || _error != null) ...[
-            const Spacer(),
-            InkWell(
-              onTap: () => setState(() { _result = null; _error = null; }),
-              child: Icon(Icons.close, size: 14, color: Colors.grey.shade400),
-            ),
-          ],
-        ]),
-        // Resultado
-        if (_result != null) ...[
-          const SizedBox(height: 8),
-          _ResultChips(_result!),
-        ],
-        if (_error != null) ...[
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFEF2F2),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(_error!,
-                style: GoogleFonts.inter(
-                    fontSize: 11, color: const Color(0xFFDC2626))),
+              ],
+              // Limpiar resultado
+              if (_result != null || _error != null) ...[
+                const Spacer(),
+                InkWell(
+                  onTap: () => setState(() {
+                    _result = null;
+                    _error = null;
+                  }),
+                  child: Icon(
+                    Icons.close,
+                    size: 14,
+                    color: Colors.grey.shade400,
+                  ),
+                ),
+              ],
+            ],
           ),
+          // Resultado
+          if (_result != null) ...[
+            const SizedBox(height: 8),
+            _ResultChips(_result!),
+          ],
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.errorSurface,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                _error!,
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  color: AppColors.errorDark,
+                ),
+              ),
+            ),
+          ],
         ],
-      ]),
+      ),
     );
   }
 }
@@ -2181,12 +2317,17 @@ class _ResultChips extends StatelessWidget {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: const Color(0xFFF0FDF4),
+          color: AppColors.successSurface,
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Text('Completado correctamente',
-            style: GoogleFonts.inter(
-                fontSize: 12, color: const Color(0xFF16A34A), fontWeight: FontWeight.w600)),
+        child: Text(
+          'Completado correctamente',
+          style: GoogleFonts.inter(
+            fontSize: 12,
+            color: AppColors.successDeep,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       );
     }
     return Wrap(
@@ -2198,14 +2339,17 @@ class _ResultChips extends StatelessWidget {
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
           decoration: BoxDecoration(
-            color: const Color(0xFFF0FDF4),
+            color: AppColors.successSurface,
             borderRadius: BorderRadius.circular(20),
           ),
-          child: Text('$label: $val',
-              style: GoogleFonts.inter(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: const Color(0xFF15803D))),
+          child: Text(
+            '$label: $val',
+            style: GoogleFonts.inter(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: const Color(0xFF15803D),
+            ),
+          ),
         );
       }).toList(),
     );
@@ -2363,7 +2507,8 @@ class _HistorialApiSheetState extends State<_HistorialApiSheet> {
     });
     try {
       final uri = Uri.parse('$_cfBase/obtenerHistorialApi?limit=200');
-      final res = await http.get(uri);
+      final token = await FirebaseAuth.instance.currentUser?.getIdToken() ?? '';
+      final res = await http.get(uri, headers: {'Authorization': 'Bearer $token'});
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
         final all = List<Map<String, dynamic>>.from(data['logs'] ?? []);
@@ -2390,9 +2535,9 @@ class _HistorialApiSheetState extends State<_HistorialApiSheet> {
   Color _estadoColor(String? estado) {
     switch (estado) {
       case 'ok':
-        return const Color(0xFF16A34A);
+        return AppColors.successDeep;
       case 'error':
-        return const Color(0xFFDC2626);
+        return AppColors.errorDark;
       default:
         return Colors.grey;
     }
@@ -2437,25 +2582,33 @@ class _HistorialApiSheetState extends State<_HistorialApiSheet> {
                 padding: const EdgeInsets.fromLTRB(20, 12, 12, 8),
                 child: Row(
                   children: [
-                    const Icon(Icons.history_rounded, size: 20, color: _primaryColor),
+                    const Icon(
+                      Icons.history_rounded,
+                      size: 20,
+                      color: _primaryColor,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            widget.funcion != null ? 'Historial' : 'Historial de API',
+                            widget.funcion != null
+                                ? 'Historial'
+                                : 'Historial de API',
                             style: GoogleFonts.inter(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w700,
-                                color: const Color(0xFF1E293B)),
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textPrimary,
+                            ),
                           ),
                           if (widget.funcion != null)
                             Text(
                               widget.funcion!,
                               style: GoogleFonts.inter(
-                                  fontSize: 12,
-                                  color: Colors.grey.shade500),
+                                fontSize: 12,
+                                color: Colors.grey.shade500,
+                              ),
                             ),
                         ],
                       ),
@@ -2479,87 +2632,98 @@ class _HistorialApiSheetState extends State<_HistorialApiSheet> {
                 child: _loading
                     ? const Center(child: CircularProgressIndicator())
                     : _error != null
-                        ? Center(
-                            child: Text(_error!,
-                                style: GoogleFonts.inter(
-                                    color: Colors.red, fontSize: 13)))
-                        : _logs.isEmpty
-                            ? Center(
-                                child: Text('Sin registros',
-                                    style: GoogleFonts.inter(
-                                        color: Colors.grey, fontSize: 14)))
-                            : ListView.separated(
-                                controller: scrollController,
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 16, vertical: 8),
-                                itemCount: _logs.length,
-                                separatorBuilder: (_, __) =>
-                                    const Divider(height: 1),
-                                itemBuilder: (_, i) {
-                                  final log = _logs[i];
-                                  final estado = log['estado'] as String?;
-                                  final ms = log['ms'] as int?;
-                                  return Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 10),
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Container(
-                                          width: 8,
-                                          height: 8,
-                                          margin: const EdgeInsets.only(
-                                              top: 4, right: 10),
-                                          decoration: BoxDecoration(
-                                            color: _estadoColor(estado),
-                                            shape: BoxShape.circle,
-                                          ),
+                    ? Center(
+                        child: Text(
+                          _error!,
+                          style: GoogleFonts.inter(
+                            color: Colors.red,
+                            fontSize: 13,
+                          ),
+                        ),
+                      )
+                    : _logs.isEmpty
+                    ? Center(
+                        child: Text(
+                          'Sin registros',
+                          style: GoogleFonts.inter(
+                            color: Colors.grey,
+                            fontSize: 14,
+                          ),
+                        ),
+                      )
+                    : ListView.separated(
+                        controller: scrollController,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        itemCount: _logs.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (_, i) {
+                          final log = _logs[i];
+                          final estado = log['estado'] as String?;
+                          final ms = log['ms'] as int?;
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  margin: const EdgeInsets.only(
+                                    top: 4,
+                                    right: 10,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: _estadoColor(estado),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        log['funcion'] ?? '—',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppColors.textPrimary,
                                         ),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                log['funcion'] ?? '—',
-                                                style: GoogleFonts.inter(
-                                                    fontSize: 13,
-                                                    fontWeight:
-                                                        FontWeight.w600,
-                                                    color: const Color(
-                                                        0xFF1E293B)),
-                                              ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                [
-                                                  if (log['tipo'] != null)
-                                                    log['tipo'],
-                                                  if (log['id'] != null)
-                                                    'ID: ${log['id']}',
-                                                  if (log['statusCode'] != null)
-                                                    'HTTP ${log['statusCode']}',
-                                                  if (ms != null) '${ms}ms',
-                                                ].join(' · '),
-                                                style: GoogleFonts.inter(
-                                                    fontSize: 12,
-                                                    color: Colors.grey.shade500),
-                                              ),
-                                            ],
-                                          ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        [
+                                          if (log['tipo'] != null) log['tipo'],
+                                          if (log['id'] != null)
+                                            'ID: ${log['id']}',
+                                          if (log['statusCode'] != null)
+                                            'HTTP ${log['statusCode']}',
+                                          if (ms != null) '${ms}ms',
+                                        ].join(' · '),
+                                        style: GoogleFonts.inter(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade500,
                                         ),
-                                        const SizedBox(width: 8),
-                                        Text(
-                                          _fmtFecha(log['timestamp'] as String?),
-                                          style: GoogleFonts.inter(
-                                              fontSize: 11,
-                                              color: Colors.grey.shade400),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                },
-                              ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  _fmtFecha(log['timestamp'] as String?),
+                                  style: GoogleFonts.inter(
+                                    fontSize: 11,
+                                    color: Colors.grey.shade400,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
               ),
             ],
           ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/theme/app_colors.dart';
 
 // ── Color helpers ─────────────────────────────────────────────────────────────
 
@@ -7,7 +8,7 @@ Color hexToColor(String hex) {
   final h = hex.replaceAll('#', '');
   if (h.length == 6) return Color(int.parse('FF$h', radix: 16));
   if (h.length == 8) return Color(int.parse(h, radix: 16));
-  return const Color(0xFF64748B);
+  return AppColors.textMuted;
 }
 
 /// Convierte Color a hex string de 6 chars (sin alpha).
@@ -77,7 +78,7 @@ class ProductoItem {
 const kColorPaleta = [
   '10B981', // emerald
   '3B82F6', // blue
-  '8B5CF6', // purple
+  '007AFF', // purple
   'F59E0B', // amber
   'EF4444', // red
   'F43F5E', // rose
@@ -85,7 +86,7 @@ const kColorPaleta = [
   'F97316', // orange
   '6366F1', // indigo
   '64748B', // slate
-  '5B21B6', // primary
+  '007AFF', // primary
   'EC4899', // pink
   '06B6D4', // cyan
   '84CC16', // lime
@@ -94,7 +95,7 @@ const kColorPaleta = [
   'FB923C', // orange-400
   'E11D48', // rose-600
   'BE185D', // pink-700
-  '7C3AED', // violet
+  '007AFF', // violet
   '4338CA', // indigo-700
   '1D4ED8', // blue-700
   '0369A1', // sky-700

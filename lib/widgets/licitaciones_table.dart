@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../core/theme/app_colors.dart';
 
 // ── Model ─────────────────────────────────────────────────────────────────────
 
@@ -93,7 +94,7 @@ class _LicitacionCard extends StatelessWidget {
   final bool isSelected;
   final VoidCallback? onTap;
 
-  static const _primary = Color(0xFF5B21B6);
+  static const _primary = AppColors.primary;
 
   const _LicitacionCard({
     required this.lic,
@@ -110,24 +111,24 @@ class _LicitacionCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: isSelected
-              ? _primary.withValues(alpha: 0.5)
+              ? _primary.withValues(alpha: 0.2)
               : Colors.transparent,
-          width: 1.5,
+          width: 0.5,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: isSelected ? 0.06 : 0.03),
-            blurRadius: isSelected ? 12 : 6,
-            offset: const Offset(0, 2),
+            color: Colors.black.withValues(alpha: isSelected ? 0.08 : 0.03),
+            blurRadius: isSelected ? 16 : 8,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
       child: Material(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(20),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
@@ -143,7 +144,7 @@ class _LicitacionCard extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF1F5F9),
+                        color: AppColors.surfaceSubtle,
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
@@ -151,7 +152,7 @@ class _LicitacionCard extends StatelessWidget {
                         style: GoogleFonts.robotoMono(
                             fontSize: 10,
                             fontWeight: FontWeight.w600,
-                            color: const Color(0xFF64748B)),
+                            color: AppColors.textMuted),
                       ),
                     ),
                     const Spacer(),
@@ -167,7 +168,7 @@ class _LicitacionCard extends StatelessWidget {
                   style: GoogleFonts.inter(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: const Color(0xFF1E293B),
+                    color: AppColors.textPrimary,
                     height: 1.35,
                   ),
                 ),
@@ -216,7 +217,7 @@ class _LicitacionCard extends StatelessWidget {
                         style: GoogleFonts.inter(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
-                          color: const Color(0xFF059669),
+                          color: AppColors.successDark,
                         ),
                       ),
                     const SizedBox(width: 4),
@@ -240,14 +241,14 @@ class _LicitacionCard extends StatelessWidget {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
         decoration: BoxDecoration(
-          color: const Color(0xFF10B981).withValues(alpha: 0.12),
+          color: AppColors.success.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(label,
             style: GoogleFonts.inter(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
-                color: const Color(0xFF059669))),
+                color: AppColors.successDark)),
       );
     } else {
       return Container(

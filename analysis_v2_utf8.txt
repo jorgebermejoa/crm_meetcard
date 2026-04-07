@@ -1,0 +1,13 @@
+﻿Analyzing scratch...                                            
+
+  error - The named parameter 'enabled' isn't defined - lib\main.dart:192:13 - undefined_named_parameter
+warning - The value of the local variable 'primaryColor' isn't used - lib\main.dart:229:11 - unused_local_variable
+warning - The value of the field '_primaryColor' isn't used - lib\widgets\login_view.dart:14:16 - unused_field
+   info - 'surfaceVariant' is deprecated and shouldn't be used. Use surfaceContainerHighest instead. This feature was deprecated after v3.18.0-0.1.pre - lib\widgets\login_view.dart:320:55 - deprecated_member_use
+   info - 'surfaceVariant' is deprecated and shouldn't be used. Use surfaceContainerHighest instead. This feature was deprecated after v3.18.0-0.1.pre - lib\widgets\login_view.dart:323:55 - deprecated_member_use
+warning - The value of the local variable 'modalidades' isn't used - lib\widgets\proyectos_view.dart:2351:11 - unused_local_variable
+warning - The value of the local variable 'estados' isn't used - lib\widgets\proyectos_view.dart:2352:11 - unused_local_variable
+warning - The value of the local variable 'allProducts' isn't used - lib\widgets\proyectos_view.dart:2353:11 - unused_local_variable
+  error - The argument type 'dynamic Function(VoidCallback)' can't be assigned to the parameter type 'List<Proyecto>'.  - lib\widgets\proyectos_view.dart:2552:39 - argument_type_not_assignable
+  error - 3 positional arguments expected by '_filterInstitucionSelector', but 2 found - lib\widgets\proyectos_view.dart:2552:54 - not_enough_positional_arguments
+

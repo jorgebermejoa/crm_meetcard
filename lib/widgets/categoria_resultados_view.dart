@@ -1,57 +1,15 @@
 import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:google_fonts/google_fonts.dart';
+import 'shared/skeleton_loader.dart';
 
 import 'licitaciones_table.dart';
 import 'detalle_licitacion.dart';
+import '../core/theme/app_colors.dart';
 
 // ── Skeleton shimmer ──────────────────────────────────────────────────────────
-class _Shimmer extends StatefulWidget {
-  final double width;
-  final double height;
-  final double radius;
-  const _Shimmer({required this.width, required this.height, this.radius = 6});
-
-  @override
-  State<_Shimmer> createState() => _ShimmerState();
-}
-
-class _ShimmerState extends State<_Shimmer> with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
-  late final Animation<double> _anim;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))
-      ..repeat(reverse: true);
-    _anim = Tween<double>(begin: 0.3, end: 0.9).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
-    );
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _anim,
-      builder: (_, __) => Container(
-        width: widget.width,
-        height: widget.height,
-        decoration: BoxDecoration(
-          color: Color.fromRGBO(203, 213, 225, _anim.value),
-          borderRadius: BorderRadius.circular(widget.radius),
-        ),
-      ),
-    );
-  }
-}
 
 class CategoriaResultadosView extends StatefulWidget {
   final String prefix;          // uno o varios separados por coma: "43,81"
@@ -70,7 +28,7 @@ class CategoriaResultadosView extends StatefulWidget {
 }
 
 class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
-  static const _primaryColor = Color(0xFF5B21B6);
+  static const _primaryColor = AppColors.primary;
   static const _pageSize = 20;
 
   List<LicitacionUI> _todas = [];
@@ -102,9 +60,12 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
     if (_disparandoIngesta) return;
     setState(() => _disparandoIngesta = true);
     try {
+      final token = await FirebaseAuth.instance.currentUser?.getIdToken() ?? '';
       final resp = await http
-          .get(Uri.parse(
-              'https://us-central1-licitaciones-prod.cloudfunctions.net/dispararIngestaOCDS'))
+          .get(
+            Uri.parse('https://us-central1-licitaciones-prod.cloudfunctions.net/dispararIngestaOCDS'),
+            headers: {'Authorization': 'Bearer $token'},
+          )
           .timeout(const Duration(seconds: 560));
       if (resp.statusCode == 200) {
         if (mounted) {
@@ -112,7 +73,7 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
             SnackBar(
               content: Text('Ingesta completada. Recargando…',
                   style: GoogleFonts.inter(fontSize: 13)),
-              backgroundColor: const Color(0xFF10B981),
+              backgroundColor: AppColors.success,
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
@@ -271,9 +232,9 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
     final pageItems = filtradas.isEmpty ? <LicitacionUI>[] : filtradas.sublist(pageStart, pageEnd);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: AppColors.surfaceAlt,
       appBar: AppBar(
-        backgroundColor: const Color(0xFFF8FAFC),
+        backgroundColor: AppColors.surfaceAlt,
         elevation: 0,
         surfaceTintColor: Colors.transparent,
         leading: IconButton(
@@ -306,7 +267,7 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
             _cargando && _todas.isEmpty
                 ? const Padding(
                     padding: EdgeInsets.only(top: 3),
-                    child: _Shimmer(width: 160, height: 10),
+                    child: SkeletonBox(width: 160, height: 10),
                   )
                 : Text(
                     _cargando
@@ -404,18 +365,18 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
                               ),
                               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                                 Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                                  const _Shimmer(width: 100, height: 10),
-                                  const _Shimmer(width: 52, height: 20, radius: 20),
+                                  const SkeletonBox(width: 100, height: 10),
+                                  const SkeletonBox(width: 52, height: 20, radius: 20),
                                 ]),
                                 const SizedBox(height: 12),
-                                const _Shimmer(width: double.infinity, height: 11),
+                                const SkeletonBox(width: double.infinity, height: 11),
                                 const SizedBox(height: 6),
-                                const _Shimmer(width: 200, height: 11),
+                                const SkeletonBox(width: 200, height: 11),
                                 const SizedBox(height: 14),
                                 Row(children: const [
-                                  _Shimmer(width: 80, height: 9),
+                                  SkeletonBox(width: 80, height: 9),
                                   SizedBox(width: 16),
-                                  _Shimmer(width: 80, height: 9),
+                                  SkeletonBox(width: 80, height: 9),
                                 ]),
                               ]),
                             ),
@@ -486,11 +447,11 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
               decoration: BoxDecoration(
                   color: _soloAbiertas
                       ? Colors.white.withValues(alpha: 0.8)
-                      : const Color(0xFF10B981),
+                      : AppColors.success,
                   shape: BoxShape.circle)),
           const SizedBox(width: 6),
           if (_cargando && _todas.isEmpty)
-            const _Shimmer(width: 60, height: 10)
+            const SkeletonBox(width: 60, height: 10)
           else
             Text(
               _soloAbiertas

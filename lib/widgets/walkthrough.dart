@@ -1,9 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../core/theme/app_colors.dart';
 
 // ── Colores del proyecto ──────────────────────────────────────────────────────
-const _purple = Color(0xFF5B21B6);
+const _primaryColor = AppColors.primary;
 
 // ── Step model ────────────────────────────────────────────────────────────────
 
@@ -34,7 +35,7 @@ List<WalkthroughStep> _defaultSteps() => [
   WalkthroughStep(
     title: 'Resumen del Dashboard',
     icon: Icons.dashboard_outlined,
-    color: _purple,
+    color: _primaryColor,
     body:
         'El dashboard muestra el estado general de tu cartera de proyectos.\n\n'
         '• **KPIs superiores**: proyectos vigentes, facturación mensual activa y monto total de órdenes de compra.\n'
@@ -45,7 +46,7 @@ List<WalkthroughStep> _defaultSteps() => [
   WalkthroughStep(
     title: 'Clientes Nuevos / Quarter',
     icon: Icons.people_outline_rounded,
-    color: Color(0xFF0EA5E9),
+    color: AppColors.primaryMuted,
     body:
         'Cuenta cuántas instituciones contrataron con Meetcard por primera vez en cada trimestre.\n\n'
         '**Reglas de conteo:**\n'
@@ -57,7 +58,7 @@ List<WalkthroughStep> _defaultSteps() => [
   WalkthroughStep(
     title: 'Pérdida de Clientes (Churn)',
     icon: Icons.trending_down_rounded,
-    color: Color(0xFFEF4444),
+    color: AppColors.error,
     body:
         'Un proyecto se cuenta como churn (cliente perdido) cuando cumple todo esto:\n\n'
         '• Tiene Orden de Compra registrada.\n'
@@ -82,7 +83,7 @@ List<WalkthroughStep> _defaultSteps() => [
   WalkthroughStep(
     title: 'Estados de Proyecto',
     icon: Icons.circle_outlined,
-    color: Color(0xFF16A34A),
+    color: AppColors.successDeep,
     body:
         'El estado se calcula automáticamente desde la fecha de término:\n\n'
         '• 🟢 **Vigente**: la fecha de término es mayor a 30 días.\n'
@@ -106,7 +107,7 @@ List<WalkthroughStep> _defaultSteps() => [
   WalkthroughStep(
     title: 'Detalle del Proyecto',
     icon: Icons.folder_open_outlined,
-    color: _purple,
+    color: _primaryColor,
     body:
         'Cada proyecto tiene secciones expandibles:\n\n'
         '• **Órdenes de Compra**: fechas de envío y aceptación, proveedor, monto.\n'
@@ -328,7 +329,7 @@ class _HelpSheet extends StatelessWidget {
               child: FilledButton(
                 onPressed: () => Navigator.pop(context),
                 style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFFF2F2F7),
+                  backgroundColor: AppColors.background,
                   foregroundColor: const Color(0xFF1C1C1E),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   padding: const EdgeInsets.symmetric(vertical: 12),
@@ -462,7 +463,7 @@ class _WalkthroughDialogState extends State<WalkthroughDialog> {
                         )),
                         IconButton(
                           icon: const Icon(Icons.close_rounded, size: 20,
-                              color: Color(0xFF8E8E93)),
+                              color: AppColors.systemGray),
                           onPressed: () => Navigator.pop(context),
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
@@ -571,8 +572,8 @@ class _NavBtn extends StatelessWidget {
     return OutlinedButton(
       onPressed: onTap,
       style: OutlinedButton.styleFrom(
-        foregroundColor: const Color(0xFF6B7280),
-        side: const BorderSide(color: Color(0xFFE5E7EB)),
+        foregroundColor: AppColors.gray500,
+        side: const BorderSide(color: AppColors.borderLight),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
@@ -600,7 +601,7 @@ class HelpToggleButton extends StatelessWidget {
               label: Text('Guía', style: GoogleFonts.inter(fontSize: 12,
                   fontWeight: FontWeight.w500)),
               style: TextButton.styleFrom(
-                foregroundColor: _purple,
+                foregroundColor: _primaryColor,
                 padding: const EdgeInsets.symmetric(horizontal: 8),
               ),
             ),
@@ -609,7 +610,7 @@ class HelpToggleButton extends StatelessWidget {
             icon: Icon(
               on ? Icons.help_rounded : Icons.help_outline_rounded,
               size: 22,
-              color: on ? _purple : const Color(0xFF94A3B8),
+              color: on ? _primaryColor : AppColors.textFaint,
             ),
             onPressed: HelpController.instance.toggle,
           ),
@@ -789,17 +790,17 @@ class _HelpTextsEditorState extends State<HelpTextsEditor> {
           margin: const EdgeInsets.only(bottom: 20),
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: _purple.withValues(alpha: 0.06),
+            color: _primaryColor.withValues(alpha: 0.06),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: _purple.withValues(alpha: 0.15)),
+            border: Border.all(color: _primaryColor.withValues(alpha: 0.15)),
           ),
           child: Row(children: [
-            Icon(Icons.info_outline, size: 16, color: _purple),
+            Icon(Icons.info_outline, size: 16, color: _primaryColor),
             const SizedBox(width: 10),
             Expanded(child: Text(
               'Edita los textos de la guía de ayuda. Usa **negrita** para resaltar '
               'términos. Los cambios se reflejan inmediatamente al abrir la guía.',
-              style: GoogleFonts.inter(fontSize: 12, color: _purple),
+              style: GoogleFonts.inter(fontSize: 12, color: _primaryColor),
             )),
           ]),
         ),
@@ -812,7 +813,7 @@ class _HelpTextsEditorState extends State<HelpTextsEditor> {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFE5E7EB)),
+              border: Border.all(color: AppColors.borderLight),
             ),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               // Header del paso
@@ -847,7 +848,7 @@ class _HelpTextsEditorState extends State<HelpTextsEditor> {
                     // Título
                     Text('Título',
                         style: GoogleFonts.inter(fontSize: 11,
-                            color: const Color(0xFF6B7280),
+                            color: AppColors.gray500,
                             fontWeight: FontWeight.w500)),
                     const SizedBox(height: 6),
                     TextField(
@@ -861,11 +862,11 @@ class _HelpTextsEditorState extends State<HelpTextsEditor> {
                         border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
                             borderSide: const BorderSide(
-                                color: Color(0xFFE5E7EB))),
+                                color: AppColors.borderLight)),
                         enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
                             borderSide: const BorderSide(
-                                color: Color(0xFFE5E7EB))),
+                                color: AppColors.borderLight)),
                         focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
                             borderSide: BorderSide(color: step.color)),
@@ -877,7 +878,7 @@ class _HelpTextsEditorState extends State<HelpTextsEditor> {
                     // Body
                     Text('Descripción',
                         style: GoogleFonts.inter(fontSize: 11,
-                            color: const Color(0xFF6B7280),
+                            color: AppColors.gray500,
                             fontWeight: FontWeight.w500)),
                     const SizedBox(height: 6),
                     TextField(
@@ -890,11 +891,11 @@ class _HelpTextsEditorState extends State<HelpTextsEditor> {
                         border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
                             borderSide: const BorderSide(
-                                color: Color(0xFFE5E7EB))),
+                                color: AppColors.borderLight)),
                         enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
                             borderSide: const BorderSide(
-                                color: Color(0xFFE5E7EB))),
+                                color: AppColors.borderLight)),
                         focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
                             borderSide: BorderSide(color: step.color)),
@@ -921,8 +922,8 @@ class _HelpTextsEditorState extends State<HelpTextsEditor> {
               label: Text('Restaurar por defecto',
                   style: GoogleFonts.inter(fontWeight: FontWeight.w500)),
               style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFF6B7280),
-                side: const BorderSide(color: Color(0xFFE5E7EB)),
+                foregroundColor: AppColors.gray500,
+                side: const BorderSide(color: AppColors.borderLight),
                 padding: const EdgeInsets.symmetric(vertical: 13),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12)),
@@ -941,11 +942,11 @@ class _HelpTextsEditorState extends State<HelpTextsEditor> {
               label: Text('Guardar cambios',
                   style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
               style: FilledButton.styleFrom(
-                backgroundColor: _purple,
+                backgroundColor: _primaryColor,
                 padding: const EdgeInsets.symmetric(vertical: 13),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12)),
-                disabledBackgroundColor: const Color(0xFFE5E7EB),
+                disabledBackgroundColor: AppColors.borderLight,
               ),
             ),
           ),

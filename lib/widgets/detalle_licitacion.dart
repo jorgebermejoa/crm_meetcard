@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:web/web.dart' as web;
+import 'shared/skeleton_loader.dart';
 
 import 'licitaciones_table.dart' show LicitacionUI;
+import '../core/theme/app_colors.dart';
 
 // ── Bottom sheet helper ────────────────────────────────────────────────────────
 
@@ -20,7 +22,7 @@ void mostrarDetalleLicitacionSheet(
     builder: (_) => Container(
       height: h * 0.92,
       decoration: const BoxDecoration(
-        color: Color(0xFFF2F2F7),
+        color: AppColors.background,
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       child: Column(children: [
@@ -65,8 +67,8 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
     with SingleTickerProviderStateMixin {
   static const _cf =
       'https://us-central1-licitaciones-prod.cloudfunctions.net';
-  static const _primary = Color(0xFF5B21B6);
-  static const _bg = Color(0xFFF2F2F7);
+  static const _primary = AppColors.primary;
+  static const _bg = AppColors.background;
 
   Map<String, dynamic>? _intel;
   bool _cargandoIntel = false;
@@ -77,6 +79,8 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
   bool _cargandoForo = false;
   bool _foroCargado = false;
   DateTime? _foroFechaCache;
+  String? _foroResumen;
+  bool _cargandoResumen = false;
   final TextEditingController _foroSearch = TextEditingController();
   String _foroQuery = '';
 
@@ -104,6 +108,7 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
         _enquiries = [];
         _foroCargado = false;
         _foroFechaCache = null;
+        _foroResumen = null;
         _foroSearch.clear();
       });
       _fetchIntel();
@@ -194,6 +199,33 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
     }
   }
 
+  Future<void> _generarResumenForo() async {
+    if (_cargandoResumen || _enquiries.isEmpty) return;
+    final id = widget.rawData['id']?.toString() ?? '';
+    if (id.isEmpty) return;
+    
+    setState(() => _cargandoResumen = true);
+    try {
+      final uri = Uri.parse('$_cf/generarResumenForo');
+      final resp = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'idLicitacion': id,
+          'enquiries': _enquiries,
+        }),
+      ).timeout(const Duration(seconds: 45));
+      
+      if (resp.statusCode == 200) {
+        final data = json.decode(resp.body);
+        if (mounted) setState(() => _foroResumen = data['resumen']);
+      }
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _cargandoResumen = false);
+    }
+  }
+
   Future<void> _fetchIntel() async {
     setState(() => _cargandoIntel = true);
     try {
@@ -254,7 +286,7 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
               ],
             ),
           ),
-          const Divider(height: 1, color: Color(0xFFE2E8F0)),
+          const Divider(height: 1, color: AppColors.border),
           Expanded(
             child: TabBarView(
               controller: _tabController,
@@ -298,7 +330,7 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
               borderRadius: BorderRadius.circular(8),
               child: const Padding(
                 padding: EdgeInsets.all(4),
-                child: Icon(Icons.close, size: 18, color: Color(0xFF64748B)),
+                child: Icon(Icons.close, size: 18, color: AppColors.textMuted),
               ),
             ),
           ),
@@ -313,14 +345,14 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
                     padding: const EdgeInsets.symmetric(
                         horizontal: 7, vertical: 2),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF1F5F9),
+                      color: AppColors.surfaceSubtle,
                       borderRadius: BorderRadius.circular(5),
                     ),
                     child: Text(
                       id,
                       style: GoogleFonts.robotoMono(
                           fontSize: 10,
-                          color: const Color(0xFF64748B),
+                          color: AppColors.textMuted,
                           fontWeight: FontWeight.w600),
                     ),
                   ),
@@ -363,7 +395,7 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
                   style: GoogleFonts.inter(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
-                    color: const Color(0xFF1E293B),
+                    color: AppColors.textPrimary,
                     height: 1.3,
                   ),
                 ),
@@ -390,7 +422,7 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
             const EdgeInsets.symmetric(horizontal: 9, vertical: 2),
         decoration: BoxDecoration(
           color: vigente
-              ? const Color(0xFF10B981).withValues(alpha: 0.12)
+              ? AppColors.success.withValues(alpha: 0.12)
               : Colors.grey.shade100,
           borderRadius: BorderRadius.circular(20),
         ),
@@ -400,7 +432,7 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
             fontSize: 10,
             fontWeight: FontWeight.w600,
             color: vigente
-                ? const Color(0xFF059669)
+                ? AppColors.successDark
                 : Colors.grey.shade500,
           ),
         ),
@@ -503,7 +535,7 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
           _sectionCard(children: [
             _label('DESCRIPCIÓN DEL PROCESO'),
             Text(descripcion,
-                style: GoogleFonts.inter(fontSize: 12, height: 1.6, color: const Color(0xFF334155))),
+                style: GoogleFonts.inter(fontSize: 12, height: 1.6, color: AppColors.textBody)),
           ]),
           const SizedBox(height: 10),
 
@@ -540,7 +572,7 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
                   style: GoogleFonts.inter(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
-                      color: vigente ? const Color(0xFF1E293B) : Colors.redAccent)),
+                      color: vigente ? AppColors.textPrimary : Colors.redAccent)),
             ])),
           ]),
           const SizedBox(height: 10),
@@ -575,7 +607,7 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
                 fontWeight: FontWeight.w800,
                 color: (monto == null || monto.isEmpty || monto == 'S/M')
                     ? Colors.grey.shade400
-                    : const Color(0xFF059669),
+                    : AppColors.successDark,
                 letterSpacing: -0.5,
               ),
             ),
@@ -667,13 +699,13 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
       padding: const EdgeInsets.only(top: 8),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Container(width: 6, height: 6, margin: const EdgeInsets.only(top: 4, right: 8),
-            decoration: const BoxDecoration(color: Color(0xFF10B981), shape: BoxShape.circle)),
+            decoration: const BoxDecoration(color: AppColors.success, shape: BoxShape.circle)),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           if (suppliers.isNotEmpty)
             Text(suppliers,
-                style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF334155))),
+                style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textBody)),
           if (monto != null)
-            Text(monto, style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF059669), fontWeight: FontWeight.w600)),
+            Text(monto, style: GoogleFonts.inter(fontSize: 11, color: AppColors.successDark, fontWeight: FontWeight.w600)),
           if (_val(award['status']) != null)
             Text('Estado: ${award['status']}',
                 style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
@@ -694,7 +726,7 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
           Text('Contrato ${contract['id']}',
               style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
         if (monto != null)
-          Text(monto, style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF059669), fontWeight: FontWeight.w600)),
+          Text(monto, style: GoogleFonts.inter(fontSize: 11, color: AppColors.successDark, fontWeight: FontWeight.w600)),
         if (inicio != 'S/F' || fin != 'S/F')
           Text('$inicio → $fin', style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
         if (_val(contract['status']) != null)
@@ -719,7 +751,7 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
             height: 6,
             margin: const EdgeInsets.only(top: 4, right: 8),
             decoration: const BoxDecoration(
-                color: Color(0xFF94A3B8), shape: BoxShape.circle),
+                color: AppColors.textFaint, shape: BoxShape.circle),
           ),
           Expanded(
             child: Column(
@@ -727,7 +759,7 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
               children: [
                 Text(desc,
                     style: GoogleFonts.inter(
-                        fontSize: 12, color: const Color(0xFF334155))),
+                        fontSize: 12, color: AppColors.textBody)),
                 if (qty != null || unit != null)
                   Text(
                     [
@@ -749,7 +781,28 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
 
   Widget _panelForo() {
     if (_cargandoForo) {
-      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+      return ListView.separated(
+        padding: const EdgeInsets.all(16),
+        itemCount: 6,
+        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        itemBuilder: (_, __) => Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SkeletonBox(width: 120, height: 12),
+              SizedBox(height: 10),
+              SkeletonBox(height: 14),
+              SizedBox(height: 6),
+              SkeletonBox(width: 200, height: 14),
+            ],
+          ),
+        ),
+      );
     }
 
     final filtered = _foroQuery.isEmpty
@@ -782,6 +835,24 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
           ] else if (_foroCargado)
             Text('Sin caché', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400)),
           const Spacer(),
+          if (_enquiries.isNotEmpty) ...[
+            InkWell(
+              onTap: _cargandoResumen ? null : _generarResumenForo,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  _cargandoResumen
+                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.auto_awesome, size: 14, color: _primary),
+                  const SizedBox(width: 4),
+                  Text('Resumen IA',
+                      style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: _primary)),
+                ]),
+              ),
+            ),
+            const SizedBox(width: 4),
+          ],
           InkWell(
             onTap: _cargandoForo ? null : () => _fetchForo(forceRefresh: true),
             borderRadius: BorderRadius.circular(8),
@@ -818,7 +889,7 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
             isDense: true,
             contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             filled: true,
-            fillColor: const Color(0xFFF8FAFC),
+            fillColor: AppColors.surfaceAlt,
             border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
                 borderSide: BorderSide(color: Colors.grey.shade200)),
@@ -831,7 +902,7 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
           ),
         ),
       ),
-      const Divider(height: 1, color: Color(0xFFE2E8F0)),
+      const Divider(height: 1, color: AppColors.border),
       // Lista
       if (_enquiries.isEmpty)
         Expanded(
@@ -851,11 +922,18 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
         )
       else
         Expanded(
-          child: ListView.separated(
+          child: ListView(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 32),
-            itemCount: filtered.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
-            itemBuilder: (_, i) => _foroItem(filtered[i]),
+            children: [
+              if (_foroResumen != null) ...[
+                _buildResumenCard(_foroResumen!),
+                const SizedBox(height: 12),
+              ],
+              ...filtered.map((item) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _foroItem(item),
+              )),
+            ],
           ),
         ),
       // Footer contador
@@ -887,7 +965,7 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(color: AppColors.border),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         // Pregunta
@@ -898,18 +976,18 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEFF6FF),
+                  color: AppColors.blueSurface,
                   borderRadius: BorderRadius.circular(5),
                 ),
                 child: Text('P', style: GoogleFonts.inter(
-                    fontSize: 10, fontWeight: FontWeight.w700, color: const Color(0xFF3B82F6))),
+                    fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.blue500)),
               ),
               const SizedBox(width: 6),
               Text(fechaP, style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
             ]),
             const SizedBox(height: 6),
             Text(pregunta, style: GoogleFonts.inter(
-                fontSize: 12, color: const Color(0xFF334155), height: 1.5)),
+                fontSize: 12, color: AppColors.textBody, height: 1.5)),
           ]),
         ),
         // Respuesta
@@ -917,7 +995,7 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
           Container(
             width: double.infinity,
             decoration: const BoxDecoration(
-              color: Color(0xFFF0FDF4),
+              color: AppColors.successSurface,
               borderRadius: BorderRadius.vertical(bottom: Radius.circular(12)),
             ),
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
@@ -926,11 +1004,11 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                    color: AppColors.success.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(5),
                   ),
                   child: Text('R', style: GoogleFonts.inter(
-                      fontSize: 10, fontWeight: FontWeight.w700, color: const Color(0xFF059669))),
+                      fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.successDark)),
                 ),
                 const SizedBox(width: 6),
                 Text(fechaR, style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
@@ -944,7 +1022,7 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
           Container(
             width: double.infinity,
             decoration: const BoxDecoration(
-              color: Color(0xFFFFF7ED),
+              color: AppColors.warningSurface,
               borderRadius: BorderRadius.vertical(bottom: Radius.circular(12)),
             ),
             padding: const EdgeInsets.fromLTRB(12, 7, 12, 8),
@@ -959,7 +1037,34 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
 
   Widget _panelAnalisis() {
     if (_cargandoIntel) {
-      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+      return SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: List.generate(3, (i) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SkeletonBox(width: 100, height: 12),
+                  SizedBox(height: 14),
+                  SkeletonBox(height: 16),
+                  SizedBox(height: 8),
+                  SkeletonBox(width: 180, height: 16),
+                  SizedBox(height: 20),
+                  SkeletonBox(height: 40, radius: 10),
+                ],
+              ),
+            ),
+          )),
+        ),
+      );
     }
     if (_intel == null) {
       return Center(
@@ -987,6 +1092,46 @@ class _DetalleLicitacionSidebarState extends State<DetalleLicitacionSidebar>
             ...(_intel!['referencias'] as List)
                 .map((r) => _CardReferencia(r as Map<String, dynamic>)),
           ],
+        ],
+      ),
+    );
+  }
+
+
+  Widget _buildResumenCard(String resumen) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.blueSurface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.auto_awesome, size: 16, color: AppColors.primary),
+              const SizedBox(width: 8),
+              Text(
+                'Resumen Inteligente del Foro',
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.primaryDark,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            resumen,
+            style: GoogleFonts.inter(
+              fontSize: 13,
+              height: 1.6,
+              color: AppColors.textPrimary,
+            ),
+          ),
         ],
       ),
     );
@@ -1076,8 +1221,8 @@ class _TarjetaEstrategiaDeep extends StatelessWidget {
     if (e == null) return const SizedBox();
     final prioridad = e!['Nivel_Prioridad']?.toString() ?? 'Media';
     final color = prioridad == 'Alta'
-        ? const Color(0xFFEF4444)
-        : const Color(0xFFF59E0B);
+        ? AppColors.error
+        : AppColors.warning;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: _boxDeco(),
@@ -1095,7 +1240,7 @@ class _TarjetaEstrategiaDeep extends StatelessWidget {
         Text(e!['Argumento_Semantico']?.toString() ?? '—',
             style: GoogleFonts.inter(
                 fontSize: 12,
-                color: const Color(0xFF64748B),
+                color: AppColors.textMuted,
                 height: 1.5)),
       ]),
     );
@@ -1141,14 +1286,14 @@ class _TarjetaPrediccion extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: _boxDeco().copyWith(
           color: const Color(0xFFECFDF5),
-          border: Border.all(color: const Color(0xFF10B981))),
+          border: Border.all(color: AppColors.success)),
       child:
           Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text('PRÓXIMA COMPRA ESTIMADA (ML)',
             style: GoogleFonts.inter(
                 fontSize: 10,
                 fontWeight: FontWeight.w700,
-                color: const Color(0xFF059669))),
+                color: AppColors.successDark)),
         const SizedBox(height: 8),
         Text(pr!['proxima']?.toString() ?? 'No estimada',
             style: GoogleFonts.inter(
@@ -1158,7 +1303,7 @@ class _TarjetaPrediccion extends StatelessWidget {
         Text(
             'Categoría: ${pr!['Categoria_Nombre_Referencia']?.toString() ?? '—'}',
             style: GoogleFonts.inter(
-                fontSize: 10, color: const Color(0xFF059669))),
+                fontSize: 10, color: AppColors.successDark)),
       ]),
     );
   }
@@ -1185,7 +1330,7 @@ class _CardReferencia extends StatelessWidget {
           Text('\$${d['monto_adjudicado']}',
               style: GoogleFonts.inter(
                   fontSize: 12,
-                  color: const Color(0xFF059669),
+                  color: AppColors.successDark,
                   fontWeight: FontWeight.w700)),
         ]),
       ]),
@@ -1198,7 +1343,7 @@ class _CardReferencia extends StatelessWidget {
 BoxDecoration _boxDeco() => BoxDecoration(
       color: Colors.white,
       borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: const Color(0xFFE2E8F0)),
+      border: Border.all(color: AppColors.border),
     );
 
 class _Chip extends StatelessWidget {
@@ -1209,26 +1354,26 @@ class _Chip extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: BoxDecoration(
-            color: color ?? const Color(0xFFF1F5F9),
+            color: color ?? AppColors.surfaceSubtle,
             borderRadius: BorderRadius.circular(6)),
         child: Text(texto,
             style: GoogleFonts.inter(
                 fontSize: 10,
                 fontWeight: FontWeight.w600,
-                color: txtColor ?? const Color(0xFF64748B))),
+                color: txtColor ?? AppColors.textMuted)),
       );
 }
 
 Widget _statCircular(String valor, String label) => Container(
       padding: const EdgeInsets.all(10),
       decoration: const BoxDecoration(
-          color: Color(0xFFF1F5F9), shape: BoxShape.circle),
+          color: AppColors.surfaceSubtle, shape: BoxShape.circle),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Text(valor,
             style: GoogleFonts.inter(
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
-                color: const Color(0xFF334155))),
+                color: AppColors.textBody)),
         Text(label,
             style:
                 GoogleFonts.inter(fontSize: 8, color: Colors.grey.shade500)),
