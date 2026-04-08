@@ -52,8 +52,16 @@ class _TabConvenioMarcoDetalleState extends State<TabConvenioMarcoDetalle>
 
   @override
   void dispose() {
+    _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     super.dispose();
+  }
+
+  void _onTabChanged() {
+    // Called when tab changes
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _cargarDetalles() async {
@@ -284,12 +292,6 @@ class _TabConvenioMarcoDetalleState extends State<TabConvenioMarcoDetalle>
       );
     }
 
-    // Determinar cuál contenido mostrar basado en el tab seleccionado
-    final isCalendarioTab = _tabController.index == 1;
-    final mainContent = isCalendarioTab
-        ? _panelCalendario()
-        : _panelInformacion();
-
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -318,13 +320,19 @@ class _TabConvenioMarcoDetalleState extends State<TabConvenioMarcoDetalle>
             ),
           ),
           const SizedBox(height: 16),
-          // Contenido del tab - usa AnimatedBuilder para actualizar solo este widget
+          // Contenido del tab - usa AnimatedBuilder para evitar acceso directo a _tabController
           AnimatedBuilder(
             animation: _tabController,
             builder: (context, _) {
-              return _tabController.index == 1
-                  ? _panelCalendario()
-                  : _panelInformacion();
+              try {
+                final index = _tabController.index ?? 0;
+                return index == 1
+                    ? _panelCalendario()
+                    : _panelInformacion();
+              } catch (e) {
+                debugPrint('[TabConvenioMarco] Error en AnimatedBuilder: $e');
+                return _panelInformacion();
+              }
             },
           ),
         ],

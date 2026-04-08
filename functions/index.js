@@ -3031,6 +3031,8 @@ function parseXLSForoMP(bufferOArchivo) {
     const worksheet = workbook.Sheets[nombreHoja];
     const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
 
+    logger.info(`parseXLSForoMP: sheet="${nombreHoja}" range=${JSON.stringify(range)}`);
+
     // Obtener todas las filas
     const filas = [];
     for (let r = range.s.r; r <= range.e.r; r++) {
@@ -3043,55 +3045,152 @@ function parseXLSForoMP(bufferOArchivo) {
       filas.push(fila);
     }
 
-    // Buscar encabezados (fila que contiene "Pregunta" Y "Respuesta" Y "#")
+    logger.info(`parseXLSForoMP: ${filas.length} filas totales en la hoja`);
+
+    // Debug: imprimir primeras 5 filas
+    for (let i = 0; i < Math.min(5, filas.length); i++) {
+      logger.info(`parseXLSForoMP row[${i}]: ${JSON.stringify(filas[i].slice(0, 6))}`);
+    }
+
+    // Buscar encabezados con búsqueda flexible
+    // Estrategia 1: fila que contiene "Pregunta" Y "Respuesta"
     let filaEncabezado = -1;
     for (let i = 0; i < filas.length; i++) {
       const row = filas[i];
-      const hayPreguntas = row.some(cell => cell && cell.toString().toLowerCase().includes('pregunta'));
-      const hayRespuestas = row.some(cell => cell && cell.toString().toLowerCase().includes('respuesta'));
-      const hayHash = row.some(cell => cell && cell.toString().includes('#'));
+      const str = row.map(c => (c ? c.toString().toLowerCase() : '')).join('|');
+      
+      // Criterios de búsqueda más flexibles
+      const hayPregunta = str.includes('pregunta');
+      const hayRespuesta = str.includes('respuesta');
+      const hayAlgunEncabezado = /pregunta|respuesta|fecha|asunto|participante|#|número/.test(str);
 
-      if (hayPreguntas && hayRespuestas && hayHash) {
+      if (hayPregunta && hayRespuesta) {
         filaEncabezado = i;
+        logger.info(`parseXLSForoMP: encabezado encontrado en fila ${i} (criterio: Pregunta+Respuesta)`);
         break;
       }
     }
 
+    // Estrategia 2: si no encontró, buscar fila que tenga "Pregunta" O "Respuesta" sin estar vacía
     if (filaEncabezado === -1) {
-      throw new Error('No se encontraron encabezados en el archivo XLS');
+      for (let i = 0; i < filas.length; i++) {
+        const row = filas[i];
+        const nonEmpty = row.filter(c => c && c.toString().trim().length > 0);
+        
+        // Si la fila tiene muchas celdas no vacías, probablemente sea encabezado
+        if (nonEmpty.length >= 2) {
+          const str = row.map(c => (c ? c.toString().toLowerCase() : '')).join('|');
+          if (/pregunta|respuesta|asunto|particip|fecha|#/.test(str)) {
+            filaEncabezado = i;
+            logger.info(`parseXLSForoMP: encabezado encontrado en fila ${i} (criterio: heurística flexible)`);
+            break;
+          }
+        }
+      }
     }
 
-    // Mapear índices de columnas
-    const encabezados = filas[filaEncabezado];
-    const idxNum = encabezados.findIndex(h => h && (h.toString() === '#' || h.toString().toLowerCase().includes('#')));
-    const idxFecha = encabezados.findIndex(h => h && h.toString().toLowerCase().includes('fecha'));
-    const idxTipo = encabezados.findIndex(h => h && h.toString().toLowerCase().includes('tipo'));
-    const idxPregunta = encabezados.findIndex(h => h && h.toString().toLowerCase().includes('pregunta'));
-    const idxRespuesta = encabezados.findIndex(h => h && h.toString().toLowerCase().includes('respuesta'));
+    // Estrategia 3: si aún no encontró, asumir que la primera fila no vacía es encabezado
+    if (filaEncabezado === -1) {
+      for (let i = 0; i < filas.length; i++) {
+        const row = filas[i];
+        const nonEmpty = row.filter(c => c && c.toString().trim().length > 0);
+        if (nonEmpty.length >= 2) {
+          filaEncabezado = i;
+          logger.info(`parseXLSForoMP: encabezado asuming por defecto en fila ${i}`);
+          break;
+        }
+      }
+    }
 
-    // Extraer preguntas
+    if (filaEncabezado === -1) {
+      throw new Error('No se encontró fila de encabezados en el archivo XLS');
+    }
+
+    // Mapear índices de columnas — lo hacemos más inteligente
+    const encabezados = filas[filaEncabezado];
+    logger.info(`parseXLSForoMP: encabezados = ${JSON.stringify(encabezados)}`);
+
+    // Asignar índices: buscar por coincidencia parcial, priorizar keywords exactos
+    let idxPregunta = -1, idxRespuesta = -1, idxFecha = -1, idxNum = -1, idxTipo = -1;
+
+    for (let i = 0; i < encabezados.length; i++) {
+      const h = (encabezados[i] ? encabezados[i].toString().toLowerCase().trim() : '').replace(/\s+/g, ' ');
+      
+      // Pregunta
+      if (h.includes('pregunta') && idxPregunta === -1) idxPregunta = i;
+      
+      // Respuesta
+      if (h.includes('respuesta') && idxRespuesta === -1) idxRespuesta = i;
+      
+      // Fecha
+      if ((h.includes('fecha') || h === 'date') && idxFecha === -1) idxFecha = i;
+      
+      // Número / # / Secuencia
+      if ((h === '#' || h.includes('número') || h.includes('numero') || h === 'n°') && idxNum === -1) idxNum = i;
+      
+      // Tipo
+      if ((h.includes('tipo') || h.includes('categoria')) && idxTipo === -1) idxTipo = i;
+    }
+
+    // Si no encontró Pregunta y Respuesta exactamente, intentar heurística de posición
+    if (idxPregunta === -1 || idxRespuesta === -1) {
+      logger.warn(`parseXLSForoMP: no se encontraron columnas Pregunta/Respuesta, usando heurística de posición`);
+      
+      // Asumir que hay al menos 2 columnas significativas
+      const colsSignificativas = [];
+      for (let i = 0; i < encabezados.length; i++) {
+        const h = encabezados[i]?.toString().trim();
+        if (h && h.length > 0) colsSignificativas.push(i);
+      }
+      
+      if (colsSignificativas.length >= 2) {
+        if (idxPregunta === -1) idxPregunta = colsSignificativas[0];
+        if (idxRespuesta === -1) idxRespuesta = colsSignificativas[1];
+      }
+    }
+
+    if (idxPregunta === -1 || idxRespuesta === -1) {
+      throw new Error(`No se pudieron mapear columnas: Pregunta=${idxPregunta}, Respuesta=${idxRespuesta}`);
+    }
+
+    logger.info(`parseXLSForoMP: mapeado -> Pregunta=${idxPregunta}, Respuesta=${idxRespuesta}, Fecha=${idxFecha}`);
+
+    // Extraer preguntas/respuestas
     const foro = [];
+    let dataRowCount = 0;
+    
     for (let i = filaEncabezado + 1; i < filas.length; i++) {
       const row = filas[i];
       if (!row || row.every(cell => !cell)) continue;
 
       const pregunta = row[idxPregunta] || '';
       const respuesta = row[idxRespuesta] || '';
+      const preguntaStr = pregunta.toString().trim();
+      const respuestaStr = respuesta.toString().trim();
 
-      if (pregunta.toString().trim()) {
+      // Registrar solo si hay al menos pregunta
+      if (preguntaStr.length > 0) {
         foro.push({
-          description: pregunta.toString().trim(),
-          answer: respuesta.toString().trim(),
+          description: preguntaStr,
+          answer: respuestaStr || '',
           date: row[idxFecha] ? row[idxFecha].toString().trim() : null,
-          dateAnswered: respuesta.toString().trim() ? new Date().toISOString() : null,
+          dateAnswered: respuestaStr.length > 0 ? new Date().toISOString() : null,
           participant: '',
           number: row[idxNum] || null,
         });
+        dataRowCount++;
       }
+    }
+
+    logger.info(`parseXLSForoMP: éxito - ${dataRowCount} preguntas parseadas de ${filas.length - filaEncabezado - 1} filas de datos`);
+
+    if (foro.length === 0) {
+      throw new Error('No se encontraron preguntas con respuestas en el archivo XLS');
     }
 
     return foro;
   } catch (e) {
+    logger.error(`parseXLSForoMP error: ${e.message}`, { stack: e.stack });
     throw new Error(`Error parseando XLS: ${e.message}`);
   }
 }
