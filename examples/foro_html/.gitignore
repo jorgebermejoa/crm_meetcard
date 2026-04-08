@@ -1,0 +1,18 @@
+# Gitignore para ejemplos de foro
+# Estos archivos se usan solo localmente para debugging
+
+# Excluir archivos HTML reales (pueden contener datos sensibles)
+# *.html
+# Pero mantener los templates/ejemplos para referencia
+!template_estructura.html
+
+# Mantener los archivos de configuración/documentación
+!README.md
+!parser_helper.js
+!INTEGRACION.js
+!.gitignore
+
+# Excluir archivos temporales
+*.tmp
+*.bak
+.DS_Store

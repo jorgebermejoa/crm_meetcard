@@ -15,6 +15,7 @@ const { SearchServiceClient, DocumentServiceClient } = require('@google-cloud/di
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const { BigQuery } = require('@google-cloud/bigquery');
 const bigquery = new BigQuery({ projectId: 'licitaciones-prod' });
+const XLSX = require('xlsx');
 let _discoveryClient = null;
 let _docClient = null;
 function getDiscoveryClient() {
@@ -3016,6 +3017,218 @@ Responde en español, con formato markdown limpio. Sé conciso y enfocado en lo 
     const detail = e.response?.data ?? e.message;
     logger.error('resumirForo error:', JSON.stringify(detail));
     return res.status(500).json({ error: e.message, detail });
+  }
+});
+
+// --- HELPER: Parsear archivo XLS del Foro de Mercado Público ---
+function parseXLSForoMP(bufferOArchivo) {
+  try {
+    // Leer el archivo
+    const workbook = XLSX.read(bufferOArchivo, { type: 'buffer' });
+    const nombreHoja = workbook.SheetNames[0];
+    if (!nombreHoja) throw new Error('Archivo XLS vacío');
+
+    const worksheet = workbook.Sheets[nombreHoja];
+    const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+
+    // Obtener todas las filas
+    const filas = [];
+    for (let r = range.s.r; r <= range.e.r; r++) {
+      const fila = [];
+      for (let c = range.s.c; c <= range.e.c; c++) {
+        const celda_ref = XLSX.utils.encode_col(c) + XLSX.utils.encode_row(r);
+        const celda = worksheet[celda_ref];
+        fila.push(celda ? celda.v : '');
+      }
+      filas.push(fila);
+    }
+
+    // Buscar encabezados (fila que contiene "Pregunta" Y "Respuesta" Y "#")
+    let filaEncabezado = -1;
+    for (let i = 0; i < filas.length; i++) {
+      const row = filas[i];
+      const hayPreguntas = row.some(cell => cell && cell.toString().toLowerCase().includes('pregunta'));
+      const hayRespuestas = row.some(cell => cell && cell.toString().toLowerCase().includes('respuesta'));
+      const hayHash = row.some(cell => cell && cell.toString().includes('#'));
+
+      if (hayPreguntas && hayRespuestas && hayHash) {
+        filaEncabezado = i;
+        break;
+      }
+    }
+
+    if (filaEncabezado === -1) {
+      throw new Error('No se encontraron encabezados en el archivo XLS');
+    }
+
+    // Mapear índices de columnas
+    const encabezados = filas[filaEncabezado];
+    const idxNum = encabezados.findIndex(h => h && (h.toString() === '#' || h.toString().toLowerCase().includes('#')));
+    const idxFecha = encabezados.findIndex(h => h && h.toString().toLowerCase().includes('fecha'));
+    const idxTipo = encabezados.findIndex(h => h && h.toString().toLowerCase().includes('tipo'));
+    const idxPregunta = encabezados.findIndex(h => h && h.toString().toLowerCase().includes('pregunta'));
+    const idxRespuesta = encabezados.findIndex(h => h && h.toString().toLowerCase().includes('respuesta'));
+
+    // Extraer preguntas
+    const foro = [];
+    for (let i = filaEncabezado + 1; i < filas.length; i++) {
+      const row = filas[i];
+      if (!row || row.every(cell => !cell)) continue;
+
+      const pregunta = row[idxPregunta] || '';
+      const respuesta = row[idxRespuesta] || '';
+
+      if (pregunta.toString().trim()) {
+        foro.push({
+          description: pregunta.toString().trim(),
+          answer: respuesta.toString().trim(),
+          date: row[idxFecha] ? row[idxFecha].toString().trim() : null,
+          dateAnswered: respuesta.toString().trim() ? new Date().toISOString() : null,
+          participant: '',
+          number: row[idxNum] || null,
+        });
+      }
+    }
+
+    return foro;
+  } catch (e) {
+    throw new Error(`Error parseando XLS: ${e.message}`);
+  }
+}
+
+// --- CLOUD FUNCTION: Procesar archivo XLS de Foro y guardar con resumen IA ---
+exports.procesarForoXLS = onRequest({
+  cors: true,
+  region: 'us-central1',
+  timeoutSeconds: 180,
+  memory: '1GiB',
+}, async (req, res) => {
+  const uid = await _verifyToken(req, res);
+  if (!uid) return;
+
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Solo POST permitido' });
+  }
+
+  const { proyectoId, licitacionId, generarResumen = true } = req.query;
+  if (!proyectoId || !licitacionId) {
+    return res.status(400).json({ error: 'Faltan proyectoId o licitacionId' });
+  }
+
+  try {
+    // 1. Obtener el archivo (espera body como buffer o base64)
+    let buffer;
+    if (typeof req.body === 'string') {
+      buffer = Buffer.from(req.body, 'base64');
+    } else if (Buffer.isBuffer(req.body)) {
+      buffer = req.body;
+    } else {
+      return res.status(400).json({ error: 'Body debe ser buffer o base64' });
+    }
+
+    if (buffer.length === 0) {
+      return res.status(400).json({ error: 'Archivo vacío' });
+    }
+
+    // 2. Parsear XLS
+    logger.info(`procesarForoXLS: parseando archivo para ${licitacionId}`);
+    const enquiries = parseXLSForoMP(buffer);
+
+    if (!enquiries || enquiries.length === 0) {
+      return res.status(400).json({ error: 'No se encontraron preguntas en el archivo' });
+    }
+
+    logger.info(`procesarForoXLS: ${enquiries.length} preguntas parseadas`);
+
+    const db = admin.firestore();
+    const foroRef = db.collection('proyectos').doc(proyectoId).collection('foro').doc(licitacionId);
+
+    // 3. Guardar foro
+    await foroRef.set({
+      enquiries,
+      fetchedMethod: 'xls_upload',
+      uploadedAt: admin.firestore.FieldValue.serverTimestamp(),
+      fetchedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    // 4. Generar resumen con Gemini (si se solicita)
+    let resumen = null;
+    if (generarResumen === 'true' || generarResumen === true) {
+      try {
+        const proyectoSnap = await db.collection('proyectos').doc(proyectoId).get();
+        const proyectoData = proyectoSnap.exists ? proyectoSnap.data() : {};
+        const nombreLicitacion = proyectoData.nombre ?? licitacionId;
+        const descripcionLicitacion = proyectoData.descripcion ?? '';
+
+        // Construir prompt
+        const foroTexto = enquiries.map((e, i) => {
+          const p = e.description ?? '(sin texto)';
+          const r = e.answer ?? '(sin respuesta)';
+          return `[${i + 1}] Pregunta: ${p}\nRespuesta: ${r}`;
+        }).join('\n\n');
+
+        const prompt = `Eres un asistente experto en licitaciones públicas chilenas (Mercado Público).
+
+Analiza el siguiente foro de preguntas y respuestas importado desde un archivo XLS y genera un resumen ejecutivo conciso, estructurado en:
+1. **Puntos clave** (máx. 5 bullets): los temas más relevantes o recurrentes del foro
+2. **Aclaraciones importantes**: cambios de plazos, requisitos modificados, aclaraciones técnicas relevantes
+3. **Alertas**: si hay respuestas contradictorias, condiciones restrictivas o aspectos que un proveedor debe tener muy en cuenta
+
+Licitación: ${nombreLicitacion}
+${descripcionLicitacion ? `Descripción: ${descripcionLicitacion}\n` : ''}Total de preguntas: ${enquiries.length}
+
+FORO:
+${foroTexto}
+
+Responde en español, con formato markdown limpio. Sé conciso y enfocado en lo que es útil para un proveedor.`;
+
+        // Llamar Gemini
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
+        const geminiResp = await axios.post(geminiUrl, {
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.4, maxOutputTokens: 2048 },
+        }, { timeout: 120000 });
+
+        resumen = geminiResp.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
+
+        if (resumen) {
+          // Guardar resumen
+          await foroRef.set({
+            resumen,
+            resumenGeneradoAt: admin.firestore.FieldValue.serverTimestamp(),
+          }, { merge: true });
+
+          logger.info(`procesarForoXLS: resumen generado para ${licitacionId}`);
+        }
+      } catch (geminiErr) {
+        logger.warn(`procesarForoXLS: error al generar resumen: ${geminiErr.message}`);
+        // No fallar si Gemini falla, el foro está guardado de todas formas
+      }
+    }
+
+    // 5. También guardar en licitaciones_foro para acceso global (caché)
+    await db.collection('licitaciones_foro').doc(licitacionId).set({
+      enquiries,
+      fetchedMethod: 'xls_upload',
+      uploadedAt: admin.firestore.FieldValue.serverTimestamp(),
+      fetchedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    logger.info(`procesarForoXLS: completado para ${licitacionId}, ${enquiries.length} preguntas`);
+
+    return res.json({
+      ok: true,
+      licitacionId,
+      totalPreguntas: enquiries.length,
+      respondidas: enquiries.filter(e => e.answer?.trim()).length,
+      sinResponder: enquiries.filter(e => !e.answer?.trim()).length,
+      resumenGenerado: !!resumen,
+      resumen: resumen ? resumen.substring(0, 500) + '...' : null,
+    });
+
+  } catch (e) {
+    logger.error('procesarForoXLS error:', e.message);
+    return res.status(500).json({ error: e.message });
   }
 });
 

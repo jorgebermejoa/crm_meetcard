@@ -92,35 +92,60 @@ mixin ProyectoForoMixin on ChangeNotifier {
             var excel = Excel.decodeBytes(bytes);
             for (var table in excel.tables.keys) {
               var sheet = excel.tables[table];
-              if (sheet != null && sheet.rows.length >= 5) {
-                // The first 4 rows are title/headers. Data starts at row 5 (index 4).
-                for (int i = 4; i < sheet.rows.length; i++) {
-                  var row = sheet.rows[i];
-                  
-                  String fecha = row.length > 1 && row[1] != null ? row[1]!.value.toString() : '';
-                  String pregunta = row.length > 3 && row[3] != null ? row[3]!.value.toString() : '';
-                  String respuesta = row.length > 4 && row[4] != null ? row[4]!.value.toString() : '';
+              if (sheet == null || sheet.rows.isEmpty) continue;
 
-                  if (fecha.startsWith("'")) fecha = fecha.substring(1);
-
-                  if (pregunta.isNotEmpty || respuesta.isNotEmpty) {
-                    parsedEnquiries.add({
-                      'description': pregunta,
-                      'answer': respuesta,
-                      'date': fecha,
-                      'dateAnswered': fecha,
-                    });
+              // 1. Detectar fila de encabezados (buscar "Pregunta" y "Respuesta")
+              int headerRowIdx = -1;
+              int idxPregunta = -1;
+              int idxRespuesta = -1;
+              
+              for (int r = 0; r < sheet.rows.length; r++) {
+                var row = sheet.rows[r];
+                final rowText = row.map((cell) => cell?.value.toString().toLowerCase() ?? '').join('|');
+                
+                if (rowText.contains('pregunta') && rowText.contains('respuesta')) {
+                  headerRowIdx = r;
+                  // Mapear índices de columnas
+                  for (int c = 0; c < row.length; c++) {
+                    final cellVal = row[c]?.value.toString().toLowerCase() ?? '';
+                    if (cellVal.contains('pregunta')) idxPregunta = c;
+                    if (cellVal.contains('respuesta')) idxRespuesta = c;
                   }
+                  break;
                 }
-                if (parsedEnquiries.isNotEmpty) {
-                   hasData = true;
-                   break;
+              }
+
+              if (headerRowIdx == -1 || idxPregunta == -1 || idxRespuesta == -1) continue;
+
+              // 2. Extraer datos desde la fila siguiente al encabezado
+              for (int i = headerRowIdx + 1; i < sheet.rows.length; i++) {
+                var row = sheet.rows[i];
+                if (row.isEmpty) continue;
+
+                String pregunta = row.length > idxPregunta && row[idxPregunta] != null 
+                    ? row[idxPregunta]!.value.toString().trim() 
+                    : '';
+                String respuesta = row.length > idxRespuesta && row[idxRespuesta] != null 
+                    ? row[idxRespuesta]!.value.toString().trim() 
+                    : '';
+
+                if (pregunta.isNotEmpty || respuesta.isNotEmpty) {
+                  parsedEnquiries.add({
+                    'description': pregunta,
+                    'answer': respuesta,
+                    'date': DateTime.now().toIso8601String(),
+                    'dateAnswered': respuesta.isNotEmpty ? DateTime.now().toIso8601String() : null,
+                  });
                 }
+              }
+
+              if (parsedEnquiries.isNotEmpty) {
+                hasData = true;
+                break;
               }
             }
           } catch (e) {
-            // Si falla decodificar como Excel, continuará y probará como CSV (muy común en portales que exportan CSV/HTML como .xls)
-            debugPrint('Fallo al parsear como Excel, intentando como CSV: \$e');
+            // Silent fallback a CSV
           }
         }
 

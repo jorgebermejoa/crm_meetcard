@@ -17,6 +17,7 @@ import 'widgets/home_view.dart';
 import 'widgets/login_view.dart';
 import 'widgets/perfil_view.dart';
 import 'widgets/proyectos_view.dart';
+import 'widgets/radar_view.dart';
 import 'widgets/configuracion_view.dart';
 
 import 'features/proyecto/domain/entities/proyecto_entity.dart';
@@ -154,6 +155,10 @@ Future<void> main() async {
             GoRoute(
               path: '/productos',
               pageBuilder: (_, __) => _fadePage(const ProductosPage()),
+            ),
+            GoRoute(
+              path: '/radar',
+              pageBuilder: (_, __) => _fadePage(const RadarView()),
             ),
             GoRoute(
               path: '/configuracion',

@@ -22,9 +22,9 @@ class AppShell extends StatelessWidget {
   });
 
   int _calculateSelectedIndex(String path) {
+    if (path.startsWith('/radar')) return 3;
     if (path.startsWith('/productos')) return 2;
     if (path.startsWith('/proyectos')) return 1;
-    if (path.startsWith('/perfil')) return 3;
     if (path == '/') return 0;
     return 1; // Default to proyectos if unknown, or maybe 0
   }
@@ -41,7 +41,7 @@ class AppShell extends StatelessWidget {
         context.go('/productos');
         break;
       case 3:
-        context.go('/perfil');
+        context.go('/radar');
         break;
     }
   }
@@ -90,7 +90,7 @@ class AppShell extends StatelessWidget {
         bottomNavigationBar: BottomNavigationBar(
           currentIndex: currentIndex,
           onTap: (index) => _onItemTapped(index, context),
-          type: BottomNavigationBarType.fixed,
+          type: BottomNavigationBarType.shifting,
           backgroundColor: Colors.white,
           selectedItemColor: AppColors.primary,
           unselectedItemColor: AppColors.systemGray,
@@ -113,9 +113,9 @@ class AppShell extends StatelessWidget {
               label: 'Productos',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.person_outline),
-              activeIcon: Icon(Icons.person_rounded),
-              label: 'Perfil',
+              icon: Icon(Icons.radar_outlined),
+              activeIcon: Icon(Icons.radar_rounded),
+              label: 'Radar',
             ),
           ],
         ),

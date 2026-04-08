@@ -99,6 +99,13 @@ class SidebarWidget extends StatelessWidget {
                   path: '/productos',
                   isActive: GoRouterState.of(context).uri.path.startsWith('/productos'),
                 ),
+                _buildNavItem(
+                  context,
+                  icon: Icons.radar_outlined,
+                  label: 'Radar',
+                  path: '/radar',
+                  isActive: GoRouterState.of(context).uri.path == '/radar',
+                ),
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 16, horizontal: 12),
                   child: Divider(color: Color(0xFFE2E2E2), height: 1),

@@ -7,6 +7,7 @@ import 'shared/skeleton_loader.dart';
 
 import 'licitaciones_table.dart';
 import 'detalle_licitacion.dart';
+import 'detalle_convenio_marco.dart';
 import '../core/theme/app_colors.dart';
 
 // ── Skeleton shimmer ──────────────────────────────────────────────────────────
@@ -345,7 +346,15 @@ class _CategoriaResultadosViewState extends State<CategoriaResultadosView> {
                           selected: isMobile ? null : _seleccionada,
                           onSelected: (data) {
                             if (isMobile) {
-                              mostrarDetalleLicitacionSheet(context, data);
+                              // Detectar si es Convenio Marco o Licitación Pública
+                              if (data['id']?.toString().contains('CM') == true ||
+                                  data['convenioMarco'] != null) {
+                                // Es Convenio Marco
+                                mostrarDetalleConvenioMarcoSheet(context, data);
+                              } else {
+                                // Es Licitación Pública
+                                mostrarDetalleLicitacionSheet(context, data);
+                              }
                             } else {
                               setState(() => _seleccionada = data);
                             }

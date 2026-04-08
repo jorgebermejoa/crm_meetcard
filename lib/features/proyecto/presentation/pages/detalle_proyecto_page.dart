@@ -12,6 +12,8 @@ import '../widgets/cadena_timeline.dart';
 import '../widgets/detalle_tabs.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../widgets/shared/dev_tooltip.dart';
+import '../../../../widgets/proyecto_form_dialog.dart';
+import '../../../../models/proyecto.dart';
 
 class DetalleProyectoPage extends StatefulWidget {
   /// ID del proyecto (siempre disponible desde la URL).
@@ -158,6 +160,45 @@ class _DetalleProyectoPageState extends State<DetalleProyectoPage> {
           elevation: 0,
           backgroundColor: Colors.white,
           foregroundColor: AppColors.textPrimary,
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: IconButton(
+                icon: const Icon(Icons.edit_outlined),
+                tooltip: 'Editar proyecto',
+                onPressed: () {
+                  // Convertir ProyectoEntity a Proyecto
+                  final proyectoEditar = Proyecto(
+                    id: proyecto.id,
+                    institucion: proyecto.institucion,
+                    modalidadCompra: proyecto.modalidadCompra,
+                    productos: proyecto.productos,
+                    valorMensual: proyecto.valorMensualEfectivo,
+                    idLicitacion: proyecto.idLicitacion,
+                    idCotizacion: proyecto.idCotizacion,
+                    urlConvenioMarco: proyecto.urlConvenioMarco,
+                    notas: proyecto.notas,
+                    fechaInicio: proyecto.fechaInicio,
+                    fechaTermino: proyecto.fechaTermino,
+                  );
+                  
+                  showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    useSafeArea: true,
+                    backgroundColor: Colors.white,
+                    shape: const RoundedRectangleBorder(
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                    ),
+                    builder: (_) => ProyectoFormDialog(
+                      isEditing: true,
+                      proyecto: proyectoEditar,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         ),
         body: const _DetalleProyectoBody(),
       ),

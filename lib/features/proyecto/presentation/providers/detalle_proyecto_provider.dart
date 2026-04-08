@@ -31,6 +31,9 @@ class DetalleProyectoProvider extends ChangeNotifier
   @override
   String? errorMessage;
 
+  // Cache para detalles de Convenio Marco
+  Map<String, dynamic>? convenioMarcoDetalles;
+
   List<EstadoItem> cfgEstados = [
     EstadoItem(nombre: 'Vigente',       color: '10B981'),
     EstadoItem(nombre: 'X Vencer',      color: 'F59E0B'),
@@ -52,6 +55,27 @@ class DetalleProyectoProvider extends ChangeNotifier
   bool _disposed = false;
 
   void init() {
+    // Limpiar estado del foro para este nuevo proyecto
+    foroEnquiries = [];
+    foroResumen = null;
+    cargandoForo = false;
+    cargandoResumen = false;
+    isForoFromLocalFile = false;
+    foroQuery = '';
+    foroFechaCache = null;
+    
+    // Limpiar estado de análisis para este nuevo proyecto
+    analisisCargando = false;
+    analisisError = null;
+    competidores = [];
+    ganadorOcs = [];
+    predicciones = [];
+    nombreGanador = null;
+    rutGanador = null;
+    permanenciaGanador = null;
+    rutOrganismo = null;
+    historialGanador = [];
+    
     cargarAnalisisBq();
     cargarCadena();
     ConfigService.instance.load().then((cfg) {
@@ -118,5 +142,63 @@ class DetalleProyectoProvider extends ChangeNotifier
     } catch (_) {
       return date;
     }
+  }
+
+  /// Actualiza las fechas de publicación y cierre desde Convenio Marco
+  void actualizarFechasConvenioMarco(DateTime? fechaPublicacion, DateTime? fechaCierre) {
+    try {
+      // Crear nueva instancia con fechas actualizadas
+      final newProyecto = ProyectoEntity(
+        id: _proyecto.id,
+        institucion: _proyecto.institucion,
+        productos: _proyecto.productos,
+        modalidadCompra: _proyecto.modalidadCompra,
+        valorMensual: _proyecto.valorMensual,
+        fechaInicio: _proyecto.fechaInicio,
+        fechaTermino: _proyecto.fechaTermino,
+        idLicitacion: _proyecto.idLicitacion,
+        idCotizacion: _proyecto.idCotizacion,
+        urlConvenioMarco: _proyecto.urlConvenioMarco,
+        idsOrdenesCompra: _proyecto.idsOrdenesCompra,
+        documentos: _proyecto.documentos,
+        certificados: _proyecto.certificados,
+        reclamos: _proyecto.reclamos,
+        notas: _proyecto.notas,
+        fechaCreacion: _proyecto.fechaCreacion,
+        completado: _proyecto.completado,
+        estadoManual: _proyecto.estadoManual,
+        fechaInicioRuta: _proyecto.fechaInicioRuta,
+        fechaTerminoRuta: _proyecto.fechaTerminoRuta,
+        fechaPublicacion: fechaPublicacion ?? _proyecto.fechaPublicacion,
+        fechaCierre: fechaCierre ?? _proyecto.fechaCierre,
+        fechaConsultasInicio: _proyecto.fechaConsultasInicio,
+        fechaConsultas: _proyecto.fechaConsultas,
+        fechaAdjudicacion: _proyecto.fechaAdjudicacion,
+        fechaAdjudicacionFin: _proyecto.fechaAdjudicacionFin,
+        montoTotalOC: _proyecto.montoTotalOC,
+        proyectoContinuacionIds: _proyecto.proyectoContinuacionIds,
+        aumentos: _proyecto.aumentos,
+        origenFechas: _proyecto.origenFechas,
+        urlFicha: _proyecto.urlFicha,
+        hasSugerenciasPendientes: _proyecto.hasSugerenciasPendientes,
+        fromSugerencia: _proyecto.fromSugerencia,
+      );
+      _proyecto = newProyecto;
+      notifyListeners();
+      debugPrint('[DetalleProyectoProvider] Fechas actualizadas: pub=$fechaPublicacion, cierre=$fechaCierre');
+    } catch (e) {
+      debugPrint('[DetalleProyectoProvider] Error actualizando fechas: $e');
+    }
+  }
+
+  /// Guarda los detalles del Convenio Marco en el caché
+  void guardarConvenioMarcoDetalles(Map<String, dynamic> detalles) {
+    convenioMarcoDetalles = detalles;
+    debugPrint('[DetalleProyectoProvider] Detalles Convenio Marco guardados en caché');
+  }
+
+  /// Obtiene los detalles del Convenio Marco del caché
+  Map<String, dynamic>? obtenerConvenioMarcoDetalles() {
+    return convenioMarcoDetalles;
   }
 }

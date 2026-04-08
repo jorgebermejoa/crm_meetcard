@@ -36,13 +36,12 @@ class _ProyectosViewState extends State<ProyectosView>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this); //
+    _tabController = TabController(length: 3, vsync: this);
     // Use post-frame callback to access provider safely in initState
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         final provider = context.read<ProyectosProvider>();
         provider.cargar();
-        provider.cargarRadar(); // Pre-fetch for when user navigates to the tab
       }
     });
   }
@@ -320,7 +319,6 @@ class _ProyectosViewState extends State<ProyectosView>
                       Tab(text: 'Resumen'),
                       Tab(text: 'Proyectos'),
                       Tab(text: 'Documentación'),
-                      Tab(text: 'Radar'),
                     ],
                   ),
                 ),
@@ -348,17 +346,6 @@ class _ProyectosViewState extends State<ProyectosView>
                         filePath: 'lib/widgets/documentacion_tab.dart',
                         description: 'Tab de documentación de proyectos',
                         child: DocumentacionTab(isMobile: isMobile, onOpenEditDialog: _openEditDialog),
-                      );
-                    }
-                    if (idx == 3) {
-                      return DevTooltip(
-                        filePath: 'lib/widgets/radar_tab.dart',
-                        description: 'Radar de oportunidades por quarter',
-                        child: RadarTab(
-                          isMobile: isMobile,
-                          onGoToQuarterFiltered: _goToQuarterFiltered,
-                          onGoToChurnQuarterFiltered: _goToChurnQuarterFiltered,
-                        ),
                       );
                     }
 

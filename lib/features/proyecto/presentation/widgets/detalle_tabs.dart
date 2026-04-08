@@ -7,6 +7,7 @@ import 'tabs/tab_licitacion.dart';
 import 'tabs/tab_foro.dart';
 import 'tabs/tab_oc.dart';
 import 'tabs/tab_analisis_bq.dart';
+import 'tabs/tab_convenio_marco_detalle.dart';
 import 'tabs/tab_certificados.dart';
 import 'tabs/tab_reclamos.dart';
 import 'tabs/tab_documentos.dart';
@@ -46,6 +47,7 @@ class _DetalleTabsState extends State<DetalleTabs> with TickerProviderStateMixin
       builder: (context, provider, child) {
         final proyecto = provider.proyecto;
         final licitacionId = proyecto.idLicitacion;
+        final urlConvenioMarco = proyecto.urlConvenioMarco;
 
         // Definimos las pestañas dinámicamente
         const _t = 'lib/features/proyecto/presentation/widgets/tabs/';
@@ -88,6 +90,16 @@ class _DetalleTabsState extends State<DetalleTabs> with TickerProviderStateMixin
             filePath: '${_t}tab_analisis_bq.dart',
             description: 'Análisis BigQuery del contrato',
             child: TabAnalisisBq(),
+          ));
+        }
+
+        // Tab de Convenio Marco
+        if (urlConvenioMarco != null && urlConvenioMarco.isNotEmpty) {
+          tabs.add(const Tab(text: 'Convenio Marco'));
+          contents.add(const DevTooltip(
+            filePath: '${_t}tab_convenio_marco_detalle.dart',
+            description: 'Detalles del Convenio Marco',
+            child: TabConvenioMarcoDetalle(),
           ));
         }
 

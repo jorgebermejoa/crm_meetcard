@@ -11,6 +11,7 @@ import 'global_search_bar.dart';
 import 'shared/skeleton_loader.dart';
 import 'licitaciones_table.dart';
 import 'detalle_licitacion.dart';
+import 'detalle_convenio_marco.dart';
 import 'categoria_resultados_view.dart';
 import '../core/theme/app_colors.dart';
 
@@ -548,7 +549,15 @@ class _HomeViewState extends State<HomeView>
           selected: isMobile ? null : _licitacionSeleccionada,
           onSelected: (lic) {
             if (isMobile) {
-              mostrarDetalleLicitacionSheet(context, lic);
+              // Detectar si es Convenio Marco o Licitación Pública
+              if (lic['id']?.toString().contains('CM') == true ||
+                  lic['convenioMarco'] != null) {
+                // Es Convenio Marco
+                mostrarDetalleConvenioMarcoSheet(context, lic);
+              } else {
+                // Es Licitación Pública
+                mostrarDetalleLicitacionSheet(context, lic);
+              }
             } else {
               setState(() => _licitacionSeleccionada = lic);
             }

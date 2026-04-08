@@ -1,0 +1,109 @@
+{
+  "fuente": "Mercado Público - Descargado XLS",
+  "archivo": "Foro_PreguntasRespuestas_06-04-2026_17-06.xls",
+  "descargadoEn": "2026-04-08T00:23:23.722Z",
+  "total": 11,
+  "respondidas": 11,
+  "sinResponder": 0,
+  "preguntas": [
+    {
+      "numero": "1",
+      "Pregunta": "Por favor aclarar si solo se requiere mantención del sitio o también se requiere realizar migración",
+      "Respuesta": "Se solicita Diseño, desarrollo, migración e implementación. Ver Bases Técnicas numeral 3.",
+      "FechaPregunta": "'14-09-2022 16:45:20",
+      "FechaRespuesta": null,
+      "Tipo": "P",
+      "hasAnswer": true
+    },
+    {
+      "numero": "2",
+      "Pregunta": "1.- Plazo de implementación de la actualización?",
+      "Respuesta": "Ver Anexo N°5, “Plazo Máximo de implementación por cada módulo”.",
+      "FechaPregunta": "'14-09-2022 16:47:07",
+      "FechaRespuesta": null,
+      "Tipo": "P",
+      "hasAnswer": true
+    },
+    {
+      "numero": "3",
+      "Pregunta": "2.- Plazo máximo para entregar los servicios es de 15 días?",
+      "Respuesta": "Ver respuesta N°2.",
+      "FechaPregunta": "'14-09-2022 16:47:19",
+      "FechaRespuesta": null,
+      "Tipo": "P",
+      "hasAnswer": true
+    },
+    {
+      "numero": "4",
+      "Pregunta": "3.-Cual es el plazo mínimo para la ejecución del servicio para obtener el puntaje mayor en la evaluación?",
+      "Respuesta": "El plazo de implementación no es evaluado. Ver Bases Administrativas numeral 15 “Procedimiento de Evaluación”.",
+      "FechaPregunta": "'14-09-2022 16:47:27",
+      "FechaRespuesta": null,
+      "Tipo": "P",
+      "hasAnswer": true
+    },
+    {
+      "numero": "5",
+      "Pregunta": "4.- Puede indicar el link o los links exactos de los sitios a considerar en esta licitación. Además, indicar que CMS usan en la actualidad, si es que usan.",
+      "Respuesta": "Para los links, ver Bases Técnicas, numeral 16. Respecto al administrador de contenidos, es un CMS propietario.",
+      "FechaPregunta": "'14-09-2022 16:47:35",
+      "FechaRespuesta": null,
+      "Tipo": "P",
+      "hasAnswer": true
+    },
+    {
+      "numero": "6",
+      "Pregunta": "5.-¿Tienen manual de marca, kit graficos y de diseño para la construcción de la web?",
+      "Respuesta": "Si.",
+      "FechaPregunta": "'14-09-2022 16:47:43",
+      "FechaRespuesta": null,
+      "Tipo": "P",
+      "hasAnswer": true
+    },
+    {
+      "numero": "7",
+      "Pregunta": "6.- La Institución cuenta con departamento de desarrollo web, o bien programadores web, diseñadores gráficos, etc.? Si es el caso, ante una eventual adjudicación, que rol tomara este departamento en la mantención del sitio a considerar?",
+      "Respuesta": "Ceñirse a lo señalado en las Bases Técnicas.",
+      "FechaPregunta": "'14-09-2022 16:47:57",
+      "FechaRespuesta": null,
+      "Tipo": "P",
+      "hasAnswer": true
+    },
+    {
+      "numero": "8",
+      "Pregunta": "7.- ¿Cuál es su proveedor actual?",
+      "Respuesta": "Meetcard Spa.",
+      "FechaPregunta": "'14-09-2022 16:48:02",
+      "FechaRespuesta": null,
+      "Tipo": "P",
+      "hasAnswer": true
+    },
+    {
+      "numero": "9",
+      "Pregunta": "8.- Aceptan ofertas exentas de impuestos?",
+      "Respuesta": "Si.",
+      "FechaPregunta": "'14-09-2022 16:48:10",
+      "FechaRespuesta": null,
+      "Tipo": "P",
+      "hasAnswer": true
+    },
+    {
+      "numero": "10",
+      "Pregunta": "9.-Dada la contingencia sanitaria, las capacitaciones y el soporte se pueden realizar en forma remota?",
+      "Respuesta": "Las capacitaciones y el soporte serán coordinados con la Unidad Técnica, de acuerdo a la contingencia sanitaria vigente.",
+      "FechaPregunta": "'14-09-2022 16:48:18",
+      "FechaRespuesta": null,
+      "Tipo": "P",
+      "hasAnswer": true
+    },
+    {
+      "numero": "11",
+      "Pregunta": "Los módulos que se deben desarrollar, ¿estarán integrados directamente con la pagina web www.quilpue.cl?",
+      "Respuesta": "Si. Ver Bases Técnicas numeral 2.",
+      "FechaPregunta": "'14-09-2022 16:48:42",
+      "FechaRespuesta": null,
+      "Tipo": "P",
+      "hasAnswer": true
+    }
+  ]
+}

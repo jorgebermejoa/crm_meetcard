@@ -40,7 +40,6 @@ class ProyectosService {
     if (res.statusCode != 200) {
       throw Exception('Error ${res.statusCode} al cargar proyectos');
     }
-    debugPrint('ProyectosService: JSON recibido: ${res.body.substring(0, 500)}...'); // Muestra los primeros 500 caracteres
     final data = jsonDecode(res.body) as List<dynamic>;
     final List<Proyecto> proyectos = [];
     for (final item in data) {

@@ -4,12 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
+import 'dart:async';
 
 import '../models/proyecto.dart';
 import '../models/configuracion.dart';
 import '../services/config_service.dart';
 import '../services/licitacion_api_service.dart';
 import '../core/theme/app_colors.dart';
+import 'detalle_convenio_marco.dart';
+import '../features/proyecto/presentation/providers/detalle_proyecto_provider.dart';
 
 class ProyectoFormDialog extends StatefulWidget {
   final bool isEditing;
@@ -42,6 +46,7 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
   DateTime? _fechaTermino;
   bool _buscandoLicitacion = false;
   String? _errorBusqueda;
+  Map<String, dynamic>? _detallesConvenio;
 
   List<String> _modalidades = ['Licitación Pública', 'Convenio Marco', 'Trato Directo', 'Otro'];
 
@@ -50,7 +55,9 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
   @override
   void initState() {
     super.initState();
+    
     final p = widget.proyecto;
+    
     _institucionCtrl = TextEditingController(text: p?.institucion ?? '');
     if (p != null && p.productos.isNotEmpty) {
       _selectedProductos = p.productos.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
@@ -65,6 +72,11 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
     _modalidad = p?.modalidadCompra ?? 'Licitación Pública';
     _fechaInicio = p?.fechaInicio;
     _fechaTermino = p?.fechaTermino;
+    
+    if (p != null) {
+      debugPrint('[ProyectoForm] Proyecto cargado: ${p.institucion} (${p.modalidadCompra})');
+    }
+    
     ConfigService.instance.load().then((cfg) {
       if (!mounted) return;
       setState(() {
@@ -73,6 +85,16 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
         _productosDisponibles = cfg.productos;
       });
     });
+
+    // Si estamos editando y ya tiene URL de convenio, cargar detalles automáticamente
+    if (widget.isEditing && p != null) {
+      final url = p.urlConvenioMarco;
+      if (url != null && url.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _cargarDetallesConvenio(url);
+        });
+      }
+    }
   }
 
   @override
@@ -108,33 +130,96 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
 
   Future<void> _buscarConvenio() async {
     final url = _urlConvenioCtrl.text.trim();
-    if (url.isEmpty) return;
+    if (url.isEmpty) {
+      setState(() => _errorBusqueda = 'Ingresa una URL válida del Convenio Marco');
+      return;
+    }
+
+    // Validar que sea una URL válida
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      setState(() => _errorBusqueda = 'La URL debe comenzar con http:// o https://');
+      return;
+    }
 
     setState(() {
       _buscandoLicitacion = true;
       _errorBusqueda = null;
     });
 
+    await _cargarDetallesConvenio(url);
+  }
+
+  Future<void> _cargarDetallesConvenio(String url) async {
     try {
+      debugPrint('[ConvenioMarco] Iniciando búsqueda: $url');
+      
       final uri = Uri.parse(
         'https://us-central1-licitaciones-prod.cloudfunctions.net/obtenerDetalleConvenioMarco?url=${Uri.encodeComponent(url)}',
       );
+      
+      debugPrint('[ConvenioMarco] URI construida: $uri');
+      
       final response = await http.get(uri).timeout(const Duration(seconds: 20));
+      
+      debugPrint('[ConvenioMarco] Respuesta HTTP ${response.statusCode}');
+      
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final comprador = data['comprador'] as String?;
-        if (comprador != null && comprador.isNotEmpty) {
-          setState(() => _institucionCtrl.text = comprador);
-        } else {
-          setState(() => _errorBusqueda = 'No se encontró la institución en la URL');
+        try {
+          final data = json.decode(response.body) as Map<String, dynamic>;
+          
+          // Verificar si hay error en la respuesta
+          final fetchError = data['fetchError'] as String?;
+          if (fetchError != null && fetchError.isNotEmpty) {
+            debugPrint('[ConvenioMarco] Error en respuesta: $fetchError');
+            setState(() => _errorBusqueda = 'No se pudo extraer los datos del Convenio Marco. Verifica que la URL sea válida.');
+            return;
+          }
+          
+          data['url'] = url; // Agregar URL para poder abrir en Mercado Público
+          
+          setState(() {
+            _detallesConvenio = data;
+          });
+
+          final comprador = data['comprador'] as String?;
+          if (comprador != null && comprador.isNotEmpty) {
+            setState(() => _institucionCtrl.text = comprador);
+          }
+
+          debugPrint('[ConvenioMarco] ✓ Detalles cargados: ${data.keys.join(', ')}');
+          debugPrint('[ConvenioMarco] Comprador: $comprador');
+          debugPrint('[ConvenioMarco] Campos encontrados: ${(data['campos'] as List?)?.length ?? 0}');
+          
+          // Los detalles se mostrarán en el tab "Convenio Marco" de la página de detalle
+          // No mostrar sheet aquí
+        } catch (parseError) {
+          debugPrint('[ConvenioMarco] Error al procesar respuesta: $parseError');
+          debugPrint('[ConvenioMarco] Body: ${response.body}');
+          setState(() => _errorBusqueda = 'Error al procesar los datos. Intenta nuevamente.');
         }
+      } else if (response.statusCode == 500) {
+        debugPrint('[ConvenioMarco] Error 500 del servidor');
+        debugPrint('[ConvenioMarco] Response: ${response.body}');
+        setState(() => _errorBusqueda = 'El servidor no pudo procesar la solicitud. Verifica que la URL sea válida.');
+      } else if (response.statusCode == 404) {
+        debugPrint('[ConvenioMarco] Error 404: Convenio no encontrado');
+        setState(() => _errorBusqueda = 'El Convenio Marco no fue encontrado. Verifica la URL.');
+      } else if (response.statusCode == 400) {
+        debugPrint('[ConvenioMarco] Error 400: Solicitud inválida');
+        debugPrint('[ConvenioMarco] Response: ${response.body}');
+        setState(() => _errorBusqueda = 'La URL proporcionada no es válida.');
       } else {
-        setState(() => _errorBusqueda = 'No se pudo obtener datos (${response.statusCode})');
+        debugPrint('[ConvenioMarco] Error HTTP ${response.statusCode}: ${response.body}');
+        setState(() => _errorBusqueda = 'No se pudo obtener los datos. Intenta nuevamente.');
       }
+    } on TimeoutException catch (e) {
+      debugPrint('[ConvenioMarco] Timeout: $e');
+      setState(() => _errorBusqueda = 'La solicitud tardó demasiado. Intenta nuevamente.');
     } catch (e) {
-      setState(() => _errorBusqueda = 'Error al buscar: ${e.toString()}');
+      debugPrint('[ConvenioMarco] Error inesperado: $e');
+      setState(() => _errorBusqueda = 'Error de conexión. Verifica tu conexión a internet e intenta nuevamente.');
     } finally {
-      setState(() => _buscandoLicitacion = false);
+      if (mounted) setState(() => _buscandoLicitacion = false);
     }
   }
 
@@ -485,6 +570,23 @@ class _ProyectoFormDialogState extends State<ProyectoFormDialog> {
                                 ),
                               ),
                             ),
+                            if (_detallesConvenio != null) ...[
+                              const SizedBox(width: 8),
+                              SizedBox(
+                                height: 48,
+                                child: OutlinedButton.icon(
+                                  onPressed: () => mostrarDetalleConvenioMarcoSheet(context, _detallesConvenio!),
+                                  icon: const Icon(Icons.info_outline, size: 16),
+                                  label: Text('Detalles', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500)),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: _primaryColor,
+                                    side: const BorderSide(color: _primaryColor),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                         if (_errorBusqueda != null) ...[

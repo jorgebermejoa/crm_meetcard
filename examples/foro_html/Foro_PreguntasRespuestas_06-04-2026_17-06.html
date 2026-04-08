@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Foro - Mercado Público</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { 
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0; padding: 20px;
+      background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+      min-height: 100vh;
+    }
+    .container { max-width: 1000px; margin: 0 auto; }
+    header {
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    header h1 { 
+      margin: 0 0 10px 0; 
+      color: #0066cc;
+      font-size: 28px;
+    }
+    header p { 
+      margin: 5px 0; 
+      color: #666;
+      font-size: 14px;
+    }
+    .stats { 
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 15px;
+      margin-top: 20px;
+    }
+    .stat {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 15px;
+      border-radius: 6px;
+      text-align: center;
+    }
+    .stat strong { 
+      display: block; 
+      font-size: 28px; 
+      margin-bottom: 5px;
+    }
+    .stat.respondidas { background: linear-gradient(135deg, #28a745 0%, #20c997 100%); }
+    .stat.sin-responder { background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%); }
+    .item {
+      background: white;
+      margin: 15px 0;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      overflow: hidden;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .item:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .item-header {
+      background: linear-gradient(135deg, #0066cc 0%, #0052a3 100%);
+      color: white;
+      padding: 12px 15px;
+      font-weight: 600;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .item-num { 
+      display: inline-block;
+      background: rgba(255,255,255,0.2);
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: 12px;
+    }
+    .item-content { padding: 15px; }
+    .field-label { 
+      font-weight: 600;
+      color: #0066cc;
+      font-size: 12px;
+      margin-top: 10px;
+      margin-bottom: 5px;
+    }
+    .field-value {
+      color: #333;
+      line-height: 1.6;
+      padding: 8px 0;
+    }
+    .pregunta { 
+      border-left: 4px solid #0066cc;
+      padding-left: 12px;
+    }
+    .respuesta {
+      background: #f0f7ff;
+      border-left: 4px solid #28a745;
+      padding: 10px;
+      padding-left: 12px;
+      border-radius: 4px;
+      margin-top: 10px;
+    }
+    .sin-respuesta {
+      color: #999;
+      font-style: italic;
+    }
+    .meta {
+      font-size: 12px;
+      color: #999;
+      margin-top: 10px;
+      display: flex;
+      gap: 15px;
+      flex-wrap: wrap;
+    }
+    .meta span { display: flex; align-items: center; gap: 5px; }
+    footer {
+      text-align: center;
+      padding: 20px;
+      color: #666;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <h1>📋 Foro de Preguntas y Respuestas</h1>
+    <p><strong>Fuente:</strong> Mercado Público</p>
+    <p><strong>Descargado:</strong> martes, 7 de abril de 2026, 08:23 p. m.</p>
+    
+    <div class="stats">
+      <div class="stat">
+        <strong>11</strong>
+        <span>Preguntas</span>
+      </div>
+      <div class="stat respondidas">
+        <strong>11</strong>
+        <span>Respondidas</span>
+      </div>
+      <div class="stat sin-responder">
+        <strong>0</strong>
+        <span>Sin responder</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+
+    <div class="item">
+      <div class="item-header">
+        <span>Pregunta #1</span>
+        <span class="item-num">✓ Respondida</span>
+      </div>
+      <div class="item-content">
+        <div class="field-label">❓ Pregunta:</div>
+        <div class="field-value pregunta">Por favor aclarar si solo se requiere mantención del sitio o también se requiere realizar migración</div>
+
+        <div class="field-label">✓ Respuesta:</div>
+        <div class="field-value respuesta">Se solicita Diseño, desarrollo, migración e implementación. Ver Bases Técnicas numeral 3.</div>
+
+        <div class="meta">
+          <span>📅 '14-09-2022 16:45:20</span>
+          <span>🏷️ P</span>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="item-header">
+        <span>Pregunta #2</span>
+        <span class="item-num">✓ Respondida</span>
+      </div>
+      <div class="item-content">
+        <div class="field-label">❓ Pregunta:</div>
+        <div class="field-value pregunta">1.- Plazo de implementación de la actualización?</div>
+
+        <div class="field-label">✓ Respuesta:</div>
+        <div class="field-value respuesta">Ver Anexo N°5, “Plazo Máximo de implementación por cada módulo”.</div>
+
+        <div class="meta">
+          <span>📅 '14-09-2022 16:47:07</span>
+          <span>🏷️ P</span>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="item-header">
+        <span>Pregunta #3</span>
+        <span class="item-num">✓ Respondida</span>
+      </div>
+      <div class="item-content">
+        <div class="field-label">❓ Pregunta:</div>
+        <div class="field-value pregunta">2.- Plazo máximo para entregar los servicios es de 15 días?</div>
+
+        <div class="field-label">✓ Respuesta:</div>
+        <div class="field-value respuesta">Ver respuesta N°2.</div>
+
+        <div class="meta">
+          <span>📅 '14-09-2022 16:47:19</span>
+          <span>🏷️ P</span>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="item-header">
+        <span>Pregunta #4</span>
+        <span class="item-num">✓ Respondida</span>
+      </div>
+      <div class="item-content">
+        <div class="field-label">❓ Pregunta:</div>
+        <div class="field-value pregunta">3.-Cual es el plazo mínimo para la ejecución del servicio para obtener el puntaje mayor en la evaluación?</div>
+
+        <div class="field-label">✓ Respuesta:</div>
+        <div class="field-value respuesta">El plazo de implementación no es evaluado. Ver Bases Administrativas numeral 15 “Procedimiento de Evaluación”.</div>
+
+        <div class="meta">
+          <span>📅 '14-09-2022 16:47:27</span>
+          <span>🏷️ P</span>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="item-header">
+        <span>Pregunta #5</span>
+        <span class="item-num">✓ Respondida</span>
+      </div>
+      <div class="item-content">
+        <div class="field-label">❓ Pregunta:</div>
+        <div class="field-value pregunta">4.- Puede indicar el link o los links exactos de los sitios a considerar en esta licitación. Además, indicar que CMS usan en la actualidad, si es que usan.</div>
+
+        <div class="field-label">✓ Respuesta:</div>
+        <div class="field-value respuesta">Para los links, ver Bases Técnicas, numeral 16. Respecto al administrador de contenidos, es un CMS propietario.</div>
+
+        <div class="meta">
+          <span>📅 '14-09-2022 16:47:35</span>
+          <span>🏷️ P</span>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="item-header">
+        <span>Pregunta #6</span>
+        <span class="item-num">✓ Respondida</span>
+      </div>
+      <div class="item-content">
+        <div class="field-label">❓ Pregunta:</div>
+        <div class="field-value pregunta">5.-¿Tienen manual de marca, kit graficos y de diseño para la construcción de la web?</div>
+
+        <div class="field-label">✓ Respuesta:</div>
+        <div class="field-value respuesta">Si.</div>
+
+        <div class="meta">
+          <span>📅 '14-09-2022 16:47:43</span>
+          <span>🏷️ P</span>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="item-header">
+        <span>Pregunta #7</span>
+        <span class="item-num">✓ Respondida</span>
+      </div>
+      <div class="item-content">
+        <div class="field-label">❓ Pregunta:</div>
+        <div class="field-value pregunta">6.- La Institución cuenta con departamento de desarrollo web, o bien programadores web, diseñadores gráficos, etc.? Si es el caso, ante una eventual adjudicación, que rol tomara este departamento en la mantención del sitio a considerar?</div>
+
+        <div class="field-label">✓ Respuesta:</div>
+        <div class="field-value respuesta">Ceñirse a lo señalado en las Bases Técnicas.</div>
+
+        <div class="meta">
+          <span>📅 '14-09-2022 16:47:57</span>
+          <span>🏷️ P</span>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="item-header">
+        <span>Pregunta #8</span>
+        <span class="item-num">✓ Respondida</span>
+      </div>
+      <div class="item-content">
+        <div class="field-label">❓ Pregunta:</div>
+        <div class="field-value pregunta">7.- ¿Cuál es su proveedor actual?</div>
+
+        <div class="field-label">✓ Respuesta:</div>
+        <div class="field-value respuesta">Meetcard Spa.</div>
+
+        <div class="meta">
+          <span>📅 '14-09-2022 16:48:02</span>
+          <span>🏷️ P</span>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="item-header">
+        <span>Pregunta #9</span>
+        <span class="item-num">✓ Respondida</span>
+      </div>
+      <div class="item-content">
+        <div class="field-label">❓ Pregunta:</div>
+        <div class="field-value pregunta">8.- Aceptan ofertas exentas de impuestos?</div>
+
+        <div class="field-label">✓ Respuesta:</div>
+        <div class="field-value respuesta">Si.</div>
+
+        <div class="meta">
+          <span>📅 '14-09-2022 16:48:10</span>
+          <span>🏷️ P</span>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="item-header">
+        <span>Pregunta #10</span>
+        <span class="item-num">✓ Respondida</span>
+      </div>
+      <div class="item-content">
+        <div class="field-label">❓ Pregunta:</div>
+        <div class="field-value pregunta">9.-Dada la contingencia sanitaria, las capacitaciones y el soporte se pueden realizar en forma remota?</div>
+
+        <div class="field-label">✓ Respuesta:</div>
+        <div class="field-value respuesta">Las capacitaciones y el soporte serán coordinados con la Unidad Técnica, de acuerdo a la contingencia sanitaria vigente.</div>
+
+        <div class="meta">
+          <span>📅 '14-09-2022 16:48:18</span>
+          <span>🏷️ P</span>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="item-header">
+        <span>Pregunta #11</span>
+        <span class="item-num">✓ Respondida</span>
+      </div>
+      <div class="item-content">
+        <div class="field-label">❓ Pregunta:</div>
+        <div class="field-value pregunta">Los módulos que se deben desarrollar, ¿estarán integrados directamente con la pagina web www.quilpue.cl?</div>
+
+        <div class="field-label">✓ Respuesta:</div>
+        <div class="field-value respuesta">Si. Ver Bases Técnicas numeral 2.</div>
+
+        <div class="meta">
+          <span>📅 '14-09-2022 16:48:42</span>
+          <span>🏷️ P</span>
+        </div>
+
+      </div>
+    </div>
+
+  </main>
+
+  <footer>
+    <p>Generado automáticamente | Fuente: Foro_PreguntasRespuestas_06-04-2026_17-06.xls | Encoding: UTF-8</p>
+  </footer>
+</div>
+
+</body>
+</html>
