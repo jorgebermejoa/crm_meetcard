@@ -94,58 +94,98 @@ mixin ProyectoForoMixin on ChangeNotifier {
               var sheet = excel.tables[table];
               if (sheet == null || sheet.rows.isEmpty) continue;
 
-              // 1. Detectar fila de encabezados (buscar "Pregunta" y "Respuesta")
+              debugPrint('[ForoXLS] Sheet: $table, Filas: ${sheet.rows.length}');
+
+              // ── ESTRATEGIA 1: Detección flexible de encabezados ──
               int headerRowIdx = -1;
               int idxPregunta = -1;
               int idxRespuesta = -1;
+              int idxFecha = -1;
               
+              // Paso 1: Buscar fila que contenga "Pregunta" Y "Respuesta"
               for (int r = 0; r < sheet.rows.length; r++) {
                 var row = sheet.rows[r];
-                final rowText = row.map((cell) => cell?.value.toString().toLowerCase() ?? '').join('|');
+                final rowText = row
+                    .map((cell) => cell?.value.toString().toLowerCase().trim() ?? '')
+                    .join('|');
                 
-                if (rowText.contains('pregunta') && rowText.contains('respuesta')) {
+                final hayPregunta = rowText.contains('pregunta');
+                final hayRespuesta = rowText.contains('respuesta') || rowText.contains('answer');
+                
+                if (hayPregunta && hayRespuesta) {
                   headerRowIdx = r;
+                  debugPrint('[ForoXLS] Encabezado exacto encontrado en fila $r');
                   // Mapear índices de columnas
                   for (int c = 0; c < row.length; c++) {
-                    final cellVal = row[c]?.value.toString().toLowerCase() ?? '';
-                    if (cellVal.contains('pregunta')) idxPregunta = c;
-                    if (cellVal.contains('respuesta')) idxRespuesta = c;
+                    final cellVal = row[c]?.value.toString().toLowerCase().trim() ?? '';
+                    if (cellVal.contains('pregunta') && idxPregunta == -1) idxPregunta = c;
+                    if ((cellVal.contains('respuesta') || cellVal.contains('answer')) && idxRespuesta == -1) idxRespuesta = c;
+                    if (cellVal.contains('fecha') && idxFecha == -1) idxFecha = c;
                   }
                   break;
                 }
               }
 
-              if (headerRowIdx == -1 || idxPregunta == -1 || idxRespuesta == -1) continue;
-
-              // 2. Extraer datos desde la fila siguiente al encabezado
-              for (int i = headerRowIdx + 1; i < sheet.rows.length; i++) {
-                var row = sheet.rows[i];
-                if (row.isEmpty) continue;
-
-                String pregunta = row.length > idxPregunta && row[idxPregunta] != null 
-                    ? row[idxPregunta]!.value.toString().trim() 
-                    : '';
-                String respuesta = row.length > idxRespuesta && row[idxRespuesta] != null 
-                    ? row[idxRespuesta]!.value.toString().trim() 
-                    : '';
-
-                if (pregunta.isNotEmpty || respuesta.isNotEmpty) {
-                  parsedEnquiries.add({
-                    'description': pregunta,
-                    'answer': respuesta,
-                    'date': DateTime.now().toIso8601String(),
-                    'dateAnswered': respuesta.isNotEmpty ? DateTime.now().toIso8601String() : null,
-                  });
+              // Paso 2: Si no encontró, buscar por heurística (primeras 2 columnas con contenido)
+              if (headerRowIdx == -1) {
+                for (int r = 0; r < sheet.rows.length; r++) {
+                  var row = sheet.rows[r];
+                  final nonEmpty = row
+                      .where((c) => c != null && c.value.toString().trim().isNotEmpty)
+                      .toList();
+                  
+                  // Si tiene al menos 2 celdas con contenido
+                  if (nonEmpty.length >= 2) {
+                    headerRowIdx = r;
+                    idxPregunta = 0;
+                    idxRespuesta = nonEmpty.length > 1 ? 1 : 0;
+                    debugPrint('[ForoXLS] Encabezado heurístico en fila $r (columnas $idxPregunta, $idxRespuesta)');
+                    break;
+                  }
                 }
               }
 
+              if (headerRowIdx == -1 || idxPregunta == -1 || idxRespuesta == -1) {
+                debugPrint('[ForoXLS] No se encontró encabezado válido en esta hoja');
+                continue;
+              }
+
+              // 2. Extraer datos desde la fila siguiente al encabezado
+              int dataRows = 0;
+              for (int i = headerRowIdx + 1; i < sheet.rows.length; i++) {
+                var row = sheet.rows[i];
+                if (row.isEmpty || row.every((c) => c == null)) continue;
+
+                final pregunta = (row.length > idxPregunta && row[idxPregunta] != null)
+                    ? row[idxPregunta]!.value.toString().trim()
+                    : '';
+                final respuesta = (row.length > idxRespuesta && row[idxRespuesta] != null)
+                    ? row[idxRespuesta]!.value.toString().trim()
+                    : '';
+                final fecha = (row.length > idxFecha && row[idxFecha] != null)
+                    ? row[idxFecha]!.value.toString().trim()
+                    : '';
+
+                // Incluir incluso si pregunta está vacía pero hay respuesta
+                if (pregunta.isNotEmpty || respuesta.isNotEmpty) {
+                  parsedEnquiries.add({
+                    'description': pregunta.isEmpty ? '(Sin pregunta)' : pregunta,
+                    'answer': respuesta,
+                    'date': fecha.isNotEmpty ? fecha : DateTime.now().toIso8601String(),
+                    'dateAnswered': respuesta.isNotEmpty ? DateTime.now().toIso8601String() : null,
+                  });
+                  dataRows++;
+                }
+              }
+
+              debugPrint('[ForoXLS] Parseadas $dataRows filas de datos');
               if (parsedEnquiries.isNotEmpty) {
                 hasData = true;
                 break;
               }
             }
           } catch (e) {
-            // Silent fallback a CSV
+            debugPrint('[ForoXLS] Error parseando Excel: $e');
           }
         }
 
@@ -184,7 +224,7 @@ mixin ProyectoForoMixin on ChangeNotifier {
               if (parsedEnquiries.isNotEmpty) hasData = true;
             }
           } catch (e) {
-            debugPrint('Fallo al parsear como CSV: \$e');
+            debugPrint('[ForoXLS] Fallo al parsear como CSV: $e');
           }
         }
 
@@ -192,16 +232,19 @@ mixin ProyectoForoMixin on ChangeNotifier {
           foroEnquiries = parsedEnquiries;
           foroFechaCache = DateTime.now();
           isForoFromLocalFile = true;
-          foroResumen = null; // Clear previous IA summary
-          errorMessage = null; // Limpiar errores si los había
+          foroResumen = null;
+          errorMessage = null;
+          debugPrint('[ForoXLS] ✅ Éxito: ${parsedEnquiries.length} preguntas cargadas');
           notifyListeners();
         } else {
-          errorMessage = 'El archivo no tiene el formato esperado (se requieren datos desde la fila 5) o es inválido.';
+          errorMessage = 'No se pudieron detectar preguntas y respuestas en el archivo. Verifica que tenga las columnas "Pregunta" y "Respuesta".';
+          debugPrint('[ForoXLS] ❌ Error: ningún formato reconocido');
           notifyListeners();
         }
       }
     } catch (e) {
-      errorMessage = 'Error al leer el archivo: \$e';
+      errorMessage = 'Error al leer el archivo: $e';
+      debugPrint('[ForoXLS] ❌ Excepción: $e');
       notifyListeners();
     }
   }
